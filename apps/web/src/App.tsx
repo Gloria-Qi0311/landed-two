@@ -44,10 +44,13 @@ export function App() {
     localStorage.setItem('landed:theme', theme);
   }, [theme]);
 
+  // `landed:onboarded_at` mirrors the eventual `users.onboarded_at TIMESTAMP` Supabase
+  // column (spec.md §3). Stored as an ISO 8601 string so the migration to a real DB
+  // is a JSON.stringify(new Date()) → DB write swap, nothing more.
   useEffect(() => {
     if (signedIn) {
       localStorage.setItem('landed:signedIn', 'true');
-      if (!localStorage.getItem('landed:onboarded')) {
+      if (!localStorage.getItem('landed:onboarded_at')) {
         setShowTour(true);
       }
     } else {
@@ -58,15 +61,15 @@ export function App() {
   const handleSignIn = () => setSignedIn(true);
   const handleSignOut = () => {
     setSignedIn(false);
-    localStorage.removeItem('landed:onboarded');
+    localStorage.removeItem('landed:onboarded_at');
     setProfileOpen(false);
   };
   const handleTourClose = () => {
     setShowTour(false);
-    localStorage.setItem('landed:onboarded', 'true');
+    localStorage.setItem('landed:onboarded_at', new Date().toISOString());
   };
   const handleShowTour = () => {
-    localStorage.removeItem('landed:onboarded');
+    localStorage.removeItem('landed:onboarded_at');
     setShowTour(true);
     setProfileOpen(false);
   };
