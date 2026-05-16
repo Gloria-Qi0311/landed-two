@@ -1,0 +1,63 @@
+{
+  "skill": "devloop",
+  "skill_repo": "AntaresYuan/claude-devloop",
+  "threshold": 3,
+  "first_run": "2026-05-16T15:00:00Z",
+  "runs": [
+    {
+      "id": "landed-devloop-20260516-1",
+      "ts": "2026-05-16T15:00:00Z",
+      "tasks_done": 10,
+      "friction_count": 3,
+      "friction_count_observed": 5,
+      "friction_count_note": "2 events from task #4 were logged but lost when LOOP-FRICTION.jsonl (gitignored) got wiped during a mid-session re-clone recovery; only 3 events survived in the structured log",
+      "retro_path": "RETRO-2026-05-16.md"
+    }
+  ],
+  "friction_accumulators": {
+    "unexpected_state::stale-local-clone": {
+      "count": 1,
+      "first_seen": "2026-05-16T15:05:00Z",
+      "last_seen": "2026-05-16T15:05:00Z",
+      "examples": [
+        {
+          "run_id": "landed-devloop-20260516-1",
+          "ts": "2026-05-16T15:05:00Z",
+          "step": "branch_creation",
+          "claimed_head": "440a025",
+          "actual_head": "1022f6a"
+        }
+      ],
+      "pr_status": "none"
+    },
+    "retry::dev-server-stale-modules": {
+      "count": 1,
+      "first_seen": "2026-05-16T15:08:00Z",
+      "last_seen": "2026-05-16T15:08:00Z",
+      "examples": [
+        {
+          "run_id": "landed-devloop-20260516-1",
+          "ts": "2026-05-16T15:08:00Z",
+          "step": "dev_server_serving",
+          "attempts": 2
+        }
+      ],
+      "pr_status": "none"
+    },
+    "retry::spa-localstorage-init-script": {
+      "count": 1,
+      "first_seen": "2026-05-16T15:09:00Z",
+      "last_seen": "2026-05-16T15:09:00Z",
+      "examples": [
+        {
+          "run_id": "landed-devloop-20260516-1",
+          "ts": "2026-05-16T15:09:00Z",
+          "step": "screens_localstorage_seed",
+          "attempts": 2
+        }
+      ],
+      "pr_status": "none"
+    }
+  },
+  "pr_history": []
+}
