@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How Landed Works — Extension Storyboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: oklch(0.985 0.002 240);
+    --surface: oklch(1 0 0);
+    --surface-2: oklch(0.975 0.003 240);
+    --surface-3: oklch(0.955 0.005 240);
+    --fg: oklch(0.22 0.01 240);
+    --fg-muted: oklch(0.55 0.01 240);
+    --border: oklch(0.90 0.005 240);
+    --border-subtle: oklch(0.94 0.004 240);
+    --border-strong: oklch(0.82 0.008 240);
+    --accent: oklch(0.48 0.13 240);
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-display: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); font-family: var(--font-body); color: var(--fg); }
+  body { -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration: none; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="data.js"></script>
+<script type="text/babel" src="components/primitives.jsx"></script>
+<script type="text/babel" src="components/browser-window.jsx"></script>
+
+<script type="text/babel">
+const { useState } = React;
+
+// ---------- The Landed extension popover ----------
+function ExtPopover({ variant }) {
+  // variants: 'install', 'tracking', 'detection', 'expired'
+  // Positioned inside the ChromeWindow content area (top-right), like a real Chrome extension popover.
+  return (
+    <div style={{
+      position: 'absolute', top: 14, right: 14,
+      width: 320, background: 'var(--surface)', borderRadius: 10,
+      boxShadow: '0 12px 40px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.1)',
+      fontFamily: 'var(--font-body)',
+      overflow: 'hidden',
+      zIndex: 10,
+    }}>
+
+
+      <div style={{ padding: '12px 14px', borderBottom: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
+        <div style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fg)' }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M7 5.5 L10 5.5 L10 15.5 L17 15.5 L17 18.5 L7 18.5 Z" fill="currentColor" />
+            <circle cx="18" cy="7" r="2" fill="oklch(0.62 0.18 30)" />
+          </svg>
+        </div>
+        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '-0.01em' }}>Landed</span>
+        {variant !== 'install' && (
+          <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--fg-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 6, height: 6, borderRadius: 3, background: variant === 'expired' ? 'oklch(0.65 0.17 30)' : 'oklch(0.65 0.17 155)' }} />
+            {variant === 'expired' ? 'Action needed' : 'Watching'}
+          </span>
+        )}
+      </div>
+
+      {variant === 'install' && <InstallView />}
+      {variant === 'tracking' && <TrackingView />}
+      {variant === 'detection' && <DetectionView />}
+      {variant === 'expired' && <ExpiredView />}
+    </div>
+  );
+}
+
+function InstallView() {
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, letterSpacing: '-0.01em' }}>
+        Welcome to Landed
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5, marginBottom: 14 }}>
+        Sign in to start tracking applications from every portal you visit. We piggyback on your existing logins — no separate sign-ins per company.
+      </div>
+      <button style={{
+        width: '100%', padding: '8px 12px', fontSize: 12, fontWeight: 500,
+        background: 'var(--fg)', color: 'var(--bg)', border: 'none', borderRadius: 6, cursor: 'pointer',
+        marginBottom: 6,
+      }}>Sign in with Landed</button>
+      <button style={{
+        width: '100%', padding: '8px 12px', fontSize: 12, fontWeight: 500,
+        background: 'var(--surface)', color: 'var(--fg)', border: '0.5px solid var(--border)', borderRadius: 6, cursor: 'pointer',
+      }}>Create account</button>
+      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '0.5px solid var(--border)', fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+        Cookies never leave your browser. Status changes sync through your Landed account only. <a href="#">Read more</a>
+      </div>
+    </div>
+  );
+}
+
+function TrackingView() {
+  const company = COMPANIES[0]; // Northwind
+  const roles = APPLICATIONS.filter(a => a.companyId === company.id);
+  return (
+    <div>
+      <div style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 10, borderBottom: '0.5px solid var(--border)' }}>
+        <CompanyMark company={company} size={36} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fg)' }}>{company.name}</div>
+          <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>boards.greenhouse.io · synced 2 min ago</div>
+        </div>
+      </div>
+      <div style={{ padding: '8px 6px' }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '4px 8px' }}>
+          Tracking {roles.length} role{roles.length > 1 ? 's' : ''}
+        </div>
+        {roles.map(r => (
+          <div key={r.id} style={{ padding: '6px 8px', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <StageBadge stage={r.stage} />
+            <div style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.role}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding: 10, borderTop: '0.5px solid var(--border)', display: 'flex', gap: 6, background: 'var(--surface-2)' }}>
+        <button style={{ flex: 1, padding: '6px 10px', fontSize: 11.5, fontWeight: 500, background: 'var(--surface)', color: 'var(--fg)', border: '0.5px solid var(--border)', borderRadius: 5, cursor: 'pointer' }}>
+          + Track this role
+        </button>
+        <button style={{ padding: '6px 10px', fontSize: 11.5, fontWeight: 500, background: 'var(--surface)', color: 'var(--fg-muted)', border: '0.5px solid var(--border)', borderRadius: 5, cursor: 'pointer' }}>
+          Open in Landed →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DetectionView() {
+  const company = COMPANIES[0];
+  return (
+    <div>
+      <div style={{ padding: 14, background: 'oklch(0.97 0.04 155)', borderBottom: '0.5px solid oklch(0.88 0.06 155)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <span style={{ display: 'inline-flex', width: 18, height: 18, borderRadius: 9, background: 'oklch(0.65 0.17 155)', color: 'white', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12l5 5 9-11" />
+            </svg>
+          </span>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'oklch(0.35 0.13 155)' }}>Status change detected</span>
+        </div>
+        <div style={{ fontSize: 11, color: 'oklch(0.4 0.12 155)', lineHeight: 1.5, paddingLeft: 26 }}>
+          Saved to your Landed tracker just now.
+        </div>
+      </div>
+
+      <div style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <CompanyMark company={company} size={26} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)' }}>Senior Frontend Engineer</div>
+            <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{company.name}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 10, background: 'var(--surface-2)', borderRadius: 6, border: '0.5px solid var(--border)' }}>
+          <StageBadge stage="phone" />
+          <Icon name="arrowRight" size={12} />
+          <StageBadge stage="onsite" />
+          <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--fg-muted)' }}>just now</span>
+        </div>
+        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+          Recruiter scheduled the final round for <strong style={{ color: 'var(--fg)' }}>Apr 23, 2:00 PM PT</strong>. Calendar invite forwarded.
+        </div>
+      </div>
+      <div style={{ padding: 10, borderTop: '0.5px solid var(--border)', display: 'flex', gap: 6 }}>
+        <button style={{ flex: 1, padding: '6px 10px', fontSize: 11.5, fontWeight: 500, background: 'var(--fg)', color: 'var(--bg)', border: 'none', borderRadius: 5, cursor: 'pointer' }}>
+          Open in Landed
+        </button>
+        <button style={{ padding: '6px 10px', fontSize: 11.5, fontWeight: 500, background: 'var(--surface)', color: 'var(--fg)', border: '0.5px solid var(--border)', borderRadius: 5, cursor: 'pointer' }}>
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ExpiredView() {
+  const company = COMPANIES[2]; // Lumen
+  return (
+    <div>
+      <div style={{ padding: 14, background: 'oklch(0.97 0.04 30)', borderBottom: '0.5px solid oklch(0.88 0.06 30)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <span style={{ color: 'oklch(0.5 0.16 30)' }}><Icon name="alert" size={14} stroke={2} /></span>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'oklch(0.4 0.15 30)' }}>Session expired</span>
+        </div>
+        <div style={{ fontSize: 11, color: 'oklch(0.45 0.13 30)', lineHeight: 1.5, paddingLeft: 22 }}>
+          Your login to <strong>workday.{company.name.split(' ')[0].toLowerCase()}.com</strong> expired 32 min ago. We can't pull status updates until you sign back in.
+        </div>
+      </div>
+
+      <div style={{ padding: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Affected applications</div>
+        {APPLICATIONS.filter(a => a.companyId === company.id).map(a => (
+          <div key={a.id} style={{ padding: '6px 0', display: 'flex', alignItems: 'center', gap: 8, borderTop: '0.5px solid var(--border-subtle)' }}>
+            <CompanyMark company={company} size={18} />
+            <div style={{ flex: 1, fontSize: 11.5, color: 'var(--fg)' }}>{a.role}</div>
+            <StageBadge stage={a.stage} />
+          </div>
+        ))}
+      </div>
+      <div style={{ padding: 10, borderTop: '0.5px solid var(--border)', display: 'flex', gap: 6 }}>
+        <button style={{ flex: 1, padding: '7px 10px', fontSize: 12, fontWeight: 500, background: 'var(--fg)', color: 'var(--bg)', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          <Icon name="refresh" size={12} /> Re-authenticate
+        </button>
+        <button style={{ padding: '7px 10px', fontSize: 11.5, fontWeight: 500, background: 'var(--surface)', color: 'var(--fg-muted)', border: '0.5px solid var(--border)', borderRadius: 5, cursor: 'pointer' }}>
+          Remind me later
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Mock portal pages behind the popover ----------
+function MockGreenhouse({ logoutBanner = false }) {
+  return (
+    <div style={{ fontFamily: 'system-ui, sans-serif', color: '#222' }}>
+      {logoutBanner && (
+        <div style={{ padding: '10px 20px', background: '#fff3cd', borderBottom: '1px solid #ffe69c', fontSize: 13, color: '#664d03' }}>
+          Your session has timed out. <a href="#" style={{ color: '#664d03', textDecoration: 'underline' }}>Sign in again</a> to view your applications.
+        </div>
+      )}
+      <div style={{ padding: '14px 28px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 28, height: 28, borderRadius: 6, background: '#1e7f5e' }} />
+        <span style={{ fontSize: 15, fontWeight: 600, color: '#1e7f5e' }}>Careers Portal</span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#666' }}>{logoutBanner ? 'Sign in' : 'My Applications · Sign out'}</span>
+      </div>
+      <div style={{ padding: '20px 28px', maxWidth: 760 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: '#111', marginBottom: 4 }}>My Applications</div>
+        <div style={{ fontSize: 13, color: '#666', marginBottom: 18 }}>You've applied to 3 roles at Northwind Systems</div>
+        {!logoutBanner && [
+          { role: 'Senior Frontend Engineer', stage: 'Final Round', stageBg: '#dbeafe', stageFg: '#1d4ed8', id: 'R-4411' },
+          { role: 'Staff Product Designer',   stage: 'Phone Screen', stageBg: '#fce7f3', stageFg: '#a21caf', id: 'R-4377' },
+          { role: 'Engineering Manager',      stage: 'In Review',   stageBg: '#f3f4f6', stageFg: '#374151', id: 'R-4390' },
+        ].map(r => (
+          <div key={r.id} style={{ padding: '14px 16px', border: '1px solid #e5e7eb', borderRadius: 6, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>{r.role}</div>
+              <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Job ID {r.id} · Seattle, WA</div>
+            </div>
+            <span style={{ padding: '3px 10px', borderRadius: 999, background: r.stageBg, color: r.stageFg, fontSize: 12, fontWeight: 500 }}>{r.stage}</span>
+          </div>
+        ))}
+        {logoutBanner && (
+          <div style={{ padding: 40, textAlign: 'center', color: '#999', fontSize: 13, border: '1px dashed #ddd', borderRadius: 6 }}>
+            Please sign in to view applications.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MockLogin() {
+  return (
+    <div style={{ fontFamily: 'system-ui, sans-serif', color: '#222', minHeight: 440, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '14px 28px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 28, height: 28, borderRadius: 6, background: '#0f4c81' }} />
+        <span style={{ fontSize: 15, fontWeight: 600, color: '#0f4c81' }}>Lumen & Co. Careers</span>
+      </div>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 320, padding: 28, border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Sign in</div>
+          <div style={{ fontSize: 12.5, color: '#666', marginBottom: 18 }}>Welcome back. Sign in to view your applications.</div>
+          <div style={{ fontSize: 12, color: '#444', marginBottom: 4 }}>Email</div>
+          <div style={{ height: 36, border: '1px solid #ccc', borderRadius: 4, marginBottom: 12, background: '#fafafa' }} />
+          <div style={{ fontSize: 12, color: '#444', marginBottom: 4 }}>Password</div>
+          <div style={{ height: 36, border: '1px solid #ccc', borderRadius: 4, marginBottom: 16, background: '#fafafa' }} />
+          <button style={{ width: '100%', padding: '9px 14px', background: '#0f4c81', color: 'white', border: 'none', borderRadius: 4, fontSize: 13, fontWeight: 500 }}>Sign in</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Scene container ----------
+function Scene({ step, title, body, browser, popoverVariant }) {
+  return (
+    <div style={{ marginBottom: 36 }}>
+      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 240px', maxWidth: 280, paddingTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: 'var(--fg)', color: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-display)' }}>{step}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Step {step}</div>
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.02em', lineHeight: 1.2, marginBottom: 8, fontFamily: 'var(--font-display)' }}>{title}</div>
+          <div style={{ fontSize: 13, color: 'var(--fg-muted)', lineHeight: 1.55 }}>{body}</div>
+        </div>
+        <div style={{ flex: '2 1 540px', minWidth: 0, position: 'relative' }}>
+          <ChromeWindow
+            tabs={browser.tabs}
+            activeIndex={0}
+            url={browser.url}
+            width="100%"
+            height={460}
+          >
+            <div style={{ position: 'relative', height: '100%' }}>
+              {browser.body}
+              <ExtPopover variant={popoverVariant} />
+            </div>
+          </ChromeWindow>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '48px 40px 80px' }}>
+      <header style={{ marginBottom: 40, paddingBottom: 24, borderBottom: '0.5px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <div style={{
+            width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--fg)',
+          }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+              <path d="M7 5.5 L10 5.5 L10 15.5 L17 15.5 L17 18.5 L7 18.5 Z" fill="currentColor" />
+              <circle cx="18" cy="7" r="2" fill="oklch(0.62 0.18 30)" />
+            </svg>
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-display)' }}>Landed</div>
+          <a href="index.html" style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--fg-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="arrowRight" size={12} />
+            Open dashboard
+          </a>
+        </div>
+        <div style={{ fontSize: 38, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.025em', lineHeight: 1.1, marginBottom: 12, fontFamily: 'var(--font-display)', maxWidth: 720 }}>
+          How the Landed extension keeps your tracker in sync
+        </div>
+        <div style={{ fontSize: 15, color: 'var(--fg-muted)', lineHeight: 1.55, maxWidth: 640 }}>
+          A behind-the-scenes look at the four key moments — install, watching a portal, auto-detecting status changes, and recovering from expired sessions.
+        </div>
+      </header>
+
+      <Scene
+        step={1}
+        title="Install once, sign in once"
+        body="After adding Landed to Chrome, click the extension icon on any portal you're already logged into. We piggyback on that session — no separate password per company."
+        browser={{
+          tabs: [{ title: 'Careers — Northwind Systems' }, { title: 'New Tab' }],
+          url: 'boards.greenhouse.io/northwind/jobs',
+          body: <MockGreenhouse />,
+        }}
+        popoverVariant="install"
+      />
+
+      <Scene
+        step={2}
+        title="Visit any portal, we offer to watch it"
+        body="When you land on a careers page where you've applied, the popover surfaces every role on file and offers to track them. One click adds the company to your sync watchlist."
+        browser={{
+          tabs: [{ title: 'My Applications — Northwind' }],
+          url: 'boards.greenhouse.io/my-applications',
+          body: <MockGreenhouse />,
+        }}
+        popoverVariant="tracking"
+      />
+
+      <Scene
+        step={3}
+        title="Status changes flow back automatically"
+        body="A background scrape every 6 hours diffs the portal against the last snapshot. When a stage moves — Applied → OA, Phone → Onsite, anything → Rejected — it pushes to your Landed dashboard with a desktop notification."
+        browser={{
+          tabs: [{ title: 'My Applications — Northwind' }],
+          url: 'boards.greenhouse.io/my-applications',
+          body: <MockGreenhouse />,
+        }}
+        popoverVariant="detection"
+      />
+
+      <Scene
+        step={4}
+        title="Cookie expired? We tell you immediately."
+        body="The biggest fragility in any portal-tracking system is silent logout. When we can't pull anymore, you get a clear notification with a one-click re-authenticate — not a vague error two weeks later."
+        browser={{
+          tabs: [{ title: 'Lumen & Co. Careers — Sign in' }],
+          url: 'careers.lumen.com/login',
+          body: <MockLogin />,
+        }}
+        popoverVariant="expired"
+      />
+
+      <footer style={{ marginTop: 60, paddingTop: 24, borderTop: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', marginBottom: 2 }}>Privacy by design</div>
+          <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5, maxWidth: 600 }}>
+            Portal cookies never leave your browser. Only the parsed status fields (role, stage, dates) sync to your Landed account. Source HTML is discarded.
+          </div>
+        </div>
+        <a href="index.html" style={{ padding: '8px 14px', background: 'var(--fg)', color: 'var(--bg)', borderRadius: 6, fontSize: 12.5, fontWeight: 500, textDecoration: 'none' }}>
+          Open Landed dashboard →
+        </a>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

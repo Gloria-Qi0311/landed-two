@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/antaresyuan/projects-log/**)",
+      "Read(//Users/antaresyuan/projects-log/_bindings/**)",
+      "Bash(mkdir -p ~/projects-log/landed/media)",
+      "Bash(touch ~/projects-log/landed/stream.md ~/projects-log/landed/blog-draft.md)"
+    ]
+  }
+}

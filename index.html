@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Landed — Job Hunt Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: oklch(0.985 0.002 240);
+    --surface: oklch(1 0 0);
+    --surface-2: oklch(0.975 0.003 240);
+    --surface-3: oklch(0.955 0.005 240);
+    --fg: oklch(0.22 0.01 240);
+    --fg-muted: oklch(0.55 0.01 240);
+    --border: oklch(0.90 0.005 240);
+    --border-subtle: oklch(0.94 0.004 240);
+    --border-strong: oklch(0.82 0.008 240);
+    --accent: oklch(0.48 0.13 240);
+    --accent-hover: oklch(0.42 0.14 240);
+    --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-display: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  [data-theme="warm"] {
+    --bg: oklch(0.985 0.005 60);
+    --surface: oklch(1 0 0);
+    --surface-2: oklch(0.975 0.008 60);
+    --surface-3: oklch(0.955 0.012 60);
+    --fg: oklch(0.22 0.015 60);
+    --fg-muted: oklch(0.55 0.015 60);
+    --border: oklch(0.90 0.01 60);
+    --border-subtle: oklch(0.94 0.007 60);
+    --accent: oklch(0.52 0.14 40);
+  }
+  [data-theme="editorial"] {
+    --bg: oklch(0.98 0.008 85);
+    --surface: oklch(0.995 0.004 85);
+    --surface-2: oklch(0.965 0.012 85);
+    --surface-3: oklch(0.94 0.016 85);
+    --fg: oklch(0.18 0.015 40);
+    --fg-muted: oklch(0.50 0.018 40);
+    --border: oklch(0.88 0.014 60);
+    --border-subtle: oklch(0.93 0.01 60);
+    --accent: oklch(0.42 0.14 30);
+    --font-display: 'Instrument Serif', Georgia, serif;
+  }
+  [data-theme="dark"] {
+    --bg: oklch(0.17 0.008 240);
+    --surface: oklch(0.21 0.008 240);
+    --surface-2: oklch(0.19 0.008 240);
+    --surface-3: oklch(0.25 0.01 240);
+    --fg: oklch(0.96 0.005 240);
+    --fg-muted: oklch(0.65 0.01 240);
+    --border: oklch(0.30 0.01 240);
+    --border-subtle: oklch(0.26 0.008 240);
+    --border-strong: oklch(0.38 0.012 240);
+    --accent: oklch(0.72 0.14 240);
+  }
+  [data-density="compact"] { font-size: 12.5px; }
+  [data-density="cozy"]    { font-size: 13.5px; }
+
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--fg);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow: hidden;
+  }
+
+  button { font-family: inherit; }
+  .btn-primary {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; font-size: 12px; font-weight: 500;
+    background: var(--fg); color: var(--bg);
+    border: none; border-radius: 6px; cursor: pointer;
+    transition: opacity 120ms;
+    white-space: nowrap;
+  }
+  .btn-primary:hover { opacity: 0.88; }
+  .btn-secondary {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px; font-size: 12px; font-weight: 500;
+    background: var(--surface); color: var(--fg);
+    border: 0.5px solid var(--border); border-radius: 6px; cursor: pointer;
+    transition: background 120ms;
+    white-space: nowrap;
+  }
+  .btn-secondary:hover { background: var(--surface-2); }
+  .btn-secondary.icon-only { padding: 6px; }
+  .icon-btn:hover { background: var(--surface-3); }
+
+  .sidebar-item:hover { background: var(--surface-3); }
+  .kanban-card:hover { background: var(--surface-2); border-color: var(--border-strong); transform: translateY(-1px); transition: all 120ms; }
+  .table-row:hover { background: var(--surface-2); }
+  .timeline-row:hover > div:last-child { background: var(--surface-2); }
+  .role-row:hover { background: var(--surface-2); }
+  .map-pill:hover { border-color: var(--border-strong); background: var(--surface); }
+
+  @keyframes slideIn {
+    from { transform: translateX(20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+  input, textarea { font-family: inherit; }
+  input[type="text"] {
+    background: var(--surface); color: var(--fg);
+    border: 0.5px solid var(--border); border-radius: 6px;
+    padding: 5px 10px; font-size: 12px; outline: none;
+    transition: border-color 120ms, box-shadow 120ms;
+  }
+  input[type="text"]:focus {
+    border-color: var(--fg-muted);
+    box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
+  }
+</style>
+</head>
+<body data-theme="cool" data-density="regular">
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="data.js"></script>
+<script type="text/babel" src="components/primitives.jsx"></script>
+<script type="text/babel" src="components/kanban.jsx"></script>
+<script type="text/babel" src="components/table.jsx"></script>
+<script type="text/babel" src="components/other-views.jsx"></script>
+<script type="text/babel" src="components/drawer.jsx"></script>
+<script type="text/babel" src="components/shell.jsx"></script>
+<script type="text/babel" src="components/auth.jsx"></script>
+<script type="text/babel" src="components/jd-breakdown.jsx"></script>
+<script type="text/babel" src="components/resume-match.jsx"></script>
+<script type="text/babel" src="components/sync-page.jsx"></script>
+<script type="text/babel" src="components/empty-states.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+const TWEAKS = /*EDITMODE-BEGIN*/{
+  "theme": "cool",
+  "density": "compact",
+  "defaultView": "kanban",
+  "showStats": true,
+  "language": "bilingual",
+  "emptyState": false
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tweaks, setTweaks] = useState(TWEAKS);
+  const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(() => localStorage.getItem('landed:page') || 'dashboard');
+  const [view, setView] = useState(() => localStorage.getItem('landed:view') || tweaks.defaultView);
+  const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
+  const [openApp, setOpenApp] = useState(null);
+  const [apps, setApps] = useState(APPLICATIONS);
+
+  // Auth + onboarding state — persisted to localStorage so reloads remember
+  const [signedIn, setSignedIn] = useState(() => localStorage.getItem('landed:signedIn') === 'true');
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+
+  useEffect(() => {
+    if (signedIn) {
+      localStorage.setItem('landed:signedIn', 'true');
+      // First time signed in — show tour
+      if (!localStorage.getItem('landed:onboarded')) {
+        setShowTour(true);
+      }
+    } else {
+      localStorage.removeItem('landed:signedIn');
+    }
+  }, [signedIn]);
+
+  const handleSignIn = () => setSignedIn(true);
+  const handleSignOut = () => {
+    setSignedIn(false);
+    localStorage.removeItem('landed:onboarded');
+    setProfileOpen(false);
+  };
+  const handleTourClose = () => {
+    setShowTour(false);
+    localStorage.setItem('landed:onboarded', 'true');
+  };
+  const handleShowTour = () => {
+    localStorage.removeItem('landed:onboarded');
+    setShowTour(true);
+    setProfileOpen(false);
+  };
+
+  useEffect(() => { localStorage.setItem('landed:view', view); }, [view]);
+  useEffect(() => { localStorage.setItem('landed:page', currentPage); }, [currentPage]);
+  useEffect(() => {
+    document.body.setAttribute('data-theme', tweaks.theme);
+    document.body.setAttribute('data-density', tweaks.density);
+  }, [tweaks]);
+
+  // Tweaks mode protocol
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === '__activate_edit_mode') setTweaksOpen(true);
+      if (e.data?.type === '__deactivate_edit_mode') setTweaksOpen(false);
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  const updateTweak = (key, value) => {
+    const next = { ...tweaks, [key]: value };
+    setTweaks(next);
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: value } }, '*');
+  };
+
+  const filteredApps = useMemo(() => {
+    let list = apps;
+    if (filter === 'active') list = list.filter(a => !['rejected', 'ghosted'].includes(a.stage));
+    else if (filter === 'starred') list = list.filter(a => a.starred);
+    else if (filter !== 'all' && STAGES.some(s => s.id === filter)) list = list.filter(a => a.stage === filter);
+    if (query) {
+      const q = query.toLowerCase();
+      list = list.filter(a => {
+        const c = COMPANIES.find(x => x.id === a.companyId);
+        return c.name.toLowerCase().includes(q) || a.role.toLowerCase().includes(q) || a.team.toLowerCase().includes(q);
+      });
+    }
+    return list;
+  }, [apps, filter, query]);
+
+  const updateApp = (id, patch) => {
+    setApps(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
+  };
+
+  const views = [
+    { id: 'kanban',   icon: 'kanban',   label: 'Kanban' },
+    { id: 'table',    icon: 'table',    label: 'Table' },
+    { id: 'timeline', icon: 'timeline', label: 'Timeline' },
+    { id: 'cards',    icon: 'cards',    label: 'Cards' },
+    { id: 'map',      icon: 'map',      label: 'Map' },
+  ];
+
+  const ViewComp = { kanban: KanbanView, table: TableView, timeline: TimelineView, cards: CardsView, map: MapView }[view];
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)' }}>
+      {!signedIn && <LoginScreen onSignIn={handleSignIn} />}
+
+      <Sidebar
+        currentPage={currentPage} setCurrentPage={setCurrentPage}
+        filter={filter} setFilter={setFilter}
+        apps={apps} companies={COMPANIES} tweaks={tweaks}
+        onProfileClick={() => setProfileOpen(o => !o)}
+      />
+
+      <ProfileMenu
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        onSignOut={handleSignOut}
+        onShowTour={handleShowTour}
+      />
+
+      {showTour && signedIn && <OnboardingTour onClose={handleTourClose} />}
+
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
+        {currentPage === 'dashboard' && (
+          <>
+            <PageHeader
+              title="Applications"
+              subtitle={tweaks.emptyState ? 'No applications yet — start by connecting a portal or adding manually' : `${filteredApps.length} of ${apps.length} · across ${new Set(filteredApps.map(a => a.companyId)).size} companies`}
+              actions={
+                <>
+                  <div style={{ position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: 8, top: 6, color: 'var(--fg-muted)' }}>
+                      <Icon name="search" size={13} />
+                    </span>
+                    <input type="text" placeholder="Search…" value={query} onChange={e => setQuery(e.target.value)}
+                      style={{ paddingLeft: 28, width: 200 }} disabled={tweaks.emptyState} />
+                  </div>
+                  <button className="btn-secondary" disabled={tweaks.emptyState} style={tweaks.emptyState ? { opacity: 0.4, cursor: 'not-allowed' } : {}}><Icon name="filter" size={13} /> Filter</button>
+                  <button className="btn-secondary" disabled={tweaks.emptyState} style={tweaks.emptyState ? { opacity: 0.4, cursor: 'not-allowed' } : {}}><Icon name="sort" size={13} /> Sort</button>
+                  <div style={{ display: 'flex', gap: 2, background: 'var(--surface-2)', padding: 3, borderRadius: 7, border: '0.5px solid var(--border)', opacity: tweaks.emptyState ? 0.4 : 1 }}>
+                    {views.map(v => (
+                      <button key={v.id} onClick={() => !tweaks.emptyState && setView(v.id)} title={v.label} style={{
+                        padding: 5,
+                        background: view === v.id ? 'var(--surface)' : 'transparent',
+                        color: view === v.id ? 'var(--fg)' : 'var(--fg-muted)',
+                        border: 'none', borderRadius: 5, cursor: tweaks.emptyState ? 'not-allowed' : 'pointer',
+                        display: 'flex', alignItems: 'center',
+                        boxShadow: view === v.id ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                      }}>
+                        <Icon name={v.icon} size={14} />
+                      </button>
+                    ))}
+                  </div>
+                  <button className="btn-primary"><Icon name="plus" size={13} stroke={2} /> Add</button>
+                </>
+              }
+            />
+
+            {tweaks.emptyState ? (
+              <EmptyApplicationsView onAddManual={() => {}} onConnectPortal={() => setCurrentPage('sync')} />
+            ) : (
+              <>
+                {tweaks.showStats && <StatsBanner apps={apps} />}
+                <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+                  <ViewComp apps={filteredApps} companies={COMPANIES} onOpen={setOpenApp} />
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {currentPage === 'sync' && (tweaks.emptyState ? (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <PageHeader title="Sync" subtitle="Install the browser extension to enable auto-sync" />
+            <EmptySyncView onInstall={() => {}} />
+          </div>
+        ) : <SyncPage />)}
+
+        {currentPage === 'resume-match' && (tweaks.emptyState ? (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <PageHeader title="Resume Match" subtitle="Upload a resume and add JDs to compare your fit" />
+            <EmptyResumeMatchView onUploadResume={() => {}} onAddJD={() => {}} />
+          </div>
+        ) : <ResumeMatchPage />)}
+
+        {currentPage === 'jd-breakdown' && (tweaks.emptyState ? (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <PageHeader title="JD Breakdown" subtitle="Paste a job description to extract requirements" />
+            <EmptyJDBreakdownView onPasteJD={() => {}} />
+          </div>
+        ) : <JDBreakdownPage />)}
+      </main>
+
+      {openApp && (
+        <DetailDrawer appId={openApp} apps={apps} companies={COMPANIES}
+          onClose={() => setOpenApp(null)} onUpdate={updateApp} />
+      )}
+
+      {tweaksOpen && (
+        <TweaksPanel tweaks={tweaks} updateTweak={updateTweak} onClose={() => setTweaksOpen(false)} />
+      )}
+    </div>
+  );
+}
+
+function TweaksPanel({ tweaks, updateTweak, onClose }) {
+  const Row = ({ label, children }) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>{label}</div>
+      {children}
+    </div>
+  );
+
+  const Chips = ({ value, onChange, options }) => (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+      {options.map(o => (
+        <button key={o.id} onClick={() => onChange(o.id)} style={{
+          padding: '4px 9px', fontSize: 11.5, fontWeight: 500,
+          background: value === o.id ? 'var(--fg)' : 'var(--surface)',
+          color: value === o.id ? 'var(--bg)' : 'var(--fg)',
+          border: `0.5px solid ${value === o.id ? 'var(--fg)' : 'var(--border)'}`,
+          borderRadius: 5, cursor: 'pointer',
+        }}>{o.label}</button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 16, right: 16, width: 280,
+      background: 'var(--surface)', border: '0.5px solid var(--border)',
+      borderRadius: 10, padding: 14, zIndex: 100,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border)',
+      animation: 'slideIn 180ms cubic-bezier(0.2, 0, 0, 1)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <Icon name="adjust" size={14} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', marginLeft: 6 }}>Tweaks</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--fg-muted)' }}>persisted</span>
+      </div>
+
+      <Row label="Theme">
+        <Chips value={tweaks.theme} onChange={v => updateTweak('theme', v)}
+          options={[
+            { id: 'cool', label: 'Cool' },
+            { id: 'warm', label: 'Warm' },
+            { id: 'editorial', label: 'Editorial' },
+            { id: 'dark', label: 'Dark' },
+          ]} />
+      </Row>
+
+      <Row label="Density">
+        <Chips value={tweaks.density} onChange={v => updateTweak('density', v)}
+          options={[
+            { id: 'compact', label: 'Compact' },
+            { id: 'regular', label: 'Regular' },
+            { id: 'cozy',    label: 'Cozy' },
+          ]} />
+      </Row>
+
+      <Row label="Default view">
+        <Chips value={tweaks.defaultView} onChange={v => updateTweak('defaultView', v)}
+          options={[
+            { id: 'kanban',   label: 'Kanban' },
+            { id: 'table',    label: 'Table' },
+            { id: 'timeline', label: 'Timeline' },
+            { id: 'cards',    label: 'Cards' },
+            { id: 'map',      label: 'Map' },
+          ]} />
+      </Row>
+
+      <Row label="Top stats banner">
+        <Chips value={tweaks.showStats ? 'on' : 'off'}
+          onChange={v => updateTweak('showStats', v === 'on')}
+          options={[{ id: 'on', label: 'Show' }, { id: 'off', label: 'Hide' }]} />
+      </Row>
+
+      <Row label="Preview as new user">
+        <Chips value={tweaks.emptyState ? 'on' : 'off'}
+          onChange={v => updateTweak('emptyState', v === 'on')}
+          options={[{ id: 'off', label: 'With data' }, { id: 'on', label: 'Empty states' }]} />
+      </Row>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
