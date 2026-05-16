@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { LandedMark, Icon, stageColors } from './primitives';
 import { STAGES, PORTAL_STATUS } from '../data';
 
-export const Sidebar = ({ currentPage, setCurrentPage, filter, setFilter, apps, companies, tweaks, onProfileClick }) => {
+export const Sidebar = ({ currentPage, setCurrentPage, filter, setFilter, apps, companies, onProfileClick }) => {
   const counts = useMemo(() => {
     const c = { all: apps.length, active: 0, starred: 0 };
     STAGES.forEach(s => c[s.id] = 0);

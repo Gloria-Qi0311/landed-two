@@ -18,18 +18,17 @@ import {
 } from './components/empty-states';
 import { STAGES, COMPANIES, APPLICATIONS } from './data';
 
-const TWEAKS = /*EDITMODE-BEGIN*/ {
+const TWEAKS = {
   theme: 'cool',
   density: 'compact',
   defaultView: 'kanban',
   showStats: true,
   language: 'bilingual',
   emptyState: false,
-} /*EDITMODE-END*/;
+};
 
 export function App() {
-  const [tweaks, setTweaks] = useState<any>(TWEAKS);
-  const [tweaksOpen, setTweaksOpen] = useState(false);
+  const tweaks = TWEAKS;
   const [currentPage, setCurrentPage] = useState<string>(
     () => localStorage.getItem('landed:page') || 'dashboard'
   );
@@ -81,31 +80,6 @@ export function App() {
   useEffect(() => {
     localStorage.setItem('landed:page', currentPage);
   }, [currentPage]);
-  useEffect(() => {
-    document.body.setAttribute('data-theme', tweaks.theme);
-    document.body.setAttribute('data-density', tweaks.density);
-  }, [tweaks]);
-
-  // Tweaks mode protocol (preserved — stripped in issue #4)
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === '__activate_edit_mode') setTweaksOpen(true);
-      if (e.data?.type === '__deactivate_edit_mode') setTweaksOpen(false);
-    };
-    window.addEventListener('message', handler);
-    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
-    return () => window.removeEventListener('message', handler);
-  }, []);
-
-  const updateTweak = (key: string, value: any) => {
-    const next = { ...tweaks, [key]: value };
-    setTweaks(next);
-    window.parent.postMessage(
-      { type: '__edit_mode_set_keys', edits: { [key]: value } },
-      '*'
-    );
-  };
-
   const filteredApps = useMemo(() => {
     let list = apps;
     if (filter === 'active') list = list.filter((a) => !['rejected', 'ghosted'].includes(a.stage));
@@ -158,7 +132,6 @@ export function App() {
         setFilter={setFilter}
         apps={apps}
         companies={COMPANIES}
-        tweaks={tweaks}
         onProfileClick={() => setProfileOpen((o) => !o)}
       />
 
@@ -306,137 +279,6 @@ export function App() {
         />
       )}
 
-      {tweaksOpen && (
-        <TweaksPanel tweaks={tweaks} updateTweak={updateTweak} onClose={() => setTweaksOpen(false)} />
-      )}
-    </div>
-  );
-}
-
-function TweaksPanel({ tweaks, updateTweak }: { tweaks: any; updateTweak: (k: string, v: any) => void; onClose: () => void }) {
-  const Row = ({ label, children }: { label: string; children: any }) => (
-    <div style={{ marginBottom: 12 }}>
-      <div
-        style={{
-          fontSize: 10.5,
-          fontWeight: 600,
-          color: 'var(--fg-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          marginBottom: 5,
-        }}
-      >
-        {label}
-      </div>
-      {children}
-    </div>
-  );
-
-  const Chips = ({ value, onChange, options }: { value: any; onChange: (v: any) => void; options: any[] }) => (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-      {options.map((o) => (
-        <button
-          key={o.id}
-          onClick={() => onChange(o.id)}
-          style={{
-            padding: '4px 9px',
-            fontSize: 11.5,
-            fontWeight: 500,
-            background: value === o.id ? 'var(--fg)' : 'var(--surface)',
-            color: value === o.id ? 'var(--bg)' : 'var(--fg)',
-            border: `0.5px solid ${value === o.id ? 'var(--fg)' : 'var(--border)'}`,
-            borderRadius: 5,
-            cursor: 'pointer',
-          }}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 16,
-        right: 16,
-        width: 280,
-        background: 'var(--surface)',
-        border: '0.5px solid var(--border)',
-        borderRadius: 10,
-        padding: 14,
-        zIndex: 100,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border)',
-        animation: 'slideIn 180ms cubic-bezier(0.2, 0, 0, 1)',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <Icon name="adjust" size={14} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', marginLeft: 6 }}>Tweaks</span>
-        <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--fg-muted)' }}>persisted</span>
-      </div>
-
-      <Row label="Theme">
-        <Chips
-          value={tweaks.theme}
-          onChange={(v) => updateTweak('theme', v)}
-          options={[
-            { id: 'cool', label: 'Cool' },
-            { id: 'warm', label: 'Warm' },
-            { id: 'editorial', label: 'Editorial' },
-            { id: 'dark', label: 'Dark' },
-          ]}
-        />
-      </Row>
-
-      <Row label="Density">
-        <Chips
-          value={tweaks.density}
-          onChange={(v) => updateTweak('density', v)}
-          options={[
-            { id: 'compact', label: 'Compact' },
-            { id: 'regular', label: 'Regular' },
-            { id: 'cozy', label: 'Cozy' },
-          ]}
-        />
-      </Row>
-
-      <Row label="Default view">
-        <Chips
-          value={tweaks.defaultView}
-          onChange={(v) => updateTweak('defaultView', v)}
-          options={[
-            { id: 'kanban', label: 'Kanban' },
-            { id: 'table', label: 'Table' },
-            { id: 'timeline', label: 'Timeline' },
-            { id: 'cards', label: 'Cards' },
-            { id: 'map', label: 'Map' },
-          ]}
-        />
-      </Row>
-
-      <Row label="Top stats banner">
-        <Chips
-          value={tweaks.showStats ? 'on' : 'off'}
-          onChange={(v) => updateTweak('showStats', v === 'on')}
-          options={[
-            { id: 'on', label: 'Show' },
-            { id: 'off', label: 'Hide' },
-          ]}
-        />
-      </Row>
-
-      <Row label="Preview as new user">
-        <Chips
-          value={tweaks.emptyState ? 'on' : 'off'}
-          onChange={(v) => updateTweak('emptyState', v === 'on')}
-          options={[
-            { id: 'off', label: 'With data' },
-            { id: 'on', label: 'Empty states' },
-          ]}
-        />
-      </Row>
     </div>
   );
 }
