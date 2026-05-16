@@ -8,6 +8,7 @@ import { KanbanView } from './components/kanban';
 import { TableView } from './components/table';
 import { TimelineView, CardsView, MapView } from './components/other-views';
 import { DetailDrawer } from './components/drawer';
+import { AddApplicationModal } from './components/add-application-modal';
 import { SyncPage } from './components/sync-page';
 import { ResumeMatchPage } from './components/resume-match';
 import { JDBreakdownPage } from './components/jd-breakdown';
@@ -34,6 +35,7 @@ export function App() {
   );
   const [apps, setApps] = useState<any[]>(APPLICATIONS);
   const [openApp, setOpenApp] = useState<string | null>(null);
+  const [addModalOpen, setAddModalOpen] = useState(false);
 
   // Auth + onboarding state — persisted to localStorage so reloads remember
   const [signedIn, setSignedIn] = useState<boolean>(
@@ -81,6 +83,9 @@ export function App() {
   const updateApp = (id: string, patch: any) => {
     setApps((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   };
+  const addApp = (newApp: any) => {
+    setApps((prev) => [newApp, ...prev]);
+  };
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)' }}>
@@ -109,6 +114,7 @@ export function App() {
                 apps={apps}
                 onOpenApp={setOpenApp}
                 onMoveCard={(id, stage) => updateApp(id, { stage })}
+                onOpenAddModal={() => setAddModalOpen(true)}
               />
             }
           />
@@ -129,6 +135,12 @@ export function App() {
           onUpdate={updateApp}
         />
       )}
+
+      <AddApplicationModal
+        open={addModalOpen}
+        onClose={() => setAddModalOpen(false)}
+        onAdd={addApp}
+      />
     </div>
   );
 }
@@ -137,10 +149,12 @@ function ApplicationsPage({
   apps,
   onOpenApp,
   onMoveCard,
+  onOpenAddModal,
 }: {
   apps: any[];
   onOpenApp: (id: string) => void;
   onMoveCard: (id: string, stage: string) => void;
+  onOpenAddModal: () => void;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get('view') || 'kanban';
@@ -258,7 +272,7 @@ function ApplicationsPage({
                 </button>
               ))}
             </div>
-            <button className="btn-primary">
+            <button className="btn-primary" onClick={onOpenAddModal}>
               <Icon name="plus" size={13} stroke={2} /> Add
             </button>
           </>
