@@ -28,6 +28,7 @@ pnpm-debug.log*
 *.swp
 *.swo
 .cursor/
+.claude/
 
 # OS
 .DS_Store
