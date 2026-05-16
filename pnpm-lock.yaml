@@ -1,0 +1,19 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  apps/extension: {}
+
+  apps/web: {}
+
+  packages/ai-roundtrip: {}
+
+  packages/extension-core: {}
+
+  packages/schema: {}

@@ -1,0 +1,12 @@
+{
+  "name": "@landed/extension",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Landed browser extension (auto-fill + portal-sync). Imported from AntaresYuan/resume-filler via git subtree in issue #25.",
+  "scripts": {
+    "build": "echo 'apps/extension not initialized yet — see issue #25'",
+    "test": "echo 'apps/extension not initialized yet — see issue #25'",
+    "lint": "echo 'apps/extension not initialized yet — see issue #25'",
+    "typecheck": "echo 'apps/extension not initialized yet — see issue #25'"
+  }
+}

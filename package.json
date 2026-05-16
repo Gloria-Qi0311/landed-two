@@ -1,0 +1,17 @@
+{
+  "name": "landed",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Job-hunt operations tool — Landed web app + ApplyMint extension (merged).",
+  "scripts": {
+    "dev": "pnpm --filter @landed/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

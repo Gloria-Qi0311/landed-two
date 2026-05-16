@@ -1,0 +1,11 @@
+{
+  "name": "@landed/extension-core",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Pure-logic modules extracted from ApplyMint (field-detect, value-match, cross-lingual, llm-match, label-classifier, profiles). Used by apps/extension. Extracted in issue #26.",
+  "scripts": {
+    "build": "echo 'packages/extension-core not initialized yet — see issue #26'",
+    "test": "echo 'packages/extension-core not initialized yet — see issue #26'",
+    "typecheck": "echo 'packages/extension-core not initialized yet — see issue #26'"
+  }
+}

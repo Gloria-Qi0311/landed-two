@@ -1,0 +1,11 @@
+{
+  "name": "@landed/ai-roundtrip",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Shared AI round-trip primitive (prompt gen + clipboard + window.open + 3-tier parser + ai_runs persist). Implemented in issue #18.",
+  "scripts": {
+    "build": "echo 'packages/ai-roundtrip not initialized yet — see issue #18'",
+    "test": "echo 'packages/ai-roundtrip not initialized yet — see issue #19'",
+    "typecheck": "echo 'packages/ai-roundtrip not initialized yet — see issue #18'"
+  }
+}

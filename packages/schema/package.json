@@ -1,0 +1,11 @@
+{
+  "name": "@landed/schema",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Canonical resume schema (TS types + zod validators). Consumed by apps/web and apps/extension. Implemented in issue #17.",
+  "scripts": {
+    "build": "echo 'packages/schema not initialized yet — see issue #17'",
+    "test": "echo 'packages/schema not initialized yet — see issue #17'",
+    "typecheck": "echo 'packages/schema not initialized yet — see issue #17'"
+  }
+}

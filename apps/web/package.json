@@ -1,0 +1,13 @@
+{
+  "name": "@landed/web",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Landed web app (Vite + React + TS). Initialized in issue #2.",
+  "scripts": {
+    "dev": "echo 'apps/web not initialized yet — see issue #2' && exit 1",
+    "build": "echo 'apps/web not initialized yet — see issue #2'",
+    "test": "echo 'apps/web not initialized yet — see issue #2'",
+    "lint": "echo 'apps/web not initialized yet — see issue #2'",
+    "typecheck": "echo 'apps/web not initialized yet — see issue #2'"
+  }
+}
