@@ -4,7 +4,14 @@ import { Icon, LandedMark, StageBadge, CompanyMark } from './primitives';
 import { COMPANIES } from '../data';
 
 // ---------- Profile menu (dropdown from sidebar avatar) ----------
-export function ProfileMenu({ open, onClose, onSignOut, onShowTour }) {
+const THEMES = [
+  { id: 'cool', label: 'Cool' },
+  { id: 'warm', label: 'Warm' },
+  { id: 'editorial', label: 'Editorial' },
+  { id: 'dark', label: 'Dark' },
+];
+
+export function ProfileMenu({ open, onClose, onSignOut, onShowTour, theme, setTheme }) {
   authEffect(() => {
     if (!open) return;
     const onDocClick = (e) => {
@@ -58,6 +65,23 @@ export function ProfileMenu({ open, onClose, onSignOut, onShowTour }) {
           <span style={{ fontSize: 10.5, color: 'oklch(0.42 0.12 60)', fontWeight: 500 }}>Pro plan · 13 days left</span>
         </div>
       </div>
+
+      {setTheme && (
+        <div style={{ padding: '8px 10px 6px', borderBottom: '0.5px solid var(--border)' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Theme</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {THEMES.map(t => (
+              <button key={t.id} onClick={() => setTheme(t.id)} style={{
+                padding: '4px 9px', fontSize: 11, fontWeight: 500,
+                background: theme === t.id ? 'var(--fg)' : 'var(--surface)',
+                color: theme === t.id ? 'var(--bg)' : 'var(--fg)',
+                border: `0.5px solid ${theme === t.id ? 'var(--fg)' : 'var(--border)'}`,
+                borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit',
+              }}>{t.label}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ padding: '4px 0' }}>
         <Item icon={<Icon name="settings" size={13} />} label="Profile & account" kbd="⌘," />

@@ -1,9 +1,20 @@
 // Sidebar + stats banner + Resume Match page + JD Breakdown page
 import React, { useMemo } from 'react';
+import { NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import { LandedMark, Icon, stageColors } from './primitives';
 import { STAGES, PORTAL_STATUS } from '../data';
 
-export const Sidebar = ({ currentPage, setCurrentPage, filter, setFilter, apps, companies, onProfileClick }) => {
+export const Sidebar = ({ apps, onProfileClick }) => {
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filter = searchParams.get('filter') || 'all';
+  const setFilter = (id) => {
+    const next = new URLSearchParams(searchParams);
+    if (id === 'all') next.delete('filter');
+    else next.set('filter', id);
+    setSearchParams(next, { replace: true });
+  };
+
   const counts = useMemo(() => {
     const c = { all: apps.length, active: 0, starred: 0 };
     STAGES.forEach(s => c[s.id] = 0);
@@ -34,19 +45,19 @@ export const Sidebar = ({ currentPage, setCurrentPage, filter, setFilter, apps, 
     </button>
   );
 
-  const NavItem = ({ page, icon, label }) => (
-    <button onClick={() => setCurrentPage(page)} className="sidebar-item" style={{
-      width: '100%', textAlign: 'left',
+  const NavItem = ({ to, icon, label }) => (
+    <NavLink to={to} end={to === '/applications'} className="sidebar-item" style={({ isActive }) => ({
+      width: '100%', textAlign: 'left', textDecoration: 'none',
       padding: '7px 10px', fontSize: 13,
-      background: currentPage === page ? 'var(--surface-3)' : 'transparent',
-      color: currentPage === page ? 'var(--fg)' : 'var(--fg-muted)',
+      background: isActive ? 'var(--surface-3)' : 'transparent',
+      color: isActive ? 'var(--fg)' : 'var(--fg-muted)',
       border: 'none', borderRadius: 6,
       cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9,
-      fontWeight: currentPage === page ? 500 : 400,
-    }}>
+      fontWeight: isActive ? 500 : 400,
+    })}>
       {icon}
       <span>{label}</span>
-    </button>
+    </NavLink>
   );
 
   return (
@@ -73,10 +84,10 @@ export const Sidebar = ({ currentPage, setCurrentPage, filter, setFilter, apps, 
 
       {/* Nav */}
       <div style={{ padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
-        <NavItem page="dashboard" icon={<Icon name="inbox" size={14} />} label="Applications" />
-        <NavItem page="sync" icon={<Icon name="refresh" size={14} />} label="Sync" />
-        <NavItem page="resume-match" icon={<Icon name="sparkle" size={14} />} label="Resume Match" />
-        <NavItem page="jd-breakdown" icon={<Icon name="target" size={14} />} label="JD Breakdown" />
+        <NavItem to="/applications" icon={<Icon name="inbox" size={14} />} label="Applications" />
+        <NavItem to="/sync" icon={<Icon name="refresh" size={14} />} label="Sync" />
+        <NavItem to="/resume-match" icon={<Icon name="sparkle" size={14} />} label="Resume Match" />
+        <NavItem to="/jd-breakdown" icon={<Icon name="target" size={14} />} label="JD Breakdown" />
       </div>
 
       {/* Design-only references — easy access for reviewer */}
@@ -101,7 +112,7 @@ export const Sidebar = ({ currentPage, setCurrentPage, filter, setFilter, apps, 
 
       {/* Scrollable filters region — keeps the bottom strip always visible */}
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-        {currentPage === 'dashboard' && (
+        {location.pathname === '/applications' && (
           <>
             <div style={{ padding: '14px 16px 4px', fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Views</div>
             <div style={{ padding: '2px 10px', display: 'flex', flexDirection: 'column', gap: 1 }}>

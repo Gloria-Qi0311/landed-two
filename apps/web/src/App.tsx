@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 
 import { Sidebar, PageHeader, StatsBanner } from './components/shell';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
@@ -18,27 +19,17 @@ import {
 } from './components/empty-states';
 import { STAGES, COMPANIES, APPLICATIONS } from './data';
 
-const TWEAKS = {
-  theme: 'cool',
-  density: 'compact',
-  defaultView: 'kanban',
-  showStats: true,
-  language: 'bilingual',
-  emptyState: false,
-};
+// Pre-Supabase placeholders. Issue #16 replaces SHOW_EMPTY_PREVIEW with
+// real "this user has no data" detection (e.g. apps.length === 0).
+const SHOW_STATS = true;
+const SHOW_EMPTY_PREVIEW = false;
 
 export function App() {
-  const tweaks = TWEAKS;
-  const [currentPage, setCurrentPage] = useState<string>(
-    () => localStorage.getItem('landed:page') || 'dashboard'
+  const [theme, setTheme] = useState<string>(
+    () => localStorage.getItem('landed:theme') || 'cool'
   );
-  const [view, setView] = useState<string>(
-    () => localStorage.getItem('landed:view') || tweaks.defaultView
-  );
-  const [filter, setFilter] = useState('all');
-  const [query, setQuery] = useState('');
-  const [openApp, setOpenApp] = useState<string | null>(null);
   const [apps, setApps] = useState<any[]>(APPLICATIONS);
+  const [openApp, setOpenApp] = useState<string | null>(null);
 
   // Auth + onboarding state — persisted to localStorage so reloads remember
   const [signedIn, setSignedIn] = useState<boolean>(
@@ -46,6 +37,12 @@ export function App() {
   );
   const [profileOpen, setProfileOpen] = useState(false);
   const [showTour, setShowTour] = useState(false);
+
+  // Theme: apply on <body> + persist
+  useEffect(() => {
+    document.body.setAttribute('data-theme', theme);
+    localStorage.setItem('landed:theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     if (signedIn) {
@@ -74,12 +71,100 @@ export function App() {
     setProfileOpen(false);
   };
 
-  useEffect(() => {
-    localStorage.setItem('landed:view', view);
-  }, [view]);
-  useEffect(() => {
-    localStorage.setItem('landed:page', currentPage);
-  }, [currentPage]);
+  const updateApp = (id: string, patch: any) => {
+    setApps((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  };
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)' }}>
+      {!signedIn && <LoginScreen onSignIn={handleSignIn} />}
+
+      <Sidebar apps={apps} onProfileClick={() => setProfileOpen((o) => !o)} />
+
+      <ProfileMenu
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        onSignOut={handleSignOut}
+        onShowTour={handleShowTour}
+        theme={theme}
+        setTheme={setTheme}
+      />
+
+      {showTour && signedIn && <OnboardingTour onClose={handleTourClose} />}
+
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/applications" replace />} />
+          <Route path="/applications" element={<ApplicationsPage apps={apps} onOpenApp={setOpenApp} />} />
+          <Route
+            path="/sync"
+            element={
+              SHOW_EMPTY_PREVIEW ? (
+                <>
+                  <PageHeader title="Sync" subtitle="Install the browser extension to enable auto-sync" />
+                  <EmptySyncView onInstall={() => {}} />
+                </>
+              ) : (
+                <SyncPage />
+              )
+            }
+          />
+          <Route
+            path="/resume-match"
+            element={
+              SHOW_EMPTY_PREVIEW ? (
+                <>
+                  <PageHeader title="Resume Match" subtitle="Upload a resume and add JDs to compare your fit" />
+                  <EmptyResumeMatchView onUploadResume={() => {}} onAddJD={() => {}} />
+                </>
+              ) : (
+                <ResumeMatchPage />
+              )
+            }
+          />
+          <Route
+            path="/jd-breakdown"
+            element={
+              SHOW_EMPTY_PREVIEW ? (
+                <>
+                  <PageHeader title="JD Breakdown" subtitle="Paste a job description to extract requirements" />
+                  <EmptyJDBreakdownView onPasteJD={() => {}} />
+                </>
+              ) : (
+                <JDBreakdownPage />
+              )
+            }
+          />
+          <Route path="/resumes" element={<ResumesPlaceholder />} />
+          <Route path="*" element={<Navigate to="/applications" replace />} />
+        </Routes>
+      </main>
+
+      {openApp && (
+        <DetailDrawer
+          appId={openApp}
+          apps={apps}
+          companies={COMPANIES}
+          onClose={() => setOpenApp(null)}
+          onUpdate={updateApp}
+        />
+      )}
+    </div>
+  );
+}
+
+function ApplicationsPage({ apps, onOpenApp }: { apps: any[]; onOpenApp: (id: string) => void }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get('view') || 'kanban';
+  const filter = searchParams.get('filter') || 'all';
+  const setView = (id: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (id === 'kanban') next.delete('view');
+    else next.set('view', id);
+    setSearchParams(next, { replace: true });
+  };
+  const [query, setQuery] = useState('');
+
   const filteredApps = useMemo(() => {
     let list = apps;
     if (filter === 'active') list = list.filter((a) => !['rejected', 'ghosted'].includes(a.stage));
@@ -100,10 +185,6 @@ export function App() {
     return list;
   }, [apps, filter, query]);
 
-  const updateApp = (id: string, patch: any) => {
-    setApps((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
-  };
-
   const views = [
     { id: 'kanban', icon: 'kanban', label: 'Kanban' },
     { id: 'table', icon: 'table', label: 'Table' },
@@ -119,166 +200,95 @@ export function App() {
     cards: CardsView,
     map: MapView,
   };
-  const ViewComp = ViewCompMap[view];
+  const ViewComp = ViewCompMap[view] || KanbanView;
+
+  if (SHOW_EMPTY_PREVIEW) {
+    return (
+      <>
+        <PageHeader
+          title="Applications"
+          subtitle="No applications yet — start by connecting a portal or adding manually"
+        />
+        <EmptyApplicationsView onAddManual={() => {}} onConnectPortal={() => {}} />
+      </>
+    );
+  }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)' }}>
-      {!signedIn && <LoginScreen onSignIn={handleSignIn} />}
-
-      <Sidebar
-        currentPage={currentPage}
-        setCurrentPage={setCurrentPage}
-        filter={filter}
-        setFilter={setFilter}
-        apps={apps}
-        companies={COMPANIES}
-        onProfileClick={() => setProfileOpen((o) => !o)}
-      />
-
-      <ProfileMenu
-        open={profileOpen}
-        onClose={() => setProfileOpen(false)}
-        onSignOut={handleSignOut}
-        onShowTour={handleShowTour}
-      />
-
-      {showTour && signedIn && <OnboardingTour onClose={handleTourClose} />}
-
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
-        {currentPage === 'dashboard' && (
+    <>
+      <PageHeader
+        title="Applications"
+        subtitle={`${filteredApps.length} of ${apps.length} · across ${new Set(filteredApps.map((a) => a.companyId)).size} companies`}
+        actions={
           <>
-            <PageHeader
-              title="Applications"
-              subtitle={
-                tweaks.emptyState
-                  ? 'No applications yet — start by connecting a portal or adding manually'
-                  : `${filteredApps.length} of ${apps.length} · across ${new Set(filteredApps.map((a) => a.companyId)).size} companies`
-              }
-              actions={
-                <>
-                  <div style={{ position: 'relative' }}>
-                    <span style={{ position: 'absolute', left: 8, top: 6, color: 'var(--fg-muted)' }}>
-                      <Icon name="search" size={13} />
-                    </span>
-                    <input
-                      type="text"
-                      placeholder="Search…"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      style={{ paddingLeft: 28, width: 200 }}
-                      disabled={tweaks.emptyState}
-                    />
-                  </div>
-                  <button
-                    className="btn-secondary"
-                    disabled={tweaks.emptyState}
-                    style={tweaks.emptyState ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
-                  >
-                    <Icon name="filter" size={13} /> Filter
-                  </button>
-                  <button
-                    className="btn-secondary"
-                    disabled={tweaks.emptyState}
-                    style={tweaks.emptyState ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
-                  >
-                    <Icon name="sort" size={13} /> Sort
-                  </button>
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 2,
-                      background: 'var(--surface-2)',
-                      padding: 3,
-                      borderRadius: 7,
-                      border: '0.5px solid var(--border)',
-                      opacity: tweaks.emptyState ? 0.4 : 1,
-                    }}
-                  >
-                    {views.map((v) => (
-                      <button
-                        key={v.id}
-                        onClick={() => !tweaks.emptyState && setView(v.id)}
-                        title={v.label}
-                        style={{
-                          padding: 5,
-                          background: view === v.id ? 'var(--surface)' : 'transparent',
-                          color: view === v.id ? 'var(--fg)' : 'var(--fg-muted)',
-                          border: 'none',
-                          borderRadius: 5,
-                          cursor: tweaks.emptyState ? 'not-allowed' : 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          boxShadow: view === v.id ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
-                        }}
-                      >
-                        <Icon name={v.icon} size={14} />
-                      </button>
-                    ))}
-                  </div>
-                  <button className="btn-primary">
-                    <Icon name="plus" size={13} stroke={2} /> Add
-                  </button>
-                </>
-              }
-            />
-
-            {tweaks.emptyState ? (
-              <EmptyApplicationsView
-                onAddManual={() => {}}
-                onConnectPortal={() => setCurrentPage('sync')}
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 8, top: 6, color: 'var(--fg-muted)' }}>
+                <Icon name="search" size={13} />
+              </span>
+              <input
+                type="text"
+                placeholder="Search…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                style={{ paddingLeft: 28, width: 200 }}
               />
-            ) : (
-              <>
-                {tweaks.showStats && <StatsBanner apps={apps} />}
-                <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-                  <ViewComp apps={filteredApps} companies={COMPANIES} onOpen={setOpenApp} />
-                </div>
-              </>
-            )}
+            </div>
+            <button className="btn-secondary">
+              <Icon name="filter" size={13} /> Filter
+            </button>
+            <button className="btn-secondary">
+              <Icon name="sort" size={13} /> Sort
+            </button>
+            <div
+              style={{
+                display: 'flex',
+                gap: 2,
+                background: 'var(--surface-2)',
+                padding: 3,
+                borderRadius: 7,
+                border: '0.5px solid var(--border)',
+              }}
+            >
+              {views.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => setView(v.id)}
+                  title={v.label}
+                  style={{
+                    padding: 5,
+                    background: view === v.id ? 'var(--surface)' : 'transparent',
+                    color: view === v.id ? 'var(--fg)' : 'var(--fg-muted)',
+                    border: 'none',
+                    borderRadius: 5,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    boxShadow: view === v.id ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  }}
+                >
+                  <Icon name={v.icon} size={14} />
+                </button>
+              ))}
+            </div>
+            <button className="btn-primary">
+              <Icon name="plus" size={13} stroke={2} /> Add
+            </button>
           </>
-        )}
+        }
+      />
+      {SHOW_STATS && <StatsBanner apps={apps} />}
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        <ViewComp apps={filteredApps} companies={COMPANIES} onOpen={onOpenApp} />
+      </div>
+    </>
+  );
+}
 
-        {currentPage === 'sync' &&
-          (tweaks.emptyState ? (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <PageHeader title="Sync" subtitle="Install the browser extension to enable auto-sync" />
-              <EmptySyncView onInstall={() => {}} />
-            </div>
-          ) : (
-            <SyncPage />
-          ))}
-
-        {currentPage === 'resume-match' &&
-          (tweaks.emptyState ? (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <PageHeader title="Resume Match" subtitle="Upload a resume and add JDs to compare your fit" />
-              <EmptyResumeMatchView onUploadResume={() => {}} onAddJD={() => {}} />
-            </div>
-          ) : (
-            <ResumeMatchPage />
-          ))}
-
-        {currentPage === 'jd-breakdown' &&
-          (tweaks.emptyState ? (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <PageHeader title="JD Breakdown" subtitle="Paste a job description to extract requirements" />
-              <EmptyJDBreakdownView onPasteJD={() => {}} />
-            </div>
-          ) : (
-            <JDBreakdownPage />
-          ))}
-      </main>
-
-      {openApp && (
-        <DetailDrawer
-          appId={openApp}
-          apps={apps}
-          companies={COMPANIES}
-          onClose={() => setOpenApp(null)}
-          onUpdate={updateApp}
-        />
-      )}
-
-    </div>
+function ResumesPlaceholder() {
+  return (
+    <>
+      <PageHeader title="Resumes" subtitle="Resume management lands in Sprint 2 (issue #20)" />
+      <div style={{ padding: 28, color: 'var(--fg-muted)', fontSize: 13 }}>Coming soon.</div>
+    </>
   );
 }
