@@ -1,6 +1,8 @@
 // Empty states for new users — first-time experience for each module.
+import React from 'react';
+import { Icon } from './primitives';
 
-const EmptyApplicationsView = ({ onAddManual, onConnectPortal }) => (
+export const EmptyApplicationsView = ({ onAddManual, onConnectPortal }) => (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', overflowY: 'auto' }}>
     <div style={{ maxWidth: 760, width: '100%' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: 28 }}>
@@ -71,7 +73,7 @@ const EmptyApplicationsView = ({ onAddManual, onConnectPortal }) => (
   </div>
 );
 
-const EmptySyncView = ({ onInstall }) => (
+export const EmptySyncView = ({ onInstall }) => (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', overflowY: 'auto' }}>
     <div style={{ maxWidth: 720, width: '100%' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: 24 }}>
@@ -109,7 +111,7 @@ const EmptySyncView = ({ onInstall }) => (
   </div>
 );
 
-const EmptyResumeMatchView = ({ onUploadResume, onAddJD }) => (
+export const EmptyResumeMatchView = ({ onUploadResume, onAddJD }) => (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', overflowY: 'auto' }}>
     <div style={{ maxWidth: 720, width: '100%' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: 24 }}>
@@ -162,7 +164,7 @@ const EmptyResumeMatchView = ({ onUploadResume, onAddJD }) => (
   </div>
 );
 
-const EmptyJDBreakdownView = ({ onPasteJD }) => (
+export const EmptyJDBreakdownView = ({ onPasteJD }) => (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', overflowY: 'auto' }}>
     <div style={{ maxWidth: 640, width: '100%' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: 24 }}>
@@ -205,7 +207,3 @@ const EmptyJDBreakdownView = ({ onPasteJD }) => (
   </div>
 );
 
-window.EmptyApplicationsView = EmptyApplicationsView;
-window.EmptySyncView = EmptySyncView;
-window.EmptyResumeMatchView = EmptyResumeMatchView;
-window.EmptyJDBreakdownView = EmptyJDBreakdownView;

@@ -1,5 +1,9 @@
 // Timeline + Cards + Map views
-const TimelineView = ({ apps, companies, onOpen }) => {
+import React, { useMemo } from 'react';
+import { CompanyMark, StageBadge, PortalDot, Icon, stageColors } from './primitives';
+import { PORTAL_STATUS } from '../data';
+
+export const TimelineView = ({ apps, companies, onOpen }) => {
   const getCompany = (id) => companies.find(c => c.id === id);
   // group by day bucket relative to today
   const active = apps.filter(a => a.stage !== 'rejected' && a.stage !== 'ghosted' && a.stage !== 'saved');
@@ -58,9 +62,7 @@ const TimelineView = ({ apps, companies, onOpen }) => {
     </div>
   );
 };
-window.TimelineView = TimelineView;
-
-const CardsView = ({ apps, companies, onOpen }) => {
+export const CardsView = ({ apps, companies, onOpen }) => {
   const byCompany = useMemo(() => {
     const map = {};
     apps.forEach(a => {
@@ -128,9 +130,7 @@ const CardsView = ({ apps, companies, onOpen }) => {
     </div>
   );
 };
-window.CardsView = CardsView;
-
-const MapView = ({ apps, companies, onOpen }) => {
+export const MapView = ({ apps, companies, onOpen }) => {
   // Group apps by city label. Use a schematic "map" not a real one — pill nodes laid out.
   const getCompany = (id) => companies.find(c => c.id === id);
   const byLoc = useMemo(() => {
@@ -203,4 +203,3 @@ const MapView = ({ apps, companies, onOpen }) => {
     </div>
   );
 };
-window.MapView = MapView;

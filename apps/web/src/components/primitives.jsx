@@ -1,7 +1,8 @@
 // Landed — shared UI primitives and helpers
-const { useState, useEffect, useMemo, useRef, useCallback } = React;
+import React from 'react';
+import { STAGES, PORTAL_STATUS } from '../data';
 
-const stageColors = {
+export const stageColors = {
   saved:    { bg: 'oklch(0.96 0.005 240)', fg: 'oklch(0.45 0.01 240)',  dot: 'oklch(0.65 0.02 240)',  ring: 'oklch(0.88 0.01 240)' },
   applied:  { bg: 'oklch(0.96 0.03 240)',  fg: 'oklch(0.45 0.12 240)',  dot: 'oklch(0.62 0.15 240)',  ring: 'oklch(0.88 0.05 240)' },
   oa:       { bg: 'oklch(0.96 0.04 275)',  fg: 'oklch(0.44 0.14 275)',  dot: 'oklch(0.60 0.17 275)',  ring: 'oklch(0.88 0.06 275)' },
@@ -12,9 +13,7 @@ const stageColors = {
   ghosted:  { bg: 'oklch(0.96 0.003 60)',  fg: 'oklch(0.55 0.01 60)',   dot: 'oklch(0.70 0.01 60)',   ring: 'oklch(0.90 0.005 60)' },
 };
 
-window.stageColors = stageColors;
-
-function CompanyMark({ company, size = 32 }) {
+export function CompanyMark({ company, size = 32 }) {
   const bg = `oklch(0.94 0.04 ${company.hue})`;
   const fg = `oklch(0.35 0.12 ${company.hue})`;
   return (
@@ -28,9 +27,8 @@ function CompanyMark({ company, size = 32 }) {
     }}>{company.logo}</div>
   );
 }
-window.CompanyMark = CompanyMark;
 
-function StageBadge({ stage, size = 'sm' }) {
+export function StageBadge({ stage, size = 'sm' }) {
   const s = STAGES.find(x => x.id === stage);
   const c = stageColors[stage];
   const padding = size === 'sm' ? '2px 8px 2px 6px' : '4px 10px 4px 8px';
@@ -49,9 +47,8 @@ function StageBadge({ stage, size = 'sm' }) {
     </span>
   );
 }
-window.StageBadge = StageBadge;
 
-function PortalDot({ companyId }) {
+export function PortalDot({ companyId }) {
   const p = PORTAL_STATUS[companyId];
   if (!p) return null;
   if (p.ok) {
@@ -70,12 +67,11 @@ function PortalDot({ companyId }) {
     animation: 'pulse 2s ease-in-out infinite',
   }} />;
 }
-window.PortalDot = PortalDot;
 
 // Brand logo — bold geometric "L" with an accent dot.
 // The L is the letterform of "Landed"; the dot is both the period in "Landed."
 // and a marker for the moment of arrival.
-function LandedMark({ size = 22, dotColor = 'oklch(0.62 0.18 30)' }) {
+export function LandedMark({ size = 22, dotColor = 'oklch(0.62 0.18 30)' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-label="Landed">
       {/* The L — filled, slightly bracketed serif tips for character */}
@@ -85,9 +81,8 @@ function LandedMark({ size = 22, dotColor = 'oklch(0.62 0.18 30)' }) {
     </svg>
   );
 }
-window.LandedMark = LandedMark;
 
-function Icon({ name, size = 16, stroke = 1.5 }) {
+export function Icon({ name, size = 16, stroke = 1.5 }) {
   const paths = {
     kanban: <><rect x="3" y="4" width="5" height="14" rx="1"/><rect x="10" y="4" width="5" height="9" rx="1"/><rect x="17" y="4" width="4" height="12" rx="1"/></>,
     table: <><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M3 9h18M3 14h18M9 4v16"/></>,
@@ -126,7 +121,3 @@ function Icon({ name, size = 16, stroke = 1.5 }) {
     </svg>
   );
 }
-window.Icon = Icon;
-
-// Export
-Object.assign(window, { CompanyMark, StageBadge, PortalDot, Icon, LandedMark, stageColors });

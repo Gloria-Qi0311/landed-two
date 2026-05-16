@@ -3,7 +3,10 @@
 // Demonstrated with 3 AIs in different states simultaneously (parsed / awaiting / failed)
 // so the whole pattern is visible at once.
 
-const { useState: rmState, useMemo: rmMemo, useRef: rmRef } = React;
+import React, { useState as rmState, useMemo as rmMemo, useRef as rmRef } from 'react';
+import { CompanyMark, Icon } from './primitives';
+import { PageHeader, SectionLabel } from './shell';
+import { COMPANIES } from '../data';
 
 const RESUME_FILE = { name: 'senior-fe-resume.pdf', size: '2.4 KB', updated: 'Apr 18, 9:14 AM' };
 
@@ -92,7 +95,7 @@ function tryParseResponse(text) {
   return { ok: false, error: 'Could not detect a ranking format. Expected JSON, a markdown table, or a structured list.' };
 }
 
-const ResumeMatchPage = () => {
+export const ResumeMatchPage = () => {
   // Default scenario: ChatGPT parsed, Claude awaiting, Gemini failed
   const [aiState, setAiState] = rmState({
     chatgpt: { status: 'parsed',   data: MOCK_RESPONSES.chatgpt, parsedAt: 'Apr 19, 11:02 AM', confidence: 0.94 },
@@ -596,4 +599,3 @@ const BumpChart = ({ rankings, parsedAIs }) => {
   );
 };
 
-window.ResumeMatchPage = ResumeMatchPage;

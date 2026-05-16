@@ -1,5 +1,8 @@
 // Table view — dense, Airtable/Linear-ish
-const TableView = ({ apps, companies, onOpen }) => {
+import React, { useState, useMemo } from 'react';
+import { CompanyMark, PortalDot, Icon, StageBadge } from './primitives';
+
+export const TableView = ({ apps, companies, onOpen }) => {
   const getCompany = (id) => companies.find(c => c.id === id);
   const [sortKey, setSortKey] = useState('lastActivity');
   const [sortDir, setSortDir] = useState('asc');
@@ -88,4 +91,3 @@ const TableView = ({ apps, companies, onOpen }) => {
     </div>
   );
 };
-window.TableView = TableView;

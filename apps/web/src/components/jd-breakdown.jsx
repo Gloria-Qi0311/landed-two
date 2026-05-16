@@ -3,7 +3,10 @@
 // 2. Requirements analysis (rendered from JD parse)
 // 3. Resume Tailor — full round-trip producing diff variants
 
-const { useState: jbState, useMemo: jbMemo } = React;
+import React, { useState as jbState, useMemo as jbMemo } from 'react';
+import { CompanyMark, Icon } from './primitives';
+import { PageHeader, SectionLabel } from './shell';
+import { COMPANIES } from '../data';
 
 const SOURCE_JD = {
   id: 'jd-pc-staff-fe',
@@ -114,7 +117,7 @@ const JD_PROVIDERS = [
   { id: 'gemini',  name: 'Gemini',  model: '2.0 Pro',    color: 'oklch(0.55 0.13 255)' },
 ];
 
-const JDBreakdownPage = () => {
+export const JDBreakdownPage = () => {
   const [tailorActive, setTailorActive] = jbState('claude');
   const [bulletStates, setBulletStates] = jbState({}); // id -> 'accepted' | 'rejected'
   const [sourceExpanded, setSourceExpanded] = jbState(false);
@@ -456,4 +459,3 @@ const BulletDiff = ({ bullet, isFirst, state, onAccept, onReject }) => {
   );
 };
 
-window.JDBreakdownPage = JDBreakdownPage;

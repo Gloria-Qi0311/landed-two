@@ -1,5 +1,10 @@
 // Sync page — Connections grid + Activity feed + onboarding state
-const SyncPage = () => {
+import React, { useState } from 'react';
+import { CompanyMark, Icon, stageColors } from './primitives';
+import { PageHeader } from './shell';
+import { COMPANIES, PORTAL_STATUS } from '../data';
+
+export const SyncPage = () => {
   const [tab, setTab] = useState('overview'); // 'overview' | 'connections' | 'activity'
 
   const connections = COMPANIES.slice(0, 16).map((c, i) => {
@@ -297,4 +302,3 @@ const ActivityRow = ({ event, compact }) => {
   );
 };
 
-window.SyncPage = SyncPage;

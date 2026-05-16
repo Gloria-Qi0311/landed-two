@@ -1,9 +1,10 @@
 // Auth + onboarding components — login modal, profile menu, first-run tour
-
-const { useState: authState, useEffect: authEffect, useRef: authRef } = React;
+import React, { useState as authState, useEffect as authEffect, useRef as authRef } from 'react';
+import { Icon, LandedMark, StageBadge, CompanyMark } from './primitives';
+import { COMPANIES } from '../data';
 
 // ---------- Profile menu (dropdown from sidebar avatar) ----------
-function ProfileMenu({ open, onClose, onSignOut, onShowTour }) {
+export function ProfileMenu({ open, onClose, onSignOut, onShowTour }) {
   authEffect(() => {
     if (!open) return;
     const onDocClick = (e) => {
@@ -76,7 +77,7 @@ function ProfileMenu({ open, onClose, onSignOut, onShowTour }) {
 }
 
 // ---------- Login screen ----------
-function LoginScreen({ onSignIn }) {
+export function LoginScreen({ onSignIn }) {
   const [mode, setMode] = authState('signin'); // signin | signup
   const [email, setEmail] = authState('');
   const [pwd, setPwd] = authState('');
@@ -261,7 +262,7 @@ const ONBOARDING_STEPS = [
   },
 ];
 
-function OnboardingTour({ onClose }) {
+export function OnboardingTour({ onClose }) {
   const [step, setStep] = authState(0);
   const total = ONBOARDING_STEPS.length;
   const s = ONBOARDING_STEPS[step];
@@ -396,6 +397,3 @@ function TourArt({ kind }) {
   return null;
 }
 
-window.LoginScreen = LoginScreen;
-window.ProfileMenu = ProfileMenu;
-window.OnboardingTour = OnboardingTour;

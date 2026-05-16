@@ -1,5 +1,9 @@
 // Detail drawer for a single application
-const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate }) => {
+import React from 'react';
+import { CompanyMark, Icon, PortalDot, stageColors } from './primitives';
+import { STAGES, PORTAL_STATUS } from '../data';
+
+export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate }) => {
   const app = apps.find(a => a.id === appId);
   if (!app) return null;
   const company = companies.find(c => c.id === app.companyId);
@@ -174,4 +178,3 @@ const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate }) => {
     </div>
   );
 };
-window.DetailDrawer = DetailDrawer;

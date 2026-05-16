@@ -1,5 +1,9 @@
 // Kanban view
-const KanbanView = ({ apps, companies, onOpen }) => {
+import React from 'react';
+import { CompanyMark, PortalDot, Icon, stageColors } from './primitives';
+import { STAGES } from '../data';
+
+export const KanbanView = ({ apps, companies, onOpen }) => {
   const pipelineStages = STAGES.filter(s => !['ghosted'].includes(s.id));
   const getCompany = (id) => companies.find(c => c.id === id);
 
@@ -68,4 +72,3 @@ const KanbanView = ({ apps, companies, onOpen }) => {
     </div>
   );
 };
-window.KanbanView = KanbanView;

@@ -1,6 +1,6 @@
 // Landed — demo data. 40 companies, bilingual. Not a real brand impersonation.
 // Status stages in pipeline
-window.STAGES = [
+export const STAGES = [
   { id: 'saved',      label: 'Saved',        color: 'slate' },
   { id: 'applied',    label: 'Applied',      color: 'blue' },
   { id: 'oa',         label: 'OA / Test',    color: 'indigo' },
@@ -12,7 +12,7 @@ window.STAGES = [
 ];
 
 // Fictional companies — not real employers. Mix of plausible sector archetypes.
-window.COMPANIES = [
+export const COMPANIES = [
   { id: 'c01', name: 'Northwind Systems',    sector: 'Cloud',       logo: 'NW', hue: 212, loc: 'Seattle, WA',       portalOk: true  },
   { id: 'c02', name: 'Helix Robotics',       sector: 'Robotics',    logo: 'HX', hue: 18,  loc: 'Pittsburgh, PA',    portalOk: true  },
   { id: 'c03', name: 'Lumen & Co.',          sector: 'Fintech',     logo: 'LC', hue: 152, loc: 'New York, NY',      portalOk: false },
@@ -57,7 +57,7 @@ window.COMPANIES = [
 
 // Applications — each tied to a company + role. Many companies have multiple roles.
 // daysAgo = days since applied (for activity sort)
-window.APPLICATIONS = [
+export const APPLICATIONS = [
   { id: 'a001', companyId: 'c01', role: 'Senior Frontend Engineer',     team: 'Developer Experience', stage: 'onsite',   salary: '$180k–$220k', location: 'Seattle, WA',      remote: 'Hybrid', appliedDays: 14, lastActivity: 2,  nextStep: 'Final round · Apr 23', referral: true,  source: 'Referral',     jobId: 'R-4411', notes: 'System design focus on client-side perf. Recruiter: Jamie.', starred: true  },
   { id: 'a002', companyId: 'c01', role: 'Staff Product Designer',       team: 'Platform',             stage: 'phone',    salary: '$190k–$240k', location: 'Seattle, WA',      remote: 'Hybrid', appliedDays: 11, lastActivity: 3,  nextStep: 'Recruiter call · Apr 22', referral: true,  source: 'Referral',     jobId: 'R-4377', notes: '', starred: false },
   { id: 'a003', companyId: 'c02', role: 'Robotics SWE II',              team: 'Motion Planning',      stage: 'oa',       salary: '$165k–$195k', location: 'Pittsburgh, PA',   remote: 'On-site', appliedDays: 9,  lastActivity: 1, nextStep: 'OA due Apr 21',     referral: false, source: 'Company site', jobId: 'ENG-881', notes: 'OA is 3h Codesignal.', starred: false },
@@ -105,7 +105,7 @@ window.APPLICATIONS = [
 ];
 
 // Portal login states — simulated. A few have expired cookies to demo the warning.
-window.PORTAL_STATUS = {
+export const PORTAL_STATUS = {
   c01: { ok: true,  lastSync: 'Apr 19, 09:12' },
   c02: { ok: true,  lastSync: 'Apr 19, 08:40' },
   c03: { ok: false, lastSync: 'Apr 14, 22:04', reason: 'Session expired' },

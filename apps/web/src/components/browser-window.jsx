@@ -1,8 +1,9 @@
 
 // Chrome.jsx — Simplified Chrome browser window (dark theme, macOS)
 // No dependencies, no image assets. All inline styles + inline SVG.
+import React from 'react';
 
-const CHROME_C = {
+export const CHROME_C = {
   barBg: '#202124',
   tabBg: '#35363a',
   text: '#e8eaed',
@@ -10,7 +11,7 @@ const CHROME_C = {
   urlBg: '#282a2d',
 };
 
-function ChromeTrafficLights() {
+export function ChromeTrafficLights() {
   return (
     <div style={{ display: 'flex', gap: 8, padding: '0 14px' }}>
       <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#ff5f57' }} />
@@ -21,7 +22,7 @@ function ChromeTrafficLights() {
 }
 
 // Single tab (active has curved scoops)
-function ChromeTab({ title = 'New Tab', active = false }) {
+export function ChromeTab({ title = 'New Tab', active = false }) {
   const curve = (flip) => (
     <svg width="8" height="10" viewBox="0 0 8 10"
       style={{ position: 'absolute', bottom: 0, [flip ? 'right' : 'left']: -8, transform: flip ? 'scaleX(-1)' : 'none' }}>
@@ -45,7 +46,7 @@ function ChromeTab({ title = 'New Tab', active = false }) {
   );
 }
 
-function ChromeTabBar({ tabs = [{ title: 'New Tab' }], activeIndex = 0 }) {
+export function ChromeTabBar({ tabs = [{ title: 'New Tab' }], activeIndex = 0 }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', height: 44,
@@ -59,7 +60,7 @@ function ChromeTabBar({ tabs = [{ title: 'New Tab' }], activeIndex = 0 }) {
   );
 }
 
-function ChromeToolbar({ url = 'example.com' }) {
+export function ChromeToolbar({ url = 'example.com' }) {
   const iconDot = (
     <div style={{
       width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -90,7 +91,7 @@ function ChromeToolbar({ url = 'example.com' }) {
   );
 }
 
-function ChromeWindow({
+export function ChromeWindow({
   tabs = [{ title: 'New Tab' }], activeIndex = 0, url = 'example.com',
   width = 900, height = 600, children,
 }) {
@@ -109,6 +110,3 @@ function ChromeWindow({
   );
 }
 
-Object.assign(window, {
-  ChromeWindow, ChromeTabBar, ChromeToolbar, ChromeTab, ChromeTrafficLights,
-});

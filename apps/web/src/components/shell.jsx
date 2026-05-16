@@ -1,6 +1,9 @@
 // Sidebar + stats banner + Resume Match page + JD Breakdown page
+import React, { useMemo } from 'react';
+import { LandedMark, Icon, stageColors } from './primitives';
+import { STAGES, PORTAL_STATUS } from '../data';
 
-const Sidebar = ({ currentPage, setCurrentPage, filter, setFilter, apps, companies, tweaks, onProfileClick }) => {
+export const Sidebar = ({ currentPage, setCurrentPage, filter, setFilter, apps, companies, tweaks, onProfileClick }) => {
   const counts = useMemo(() => {
     const c = { all: apps.length, active: 0, starred: 0 };
     STAGES.forEach(s => c[s.id] = 0);
@@ -158,9 +161,7 @@ const Sidebar = ({ currentPage, setCurrentPage, filter, setFilter, apps, compani
     </aside>
   );
 };
-window.Sidebar = Sidebar;
-
-const StatsBanner = ({ apps }) => {
+export const StatsBanner = ({ apps }) => {
   const stats = useMemo(() => {
     const active = apps.filter(a => !['rejected', 'ghosted', 'saved'].includes(a.stage)).length;
     const interviewing = apps.filter(a => ['phone', 'onsite'].includes(a.stage)).length;
@@ -196,10 +197,8 @@ const StatsBanner = ({ apps }) => {
     </div>
   );
 };
-window.StatsBanner = StatsBanner;
-
 // Unified page header — used on every top-level page so the design language stays consistent.
-const PageHeader = ({ title, subtitle, actions }) => (
+export const PageHeader = ({ title, subtitle, actions }) => (
   <div style={{
     padding: '12px 28px 10px',
     display: 'flex', alignItems: 'center', gap: 10,
@@ -219,14 +218,11 @@ const PageHeader = ({ title, subtitle, actions }) => (
     {actions && <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions}</div>}
   </div>
 );
-window.PageHeader = PageHeader;
-
 // Section title pattern used inside cards / forms — keep consistent everywhere.
-const SectionLabel = ({ children, style }) => (
+export const SectionLabel = ({ children, style }) => (
   <div style={{
     fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)',
     textTransform: 'uppercase', letterSpacing: '0.06em',
     marginBottom: 8, ...style,
   }}>{children}</div>
 );
-window.SectionLabel = SectionLabel;
