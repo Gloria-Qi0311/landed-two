@@ -1,9 +1,27 @@
 // Detail drawer for a single application
-import React from 'react';
+import React, { useEffect } from 'react';
 import { CompanyMark, Icon, PortalDot, stageColors } from './primitives';
 import { STAGES, PORTAL_STATUS } from '../data';
 
+// "Open in portal" target — per spec.md §6:
+// portal_application_url > company.portal_url > generic Google search fallback.
+function buildPortalUrl(app, company) {
+  if (app.portal_application_url) return app.portal_application_url;
+  if (company.portal_url) return company.portal_url;
+  const q = encodeURIComponent(`${company.name} ${app.role} application status`);
+  return `https://www.google.com/search?q=${q}`;
+}
+
 export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate }) => {
+  // Esc to close. Listener lives on document so it works even if focus is
+  // outside the drawer (e.g. user just dragged a card from below and the
+  // pointer is still over the main view).
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const app = apps.find(a => a.id === appId);
   if (!app) return null;
   const company = companies.find(c => c.id === app.companyId);
@@ -165,9 +183,15 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate }) => {
       </div>
 
       <div style={{ padding: 14, borderTop: '0.5px solid var(--border)', display: 'flex', gap: 6 }}>
-        <button className="btn-primary" style={{ flex: 1 }}>
+        <a
+          href={buildPortalUrl(app, company)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-primary"
+          style={{ flex: 1, textDecoration: 'none', justifyContent: 'center' }}
+        >
           <Icon name="external" size={13} /> Open in portal
-        </button>
+        </a>
         <button className="btn-secondary">
           <Icon name="wand" size={13} /> Tailor resume
         </button>
