@@ -177,10 +177,20 @@ export const StatsBanner = ({ apps }) => {
     const active = apps.filter(a => !['rejected', 'ghosted', 'saved'].includes(a.stage)).length;
     const interviewing = apps.filter(a => ['phone', 'onsite'].includes(a.stage)).length;
     const offers = apps.filter(a => a.stage === 'offer').length;
-    const responseRate = Math.round(
-      apps.filter(a => !['saved', 'applied'].includes(a.stage)).length / Math.max(1, apps.filter(a => a.stage !== 'saved').length) * 100
-    );
-    return { active, interviewing, offers, responseRate };
+    // Response rate: of apps the user has actually applied to (not just saved),
+    // how many got SOME kind of response (moved beyond 'applied' — into oa / phone /
+    // onsite / offer / rejected / ghosted). Saved roles aren't part of the denominator.
+    const appliedAt = apps.filter(a => a.stage !== 'saved');
+    const responded = apps.filter(a => !['saved', 'applied'].includes(a.stage));
+    const responseRate = Math.round((responded.length / Math.max(1, appliedAt.length)) * 100);
+    // Apps with an actionable next step (not empty / '—' / 'Awaiting response' boilerplate)
+    // and not in a terminal stage. Honest proxy for "things on your plate."
+    const idleNextSteps = new Set(['', '—', 'Awaiting response']);
+    const nextSteps = apps.filter(a =>
+      !['rejected', 'ghosted'].includes(a.stage) &&
+      a.nextStep && !idleNextSteps.has(a.nextStep)
+    ).length;
+    return { active, interviewing, offers, responseRate, nextSteps };
   }, [apps]);
 
   const Stat = ({ label, value, sub, accent }) => (
@@ -196,15 +206,15 @@ export const StatsBanner = ({ apps }) => {
   return (
     <div style={{ display: 'flex', padding: '10px 28px 12px', borderBottom: '0.5px solid var(--border)', background: 'var(--bg)' }}>
       <div style={{ paddingLeft: 0, paddingRight: 18, flex: 1 }}>
-        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>This week</div>
+        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>In flight</div>
         <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>
-          {stats.active} <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 400 }}>in flight</span>
+          {stats.active} <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 400 }}>active applications</span>
         </div>
       </div>
-      <Stat label="Interviewing" value={stats.interviewing} sub="across 6 stages" />
+      <Stat label="Interviewing" value={stats.interviewing} sub="phone + onsite" />
       <Stat label="Offers" value={stats.offers} sub="awaiting decision" accent="oklch(0.45 0.14 155)" />
       <Stat label="Response rate" value={`${stats.responseRate}%`} sub="of applied" />
-      <Stat label="Next 7 days" value="8" sub="interviews + OAs" />
+      <Stat label="Next steps" value={stats.nextSteps} sub="actionable" />
     </div>
   );
 };

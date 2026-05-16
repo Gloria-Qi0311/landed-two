@@ -23,7 +23,6 @@ import { STAGES, COMPANIES, APPLICATIONS } from './data';
 // portal_connections.length === 0, etc.) lands with the data layer in #10.
 // Until then, empty states are previewable via `?preview=empty` URL param —
 // driven by the screenshot harness (apps/web/scripts/screens.js).
-const SHOW_STATS = true;
 function usePreviewEmpty() {
   const [params] = useSearchParams();
   return params.get('preview') === 'empty';
@@ -248,7 +247,7 @@ function ApplicationsPage({ apps, onOpenApp }: { apps: any[]; onOpenApp: (id: st
           </>
         }
       />
-      {SHOW_STATS && <StatsBanner apps={apps} />}
+      <StatsBanner apps={apps} />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         <ViewComp apps={filteredApps} companies={COMPANIES} onOpen={onOpenApp} />
       </div>
