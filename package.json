@@ -8,7 +8,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "screens": "pnpm --filter @landed/web run screens"
   },
   "packageManager": "pnpm@10.33.2",
   "engines": {

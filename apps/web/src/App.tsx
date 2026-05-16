@@ -19,10 +19,15 @@ import {
 } from './components/empty-states';
 import { STAGES, COMPANIES, APPLICATIONS } from './data';
 
-// Pre-Supabase placeholders. Issue #16 replaces SHOW_EMPTY_PREVIEW with
-// real "this user has no data" detection (e.g. apps.length === 0).
+// Pre-Supabase placeholder. Real "no data" wiring (apps.length === 0,
+// portal_connections.length === 0, etc.) lands with the data layer in #10.
+// Until then, empty states are previewable via `?preview=empty` URL param —
+// driven by the screenshot harness (apps/web/scripts/screens.js).
 const SHOW_STATS = true;
-const SHOW_EMPTY_PREVIEW = false;
+function usePreviewEmpty() {
+  const [params] = useSearchParams();
+  return params.get('preview') === 'empty';
+}
 
 export function App() {
   const [theme, setTheme] = useState<string>(
@@ -99,45 +104,9 @@ export function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/applications" replace />} />
           <Route path="/applications" element={<ApplicationsPage apps={apps} onOpenApp={setOpenApp} />} />
-          <Route
-            path="/sync"
-            element={
-              SHOW_EMPTY_PREVIEW ? (
-                <>
-                  <PageHeader title="Sync" subtitle="Install the browser extension to enable auto-sync" />
-                  <EmptySyncView onInstall={() => {}} />
-                </>
-              ) : (
-                <SyncPage />
-              )
-            }
-          />
-          <Route
-            path="/resume-match"
-            element={
-              SHOW_EMPTY_PREVIEW ? (
-                <>
-                  <PageHeader title="Resume Match" subtitle="Upload a resume and add JDs to compare your fit" />
-                  <EmptyResumeMatchView onUploadResume={() => {}} onAddJD={() => {}} />
-                </>
-              ) : (
-                <ResumeMatchPage />
-              )
-            }
-          />
-          <Route
-            path="/jd-breakdown"
-            element={
-              SHOW_EMPTY_PREVIEW ? (
-                <>
-                  <PageHeader title="JD Breakdown" subtitle="Paste a job description to extract requirements" />
-                  <EmptyJDBreakdownView onPasteJD={() => {}} />
-                </>
-              ) : (
-                <JDBreakdownPage />
-              )
-            }
-          />
+          <Route path="/sync" element={<SyncRoute />} />
+          <Route path="/resume-match" element={<ResumeMatchRoute />} />
+          <Route path="/jd-breakdown" element={<JDBreakdownRoute />} />
           <Route path="/resumes" element={<ResumesPlaceholder />} />
           <Route path="*" element={<Navigate to="/applications" replace />} />
         </Routes>
@@ -205,7 +174,7 @@ function ApplicationsPage({ apps, onOpenApp }: { apps: any[]; onOpenApp: (id: st
   };
   const ViewComp = ViewCompMap[view] || KanbanView;
 
-  if (SHOW_EMPTY_PREVIEW) {
+  if (usePreviewEmpty()) {
     return (
       <>
         <PageHeader
@@ -284,6 +253,39 @@ function ApplicationsPage({ apps, onOpenApp }: { apps: any[]; onOpenApp: (id: st
         <ViewComp apps={filteredApps} companies={COMPANIES} onOpen={onOpenApp} />
       </div>
     </>
+  );
+}
+
+function SyncRoute() {
+  return usePreviewEmpty() ? (
+    <>
+      <PageHeader title="Sync" subtitle="Install the browser extension to enable auto-sync" />
+      <EmptySyncView onInstall={() => {}} />
+    </>
+  ) : (
+    <SyncPage />
+  );
+}
+
+function ResumeMatchRoute() {
+  return usePreviewEmpty() ? (
+    <>
+      <PageHeader title="Resume Match" subtitle="Upload a resume and add JDs to compare your fit" />
+      <EmptyResumeMatchView onUploadResume={() => {}} onAddJD={() => {}} />
+    </>
+  ) : (
+    <ResumeMatchPage />
+  );
+}
+
+function JDBreakdownRoute() {
+  return usePreviewEmpty() ? (
+    <>
+      <PageHeader title="JD Breakdown" subtitle="Paste a job description to extract requirements" />
+      <EmptyJDBreakdownView onPasteJD={() => {}} />
+    </>
+  ) : (
+    <JDBreakdownPage />
   );
 }
 
