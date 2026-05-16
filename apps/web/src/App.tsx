@@ -102,7 +102,16 @@ export function App() {
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
         <Routes>
           <Route path="/" element={<Navigate to="/applications" replace />} />
-          <Route path="/applications" element={<ApplicationsPage apps={apps} onOpenApp={setOpenApp} />} />
+          <Route
+            path="/applications"
+            element={
+              <ApplicationsPage
+                apps={apps}
+                onOpenApp={setOpenApp}
+                onMoveCard={(id, stage) => updateApp(id, { stage })}
+              />
+            }
+          />
           <Route path="/sync" element={<SyncRoute />} />
           <Route path="/resume-match" element={<ResumeMatchRoute />} />
           <Route path="/jd-breakdown" element={<JDBreakdownRoute />} />
@@ -124,7 +133,15 @@ export function App() {
   );
 }
 
-function ApplicationsPage({ apps, onOpenApp }: { apps: any[]; onOpenApp: (id: string) => void }) {
+function ApplicationsPage({
+  apps,
+  onOpenApp,
+  onMoveCard,
+}: {
+  apps: any[];
+  onOpenApp: (id: string) => void;
+  onMoveCard: (id: string, stage: string) => void;
+}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get('view') || 'kanban';
   const filter = searchParams.get('filter') || 'all';
@@ -249,7 +266,7 @@ function ApplicationsPage({ apps, onOpenApp }: { apps: any[]; onOpenApp: (id: st
       />
       <StatsBanner apps={apps} />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        <ViewComp apps={filteredApps} companies={COMPANIES} onOpen={onOpenApp} />
+        <ViewComp apps={filteredApps} companies={COMPANIES} onOpen={onOpenApp} onMoveCard={onMoveCard} />
       </div>
     </>
   );
