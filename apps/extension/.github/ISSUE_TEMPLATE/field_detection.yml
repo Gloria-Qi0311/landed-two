@@ -1,0 +1,49 @@
+name: Field-detection failure
+description: A field on a specific site was not detected, mis-filled, or skipped
+title: "[FieldDetect] "
+labels: ["type:bug", "area:content"]
+body:
+  - type: input
+    id: site
+    attributes:
+      label: Form URL
+      description: The job application page where the issue occurred (redact if needed)
+      placeholder: "https://jobs.example.com/apply/..."
+    validations:
+      required: true
+  - type: dropdown
+    id: failure_kind
+    attributes:
+      label: Failure type
+      options:
+        - Skipped (field not detected)
+        - Mis-filled (detected but wrong value)
+        - Duplicated (same field filled multiple times)
+        - Multi-entry section error (education / experience)
+        - Date / month-year select error
+        - Combobox / custom dropdown error
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: field_label
+    attributes:
+      label: Field label / screenshot
+      description: Paste the failing field's label or attach a screenshot. For combobox/select, describe how it renders.
+    validations:
+      required: true
+  - type: input
+    id: expected_key
+    attributes:
+      label: Expected resume field to match
+      placeholder: "basic.email / education[0].school / ..."
+  - type: input
+    id: actual_value
+    attributes:
+      label: Actually filled value
+  - type: textarea
+    id: dom_snippet
+    attributes:
+      label: DOM snippet (optional)
+      description: Copy the outerHTML of the relevant input/select to aid reproduction
+      render: html

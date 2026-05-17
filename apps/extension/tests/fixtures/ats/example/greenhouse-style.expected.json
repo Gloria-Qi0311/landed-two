@@ -1,0 +1,17 @@
+{
+  "description": "Synthetic Greenhouse-style single-page form (kept for framework smoke tests)",
+  "url_at_capture": "synthetic",
+  "captured_at": "2026-05-09",
+  "notes": "Hand-crafted minimal form mimicking common Greenhouse layout. Do not delete — this is the framework's smoke test. Each entry's value is either a single acceptable form value or an array (any-of) — selects fill with option.value, which may differ from the resume value after value-match transforms.",
+  "expected_fills": {
+    "First Name": "Alice",
+    "Last Name": "Wong",
+    "Email": "alice.wong@example.com",
+    "Phone": "+1-415-555-0123",
+    "LinkedIn Profile": "linkedin.com/in/alicewong",
+    "GitHub Profile": "github.com/alicewong",
+    "Current Company": "Stripe",
+    "Years of Experience": ["3-5", "3-5 years"],
+    "Highest Degree": ["masters", "Master's Degree", "Master's"]
+  }
+}

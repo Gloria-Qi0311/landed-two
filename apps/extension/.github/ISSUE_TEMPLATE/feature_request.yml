@@ -1,0 +1,46 @@
+name: Feature request
+description: New feature or improvement proposal
+title: "[Feat] "
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user pain first, not the solution
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary affected area
+      options:
+        - content (form filling)
+        - popup (side panel)
+        - options (editor)
+        - schema (resume structure)
+        - i18n (localization)
+        - build (build / CI)
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Self-assessed priority
+      options:
+        - P0 urgent
+        - P1 high
+        - P2 medium
+    validations:
+      required: true

@@ -1,0 +1,60 @@
+{
+  "version": 2,
+  "basic": {
+    "name": "Alice Wong",
+    "firstName": "Alice",
+    "lastName": "Wong",
+    "englishName": "Alice Wong",
+    "chineseName": "",
+    "email": "alice.wong@example.com",
+    "phone": "+1-415-555-0123",
+    "wechat": "",
+    "location": "San Francisco, CA",
+    "linkedin": "linkedin.com/in/alicewong",
+    "github": "github.com/alicewong",
+    "portfolio": "alicewong.dev"
+  },
+  "intent": {
+    "apply_position": "Senior Software Engineer",
+    "salary": "180000",
+    "available_date": "2026-07-01",
+    "years_exp": "5"
+  },
+  "education": [
+    {
+      "school": "Stanford University",
+      "degree": "Master's",
+      "major": "Computer Science",
+      "gpa": "3.8",
+      "start_date": "2018-09",
+      "end_date": "2020-06",
+      "location": "Stanford, CA",
+      "description": ""
+    }
+  ],
+  "experience": [
+    {
+      "company": "Stripe",
+      "title": "Senior Software Engineer",
+      "location": "San Francisco, CA",
+      "start_date": "2022-03",
+      "end_date": "",
+      "current": true,
+      "description": "Built payments infrastructure serving 1B+ requests/month."
+    }
+  ],
+  "internship": [],
+  "projects": [
+    {
+      "name": "ApplyMint",
+      "role": "Creator",
+      "link": "github.com/alicewong/applymint",
+      "start_date": "2025-01",
+      "end_date": "",
+      "description": "Chrome extension that auto-fills cross-border job applications."
+    }
+  ],
+  "skills": ["JavaScript", "TypeScript", "React", "Go", "Python"],
+  "languages": ["English", "Mandarin"],
+  "summary": "Senior engineer with 5+ years building payment systems."
+}
