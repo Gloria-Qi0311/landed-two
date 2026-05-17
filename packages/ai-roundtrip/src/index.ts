@@ -184,27 +184,58 @@ function buildResumeTailorPrompt(input: Record<string, unknown>, schemaText?: st
 }
 
 function buildResumeParsePrompt(schemaText?: string): string {
+  // Schema mirrors @landed/schema's Resume shape verbatim, including the 5
+  // bilingual name fields (firstName/lastName/englishName/chineseName) and
+  // wechat that zod accepts. Earlier prompt versions omitted these and the
+  // fields stayed permanently empty — dead schema columns.
   const expected = schemaText ?? `{
   "version": 2,
-  "basic": { "name": "", "email": "", "phone": "", "location": "", "linkedin": "", "github": "", "portfolio": "" },
+  "basic": {
+    "name": "",
+    "firstName": "",
+    "lastName": "",
+    "englishName": "",
+    "chineseName": "",
+    "email": "",
+    "phone": "",
+    "wechat": "",
+    "location": "",
+    "linkedin": "",
+    "github": "",
+    "portfolio": ""
+  },
   "intent": { "apply_position": "", "salary": "", "available_date": "", "years_exp": "" },
-  "education": [{ "school": "", "degree": "", "major": "", "gpa": "", "start_date": "", "end_date": "", "location": "", "description": "" }],
-  "experience": [{ "company": "", "title": "", "location": "", "start_date": "", "end_date": "", "current": false, "description": "" }],
-  "internship": [],
-  "projects": [{ "name": "", "role": "", "link": "", "start_date": "", "end_date": "", "description": "" }],
+  "education": [
+    { "school": "", "degree": "", "major": "", "gpa": "", "start_date": "", "end_date": "", "location": "", "description": "" }
+  ],
+  "experience": [
+    { "company": "", "title": "", "location": "", "start_date": "", "end_date": "", "current": false, "description": "" }
+  ],
+  "internship": [
+    { "company": "", "title": "", "location": "", "start_date": "", "end_date": "", "current": false, "description": "" }
+  ],
+  "projects": [
+    { "name": "", "role": "", "link": "", "start_date": "", "end_date": "", "description": "" }
+  ],
   "skills": [],
   "languages": [],
   "summary": ""
 }`
   return [
-    'Extract the resume into structured JSON.',
+    'You are a resume parser. Parse the resume below into the JSON schema. Output ONLY JSON — no commentary, no markdown code fences, no explanation text.',
     '',
-    'Return ONLY JSON in this exact shape (no commentary, no markdown fence):',
+    'Rules:',
+    '1. For fields you cannot extract, use "" or [] — never fabricate.',
+    '2. Normalize dates to "YYYY-MM" or "YYYY-MM-DD". For ongoing roles, leave end_date "" and set current: true.',
+    '3. Sort education / experience / internship / projects in reverse chronological order (most recent first).',
+    '4. skills and languages are flat string arrays.',
+    '5. Split name into firstName / lastName. For Chinese names: put the family name in lastName, given name in firstName, and the full Chinese form in chineseName. Use englishName for an English alias if present.',
+    '6. Escape any " inside string values as \\". Do NOT use 「」 『』 or other special quote characters — replace with plain text or standard quotes.',
+    '7. In description fields, separate bullet points with periods — never use newline characters inside a string value.',
+    '8. Before outputting, self-check that the JSON parses cleanly: balanced braces, no trailing commas, all keys quoted, no unescaped control characters.',
+    '',
+    'Target schema (return JSON in this exact shape):',
     expected,
-    '',
-    'Rules: dates as YYYY-MM. Use "current": true for ongoing roles + leave end_date "". Skills + languages are flat arrays. Do not fabricate fields the resume does not mention.',
-    '',
-    '(Please also upload your resume PDF and send it together with this prompt.)',
   ].join('\n')
 }
 

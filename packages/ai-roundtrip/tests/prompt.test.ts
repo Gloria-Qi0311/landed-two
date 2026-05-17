@@ -106,3 +106,42 @@ describe('generatePrompt — bilingual JD pass-through (spec.md §8 #8)', () => 
     expect(prompt).toContain('必須スキル: TypeScript, React, Vite')
   })
 })
+
+describe('generatePrompt resume_parse — hardened ruleset', () => {
+  it('includes the bilingual-name splitting rule + chineseName / wechat fields', () => {
+    const prompt = generatePrompt('resume_parse', {})
+    expect(prompt).toContain('firstName')
+    expect(prompt).toContain('lastName')
+    expect(prompt).toContain('chineseName')
+    expect(prompt).toContain('englishName')
+    expect(prompt).toContain('wechat')
+    expect(prompt).toMatch(/family name.+lastName/i)
+  })
+
+  it('reinforces JSON-only + bans markdown fences and special CJK quotes', () => {
+    const prompt = generatePrompt('resume_parse', {})
+    expect(prompt).toMatch(/ONLY JSON/i)
+    expect(prompt).toMatch(/markdown code fences?/i)
+    expect(prompt).toContain('「」')
+    expect(prompt).toContain('『』')
+  })
+
+  it('requires reverse-chrono ordering + self-check + period-separated descriptions', () => {
+    const prompt = generatePrompt('resume_parse', {})
+    expect(prompt).toMatch(/reverse chronological/i)
+    expect(prompt).toMatch(/self-check/i)
+    expect(prompt).toMatch(/separate bullet points with periods/i)
+    expect(prompt).not.toMatch(/upload your resume PDF/i)
+  })
+
+  it('emits a JSON schema template that itself parses cleanly', () => {
+    const prompt = generatePrompt('resume_parse', {})
+    const match = prompt.match(/\{[\s\S]*\}\s*$/)
+    expect(match).toBeTruthy()
+    const parsed = JSON.parse(match![0])
+    expect(parsed.version).toBe(2)
+    expect(parsed.basic).toHaveProperty('chineseName')
+    expect(parsed.basic).toHaveProperty('wechat')
+    expect(Array.isArray(parsed.internship)).toBe(true)
+  })
+})
