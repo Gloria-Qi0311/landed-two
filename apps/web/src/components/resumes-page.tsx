@@ -525,7 +525,7 @@ function ResumeView({
         </div>
       )}
 
-      {parsed && filled && <ResumeSummary resume={parsed} expanded />}
+      {parsed && filled && <ResumeSummary resume={parsed} />}
     </div>
   )
 }
@@ -534,7 +534,7 @@ function ResumeView({
 // Display helpers
 // ──────────────────────────────────────────────────────────────────────────
 
-function ResumeSummary({ resume, expanded = false }: { resume: Resume; expanded?: boolean }) {
+function ResumeSummary({ resume }: { resume: Resume }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Basic */}
@@ -570,28 +570,28 @@ function ResumeSummary({ resume, expanded = false }: { resume: Resume; expanded?
       {/* Experience */}
       {resume.experience.length > 0 && (
         <PreviewBlock label={`Experience (${resume.experience.length})`}>
-          <EntryList entries={resume.experience.slice(0, expanded ? Infinity : 2)} kind="experience" />
+          <EntryList entries={resume.experience} kind="experience" />
         </PreviewBlock>
       )}
 
       {/* Internship */}
       {resume.internship.length > 0 && (
         <PreviewBlock label={`Internship (${resume.internship.length})`}>
-          <EntryList entries={resume.internship.slice(0, expanded ? Infinity : 2)} kind="experience" />
+          <EntryList entries={resume.internship} kind="experience" />
         </PreviewBlock>
       )}
 
       {/* Education */}
       {resume.education.length > 0 && (
         <PreviewBlock label={`Education (${resume.education.length})`}>
-          <EntryList entries={resume.education.slice(0, expanded ? Infinity : 2)} kind="education" />
+          <EntryList entries={resume.education} kind="education" />
         </PreviewBlock>
       )}
 
       {/* Projects */}
       {resume.projects.length > 0 && (
         <PreviewBlock label={`Projects (${resume.projects.length})`}>
-          <EntryList entries={resume.projects.slice(0, expanded ? Infinity : 2)} kind="project" />
+          <EntryList entries={resume.projects} kind="project" />
         </PreviewBlock>
       )}
 
@@ -671,7 +671,7 @@ function EntryList({ entries, kind }: { entries: any[]; kind: 'experience' | 'ed
               {kind === 'education' ? (e.school || e.major || '(unnamed)') : kind === 'project' ? (e.name || '(unnamed)') : (e.company || '(unnamed)')}
             </div>
             <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>
-              {e.start_date}{e.start_date && e.end_date && ' – '}{e.end_date || (e.current ? 'present' : '')}
+              {e.start_date}{e.start_date && (e.end_date || e.current) && ' – '}{e.end_date || (e.current ? 'present' : '')}
             </div>
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginTop: 2 }}>
