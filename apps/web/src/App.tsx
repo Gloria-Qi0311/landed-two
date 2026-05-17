@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Routes, Route, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
 import type { Session } from '@supabase/supabase-js';
@@ -82,19 +82,35 @@ export function App() {
   // never leaks into user B's session — RLS scopes the DB query, but the
   // client-side cache survives sign-out otherwise.
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  // Tracks the previous signed-in state so we can detect signed-out → signed-in
+  // transitions specifically (vs initial hydration / token refresh, which
+  // shouldn't navigate). Initialized after getSession() resolves.
+  const prevSignedInRef = useRef<boolean>(false);
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthReady(true);
+      prevSignedInRef.current = !!data.session;
     });
     const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
+      const wasSignedIn = prevSignedInRef.current;
+      const isSignedIn = !!sess;
       setSession(sess);
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
         queryClient.clear();
       }
+      // Reset to /applications on a fresh sign-in (after a prior signed-out
+      // state) so a new account doesn't land on the previous user's last URL.
+      // Only fires for SIGNED_IN events, not INITIAL_SESSION / TOKEN_REFRESHED
+      // — bookmarks + reloads on an existing session stay on the current URL.
+      if (event === 'SIGNED_IN' && !wasSignedIn) {
+        navigate('/applications');
+      }
+      prevSignedInRef.current = isSignedIn;
     });
     return () => sub.subscription.unsubscribe();
-  }, [queryClient]);
+  }, [queryClient, navigate]);
 
   // Onboarding flag — server-side per-user (public.users.onboarded_at). The
   // earlier localStorage approach was destructive (cleared on sign-out, not
