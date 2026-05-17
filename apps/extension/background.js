@@ -64,6 +64,60 @@ chrome.action.onClicked.addListener(async (tab) => {
   await chrome.sidePanel.open({ windowId: tab.windowId })
 })
 
+// ── Toolbar badge: at-a-glance sync status (#36.1) ───────────────────────
+//
+// Reads two pieces of state:
+//   1. needs-auth sentinel — server rejected push on auth grounds; user
+//      must re-sign-in for the queue to drain
+//   2. pending-queue length — events staged for push but not yet sent
+//
+// Priority: needs-auth wins ("!" red) over pending-count ("N" slate). When
+// both are clear, badge is empty (no chrome clutter).
+//
+// Last-writer-wins is the right semantic: this is purely visual state,
+// chrome.action.setBadgeText is fire-and-forget, and concurrent updates
+// from drain + ingest paths converge on the truth within ms.
+
+const BADGE_NEEDS_AUTH_TEXT = '!'
+const BADGE_NEEDS_AUTH_COLOR = '#dc2626'   // red-600 — clear warning
+const BADGE_PENDING_COLOR = '#4b5563'      // slate-600 — neutral count
+
+async function updateBadge() {
+  const store = self.LandedSnapshotStore
+  if (!store) return
+  const storage = store.chromeStorageAdapter(chrome.storage.local)
+
+  // Read both signals in parallel; either can win the next render.
+  const [pendingQueue, needsAuthAt] = await Promise.all([
+    store.loadPending(storage).catch(() => ({ events: [] })),
+    new Promise((resolve) => {
+      try { chrome.storage.local.get(NEEDS_AUTH_KEY, (res) => resolve(res && res[NEEDS_AUTH_KEY])) }
+      catch { resolve(null) }
+    }),
+  ])
+
+  if (needsAuthAt) {
+    chrome.action.setBadgeText({ text: BADGE_NEEDS_AUTH_TEXT })
+    chrome.action.setBadgeBackgroundColor({ color: BADGE_NEEDS_AUTH_COLOR })
+    return
+  }
+  const count = (pendingQueue && pendingQueue.events && pendingQueue.events.length) || 0
+  if (count > 0) {
+    chrome.action.setBadgeText({ text: count > 99 ? '99+' : String(count) })
+    chrome.action.setBadgeBackgroundColor({ color: BADGE_PENDING_COLOR })
+    return
+  }
+  // Clear — nothing pending, nothing wrong.
+  chrome.action.setBadgeText({ text: '' })
+}
+
+// Fire-and-forget wrapper so call sites can be one-liners + don't have
+// to handle a rejected promise (the function itself swallows internal
+// errors — we never want a badge update to crash the SW).
+function refreshBadge() {
+  updateBadge().catch((err) => console.warn('[landed] badge update failed', err))
+}
+
 // ── Alarm lifecycle ──────────────────────────────────────────────────────
 
 function ensureAlarm() {
@@ -81,8 +135,12 @@ function ensurePushAlarm() {
 }
 
 function ensureAllAlarms() { ensureAlarm(); ensurePushAlarm() }
-chrome.runtime.onInstalled.addListener(ensureAllAlarms)
-chrome.runtime.onStartup.addListener(ensureAllAlarms)
+// Also refresh the badge on SW boot so a returning user sees current
+// state immediately (chrome.action badge survives SW eviction but a
+// fresh install / browser restart starts blank).
+function ensureBootState() { ensureAllAlarms(); refreshBadge() }
+chrome.runtime.onInstalled.addListener(ensureBootState)
+chrome.runtime.onStartup.addListener(ensureBootState)
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
@@ -157,6 +215,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // Real-time fast path: don't wait for the 1-min alarm. Fire-and-
       // forget — if push fails, the alarm catches the leftover queue.
       drainPendingEvents().catch(() => {})
+      // Bump the badge immediately so the user sees the new pending
+      // count even before the drain attempt resolves.
+      refreshBadge()
       sendResponse({ ok: true, result })
     })
     .catch((err) => sendResponse({ ok: false, error: String(err) }))
@@ -264,12 +325,14 @@ async function drainPendingEvents() {
     await store.clearPending(storage)
     // Clear any stale "needs auth" sentinel + backoff — push just succeeded.
     chrome.storage.local.remove([NEEDS_AUTH_KEY, BACKOFF_STATE_KEY])
+    refreshBadge()
     return
   }
   if (result.needsAuth) {
     chrome.storage.local.set({ [NEEDS_AUTH_KEY]: new Date().toISOString() })
     // Queue intact — retry on next alarm after the user re-authenticates.
     // No backoff: the user re-auth is the unblocker, not waiting.
+    refreshBadge()
     return
   }
   if (result.fatal) {
@@ -280,10 +343,12 @@ async function drainPendingEvents() {
     console.error('[landed] portal-events push FATAL — dropping queue', result.error)
     await store.clearPending(storage)
     chrome.storage.local.remove(BACKOFF_STATE_KEY)
+    refreshBadge()
     return
   }
   // retryable — leave queue intact; advance backoff state so the next
-  // few alarm wakes skip until next_retry_at, then try again.
+  // few alarm wakes skip until next_retry_at, then try again. Badge
+  // doesn't change (queue length unchanged + no needs-auth flip).
   const prevFailures = (backoffState && backoffState.consecutive_failures) || 0
   const consecutive_failures = prevFailures + 1
   const next_retry_at = new Date(Date.now() + pushMod.nextBackoffMs(consecutive_failures)).toISOString()
