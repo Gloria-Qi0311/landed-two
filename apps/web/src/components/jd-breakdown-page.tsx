@@ -63,7 +63,22 @@ type ProviderState<T> =
   | { status: 'failed'; raw: string; error: string }
 
 type BreakdownState = ProviderState<Breakdown>
-type TailorState = ProviderState<{ bullets: TailoredBullet[]; accepted: Set<number> }>
+
+// Tailor "parsed" payload extends with an optional `applied` snapshot —
+// presence means the user clicked "Apply to resume" successfully. UI uses
+// this to switch from the diff-grid view to a success-summary view.
+type TailorApplied = {
+  at: string
+  resumeName: string
+  applied: TailoredBullet[]
+  missed: TailoredBullet[]
+}
+type TailorParsed = {
+  bullets: TailoredBullet[]
+  accepted: Set<number>
+  applied?: TailorApplied
+}
+type TailorState = ProviderState<TailorParsed>
 
 const PROVIDER_LIST: Provider[] = ['chatgpt', 'claude', 'gemini']
 const initialStates = <T,>(): Record<Provider, ProviderState<T>> => ({
@@ -116,7 +131,7 @@ function wordDiff(orig: string, tail: string): DiffToken[] {
 function applyTailoringToResume(
   resume: Resume,
   accepted: TailoredBullet[],
-): { resume: Resume; appliedCount: number; missedBullets: string[] } {
+): { resume: Resume; applied: TailoredBullet[]; missed: TailoredBullet[] } {
   // Shallow-clone the arrays we touch so React Query treats the result as new
   const next: Resume = {
     ...resume,
@@ -124,8 +139,8 @@ function applyTailoringToResume(
     internship: resume.internship.map((e) => ({ ...e })),
     projects: resume.projects.map((p) => ({ ...p })),
   }
-  let applied = 0
-  const missed: string[] = []
+  const applied: TailoredBullet[] = []
+  const missed: TailoredBullet[] = []
 
   const sections: Array<{ rows: Array<{ description: string }> }> = [
     { rows: next.experience },
@@ -135,22 +150,25 @@ function applyTailoringToResume(
 
   for (const b of accepted) {
     const orig = b.original.trim()
-    if (!orig) continue
+    if (!orig) {
+      missed.push(b)
+      continue
+    }
     let found = false
     for (const section of sections) {
       for (const row of section.rows) {
         if (row.description && row.description.includes(orig)) {
           row.description = row.description.replace(orig, b.tailored)
-          applied++
+          applied.push(b)
           found = true
           break
         }
       }
       if (found) break
     }
-    if (!found) missed.push(orig.slice(0, 60))
+    if (!found) missed.push(b)
   }
-  return { resume: next, appliedCount: applied, missedBullets: missed }
+  return { resume: next, applied, missed }
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────
@@ -166,9 +184,8 @@ export function JDBreakdownPage() {
 
   const [breakdown, setBreakdown] = useState<Record<Provider, BreakdownState>>(initialStates<Breakdown>())
   const [tailor, setTailor] = useState<Record<Provider, TailorState>>(
-    initialStates<{ bullets: TailoredBullet[]; accepted: Set<number> }>(),
+    initialStates<TailorParsed>(),
   )
-  const [applyNotice, setApplyNotice] = useState<string>('')
 
   const jdReady = jdBody.trim().length > 0
 
@@ -323,6 +340,8 @@ export function JDBreakdownPage() {
     })
   }
 
+  const [applyError, setApplyError] = useState<string>('')
+
   const onApply = async (provider: Provider) => {
     if (!currentResume?.parsed_json) return
     const s = tailor[provider]
@@ -330,18 +349,44 @@ export function JDBreakdownPage() {
     const acceptedBullets = s.parsed.bullets.filter((_, i) => s.parsed.accepted.has(i))
     if (acceptedBullets.length === 0) return
     const result = applyTailoringToResume(currentResume.parsed_json, acceptedBullets)
+    setApplyError('')
     try {
       await updateResume.mutateAsync({
         id: currentResume.id,
         patch: { parsed_json: result.resume },
       })
-      const missedNote = result.missedBullets.length
-        ? ` (${result.missedBullets.length} bullet${result.missedBullets.length === 1 ? '' : 's'} not found in resume — copy/paste manually)`
-        : ''
-      setApplyNotice(`Applied ${result.appliedCount}/${acceptedBullets.length} tailored bullet${result.appliedCount === 1 ? '' : 's'} to "${currentResume.name}"${missedNote}.`)
+      // Stamp the parsed state with an `applied` snapshot — TailorResults
+      // switches to the success-summary view when this is present.
+      const snapshot: TailorApplied = {
+        at: new Date().toISOString(),
+        resumeName: currentResume.name,
+        applied: result.applied,
+        missed: result.missed,
+      }
+      setTailor((p) => {
+        const cur = p[provider]
+        if (cur.status !== 'parsed') return p
+        return {
+          ...p,
+          [provider]: { ...cur, parsed: { ...cur.parsed, applied: snapshot } },
+        }
+      })
     } catch (e) {
-      setApplyNotice(`Failed to apply: ${e instanceof Error ? e.message : String(e)}`)
+      setApplyError(`Failed to apply: ${e instanceof Error ? e.message : String(e)}`)
     }
+  }
+
+  // Revert from the success-summary view back to the diff grid — lets the
+  // user accept/reject more bullets and apply again without re-running the AI.
+  const onShowDiffAgain = (provider: Provider) => {
+    setTailor((p) => {
+      const cur = p[provider]
+      if (cur.status !== 'parsed' || !cur.parsed.applied) return p
+      return {
+        ...p,
+        [provider]: { ...cur, parsed: { ...cur.parsed, applied: undefined } },
+      }
+    })
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -434,10 +479,8 @@ export function JDBreakdownPage() {
           <SectionLabel
             label="Resume Tailor — rewrite bullets for this JD"
             action={
-              applyNotice && (
-                <span style={{ fontSize: 11, color: applyNotice.startsWith('Failed') ? 'oklch(0.45 0.15 30)' : 'var(--fg-muted)' }}>
-                  {applyNotice}
-                </span>
+              applyError && (
+                <span style={{ fontSize: 11, color: 'oklch(0.45 0.15 30)' }}>{applyError}</span>
               )
             }
           />
@@ -454,7 +497,9 @@ export function JDBreakdownPage() {
                     state={tailor[p]}
                     canLaunch={jdReady && !!currentResume?.parsed_json}
                     parsedSummary={(s) =>
-                      `${s.parsed.accepted.size}/${s.parsed.bullets.length} accepted`
+                      s.parsed.applied
+                        ? `applied ${s.parsed.applied.applied.length}/${s.parsed.bullets.length} to ${s.parsed.applied.resumeName}`
+                        : `${s.parsed.accepted.size}/${s.parsed.bullets.length} accepted`
                     }
                     placeholder='{"tailored_bullets":[{"original":"...","tailored":"...","reason":"..."}]}'
                     onLaunch={() => onLaunchTailor(p)}
@@ -472,6 +517,7 @@ export function JDBreakdownPage() {
                   onAcceptAll={(p) => setAllBullets(p, true)}
                   onRejectAll={(p) => setAllBullets(p, false)}
                   onApply={onApply}
+                  onShowDiffAgain={onShowDiffAgain}
                 />
               )}
             </>
@@ -766,7 +812,7 @@ function BreakdownResults({ breakdown }: { breakdown: Record<Provider, Breakdown
 // ── Tailor results ────────────────────────────────────────────────────────
 
 function TailorResults({
-  tailor, isApplying, onToggle, onAcceptAll, onRejectAll, onApply,
+  tailor, isApplying, onToggle, onAcceptAll, onRejectAll, onApply, onShowDiffAgain,
 }: {
   tailor: Record<Provider, TailorState>
   isApplying: boolean
@@ -774,6 +820,7 @@ function TailorResults({
   onAcceptAll: (p: Provider) => void
   onRejectAll: (p: Provider) => void
   onApply: (p: Provider) => void
+  onShowDiffAgain: (p: Provider) => void
 }) {
   const present = PROVIDER_LIST.filter((p) => tailor[p].status === 'parsed')
   if (present.length === 0) return null
@@ -781,57 +828,167 @@ function TailorResults({
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${present.length}, 1fr)`, gap: 12 }}>
       {present.map((p) => {
         const s = tailor[p] as Extract<TailorState, { status: 'parsed' }>
-        const { bullets, accepted } = s.parsed
-        return (
-          <div
-            key={p}
-            style={{
-              background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10,
-              padding: 12, display: 'flex', flexDirection: 'column', gap: 10,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
-                {PROVIDERS[p as Exclude<Provider, 'other'>].label}
-              </div>
-              <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-muted)' }}>
-                {accepted.size}/{bullets.length} accepted
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {bullets.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>No bullets returned.</div>
-              )}
-              {bullets.map((b, i) => (
-                <BulletDiff
-                  key={i}
-                  bullet={b}
-                  accepted={accepted.has(i)}
-                  onToggle={() => onToggle(p, i)}
-                />
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button className="btn-secondary" onClick={() => onAcceptAll(p)} style={{ fontSize: 11 }}>
-                Accept all
-              </button>
-              <button className="btn-secondary" onClick={() => onRejectAll(p)} style={{ fontSize: 11 }}>
-                Reject all
-              </button>
-              <button
-                className="btn-primary"
-                disabled={accepted.size === 0 || isApplying}
-                onClick={() => onApply(p)}
-                style={{ fontSize: 11, marginLeft: 'auto', opacity: accepted.size === 0 || isApplying ? 0.5 : 1 }}
-              >
-                <Icon name="check" size={12} /> {isApplying ? 'Applying…' : `Apply ${accepted.size} to resume`}
-              </button>
-            </div>
-          </div>
-        )
+        return s.parsed.applied
+          ? <AppliedSummary key={p} provider={p} parsed={s.parsed} onShowDiffAgain={() => onShowDiffAgain(p)} />
+          : <PendingTailor
+              key={p}
+              provider={p}
+              parsed={s.parsed}
+              isApplying={isApplying}
+              onToggle={(i) => onToggle(p, i)}
+              onAcceptAll={() => onAcceptAll(p)}
+              onRejectAll={() => onRejectAll(p)}
+              onApply={() => onApply(p)}
+            />
       })}
+    </div>
+  )
+}
+
+function PendingTailor({
+  provider, parsed, isApplying, onToggle, onAcceptAll, onRejectAll, onApply,
+}: {
+  provider: Provider
+  parsed: TailorParsed
+  isApplying: boolean
+  onToggle: (i: number) => void
+  onAcceptAll: () => void
+  onRejectAll: () => void
+  onApply: () => void
+}) {
+  const { bullets, accepted } = parsed
+  return (
+    <div
+      style={{
+        background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10,
+        padding: 12, display: 'flex', flexDirection: 'column', gap: 10,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
+          {PROVIDERS[provider as Exclude<Provider, 'other'>].label}
+        </div>
+        <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-muted)' }}>
+          {accepted.size}/{bullets.length} accepted
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {bullets.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>No bullets returned.</div>
+        )}
+        {bullets.map((b, i) => (
+          <BulletDiff
+            key={i}
+            bullet={b}
+            accepted={accepted.has(i)}
+            onToggle={() => onToggle(i)}
+          />
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn-secondary" onClick={onAcceptAll} style={{ fontSize: 11 }}>Accept all</button>
+        <button className="btn-secondary" onClick={onRejectAll} style={{ fontSize: 11 }}>Reject all</button>
+        <button
+          className="btn-primary"
+          disabled={accepted.size === 0 || isApplying}
+          onClick={onApply}
+          style={{ fontSize: 11, marginLeft: 'auto', opacity: accepted.size === 0 || isApplying ? 0.5 : 1 }}
+        >
+          <Icon name="check" size={12} /> {isApplying ? 'Applying…' : `Apply ${accepted.size} to resume`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AppliedSummary({
+  provider, parsed, onShowDiffAgain,
+}: {
+  provider: Provider
+  parsed: TailorParsed
+  onShowDiffAgain: () => void
+}) {
+  const a = parsed.applied!
+  const total = a.applied.length + a.missed.length
+  const when = useMemo(() => {
+    try {
+      const dt = new Date(a.at)
+      const min = Math.round((Date.now() - dt.getTime()) / 60000)
+      if (min < 1) return 'just now'
+      if (min < 60) return `${min} min ago`
+      return dt.toLocaleString()
+    } catch { return '' }
+  }, [a.at])
+  return (
+    <div
+      style={{
+        background: 'var(--surface)', border: '0.5px solid oklch(0.85 0.08 155)',
+        borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 10,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
+          {PROVIDERS[provider as Exclude<Provider, 'other'>].label}
+        </div>
+        <span style={{
+          fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em',
+          padding: '2px 6px', borderRadius: 4,
+          background: 'oklch(0.96 0.05 155)', color: 'oklch(0.40 0.13 155)',
+        }}>
+          Applied
+        </span>
+        <div style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--fg-muted)' }}>{when}</div>
+      </div>
+
+      <div style={{ fontSize: 12, color: 'var(--fg)', lineHeight: 1.5 }}>
+        ✓ Applied <strong>{a.applied.length}</strong> of <strong>{total}</strong> tailored bullet{total === 1 ? '' : 's'} to <strong>"{a.resumeName}"</strong>.
+      </div>
+
+      {a.applied.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+            What changed
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {a.applied.map((b, i) => (
+              <div key={i} style={{
+                padding: 8, background: 'var(--surface-2)', borderRadius: 6,
+                fontSize: 11, lineHeight: 1.5,
+              }}>
+                <div style={{ color: 'var(--fg-muted)', textDecoration: 'line-through', fontStyle: 'italic' }}>
+                  {b.original}
+                </div>
+                <div style={{ color: 'var(--fg)', marginTop: 3 }}>{b.tailored}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {a.missed.length > 0 && (
+        <div style={{
+          fontSize: 11, padding: 8,
+          background: 'oklch(0.97 0.03 60)', border: '0.5px solid oklch(0.88 0.06 60)',
+          borderRadius: 6, color: 'oklch(0.45 0.13 60)', lineHeight: 1.5,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>
+            {a.missed.length} bullet{a.missed.length === 1 ? '' : 's'} not found in the resume — copy/paste manually:
+          </div>
+          {a.missed.map((b, i) => (
+            <div key={i} style={{ marginTop: 4 }}>
+              <span style={{ fontStyle: 'italic' }}>"{b.original.slice(0, 80)}{b.original.length > 80 ? '…' : ''}"</span> → <span>{b.tailored.slice(0, 80)}{b.tailored.length > 80 ? '…' : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button className="btn-secondary" onClick={onShowDiffAgain} style={{ fontSize: 11 }}>
+          <Icon name="refresh" size={11} /> Show diff again (apply more)
+        </button>
+      </div>
     </div>
   )
 }
