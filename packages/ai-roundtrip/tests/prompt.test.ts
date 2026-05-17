@@ -127,6 +127,18 @@ describe('generatePrompt resume_parse — hardened ruleset', () => {
     expect(prompt).toContain('『』')
   })
 
+  it('rule 6 gives an explicit safe option (single quotes) + names the unescaped-double-quote failure mode', () => {
+    const prompt = generatePrompt('resume_parse', {})
+    expect(prompt).toMatch(/INLINE QUOTES inside string values/)
+    // The safe recommendation
+    expect(prompt).toContain("use single quotes ' for emphasis")
+    expect(prompt).toContain("一句话需求")
+    // The named failure mode
+    expect(prompt).toMatch(/closes the string at the first inner.+breaks parsing/)
+    // Fallback: escape \" only if you must
+    expect(prompt).toMatch(/escape it as \\\\"/)
+  })
+
   it('requires reverse-chrono ordering + self-check + period-separated descriptions', () => {
     const prompt = generatePrompt('resume_parse', {})
     expect(prompt).toMatch(/reverse chronological/i)

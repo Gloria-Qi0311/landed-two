@@ -270,7 +270,7 @@ function buildResumeParsePrompt(
     '3. Sort education / experience / internship / projects in reverse chronological order (most recent first).',
     '4. skills and languages are flat string arrays.',
     '5. Split name into firstName / lastName. For Chinese names: put the family name in lastName, given name in firstName, and the full Chinese form in chineseName. Use englishName for an English alias if present.',
-    '6. Escape any " inside string values as \\". Do NOT use 「」 『』 or other special quote characters — replace with plain text or standard quotes.',
+    '6. INLINE QUOTES inside string values — this is the #1 cause of broken JSON, follow strictly: use single quotes \' for emphasis (e.g. "将\'一句话需求\'自动拆解"). DO NOT use unescaped " for emphasis (e.g. NEVER write "将"一句话需求"自动拆解" — that closes the string at the first inner " and breaks parsing). DO NOT use 「」 『』 or other special quote characters. If you absolutely must use a literal " inside a string value, escape it as \\".',
     '7. In description fields, separate bullet points with periods — never use newline characters inside a string value.',
     '8. Before outputting, self-check that the JSON parses cleanly: balanced braces, no trailing commas, all keys quoted, no unescaped control characters.',
     '9. CLASSIFICATION — experience vs internship vs projects. Apply this decision order strictly:',
