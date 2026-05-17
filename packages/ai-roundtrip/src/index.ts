@@ -262,7 +262,15 @@ function buildResumeParsePrompt(
     : ''
 
   return [
-    'You are a resume parser. Parse the resume below into the JSON schema. Output ONLY JSON — no commentary, no markdown code fences, no explanation text.',
+    'You are a resume parser. Parse the resume below into the JSON schema.',
+    '',
+    'OUTPUT DISCIPLINE — non-negotiable:',
+    '- Respond with a SINGLE JSON object and nothing else.',
+    '- DO NOT write any text before the opening {.',
+    '- DO NOT wrap the JSON in markdown code fences (no ```json, no ```).',
+    '- DO NOT write any notes, explanations, or "A couple of notes:" after the closing }.',
+    '- DO NOT preface with "Here is the parsed JSON:" / "Let me work through this:" / "I\'ll parse..." or any similar lead-in.',
+    '- DO NOT describe your classification reasoning, decisions, or self-checks anywhere in the output. The JSON is the entire response.',
     '',
     'Rules:',
     '1. For fields you cannot extract, use "" or [] — never fabricate.',
@@ -272,7 +280,7 @@ function buildResumeParsePrompt(
     '5. Split name into firstName / lastName. For Chinese names: put the family name in lastName, given name in firstName, and the full Chinese form in chineseName. Use englishName for an English alias if present.',
     '6. Escape any " inside string values as \\". Do NOT use 「」 『』 or other special quote characters — replace with plain text or standard quotes.',
     '7. In description fields, separate bullet points with periods — never use newline characters inside a string value.',
-    '8. Before outputting, self-check that the JSON parses cleanly: balanced braces, no trailing commas, all keys quoted, no unescaped control characters.',
+    '8. Validate the JSON silently before output (balanced braces, no trailing commas, all keys quoted, escaped quotes inside strings, no unescaped control characters). Do NOT mention or describe this validation in the output.',
     '9. CLASSIFICATION — experience vs internship vs projects. Apply this decision order strictly:',
     '   - internship: a paid or formally hosted position at a company/organization where the person was an employee or official intern. Signals: a job title at a named employer, an employment relationship, and the word "intern" / "实习" appearing in the entry\'s TITLE or POSITION field (NOT in the description body — a competition entry whose description mentions "as an intern PM" is still a competition). → goes in `internship`.',
     '   - experience: a full-time or long-term employment position that is NOT an internship. → goes in `experience`.',
@@ -284,6 +292,8 @@ function buildResumeParsePrompt(
     '',
     'Target schema (return JSON in this exact shape):',
     expected,
+    '',
+    'REMINDER: respond with the JSON object only. First character of your response must be {. Last character must be }. No prose anywhere — not before, not after, not inside.',
   ].filter(Boolean).join('\n')
 }
 
