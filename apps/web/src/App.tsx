@@ -21,7 +21,7 @@ import { DetailDrawer } from './components/drawer';
 import { AddApplicationModal } from './components/add-application-modal';
 import { ResumesPage } from './components/resumes-page';
 import { SyncPage } from './components/sync-page';
-import { ResumeMatchPage } from './components/resume-match';
+import { ResumeMatchPage } from './components/resume-match-page';
 import { JDBreakdownPage } from './components/jd-breakdown';
 import {
   EmptyApplicationsView,
