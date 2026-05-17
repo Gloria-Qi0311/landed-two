@@ -67,6 +67,9 @@ declare global {
     ResumeFillerLLMProviders: any
     ResumeFillerProfiles: any
     ResumeFillerValidators: any
+    // Set by lib/portal-parsers/*.js IIFEs. Each per-portal value exposes
+    // { isXyzUrl, parseSubmitConfirmation, parseAppliedBadge, parseXyzPage }.
+    LandedPortalParsers: any
     // Set by schema.js IIFE; consumed by content.js + options.js.
     normalizeResume: (input: any) => any
     flattenResumeForFill: (resume: any) => any

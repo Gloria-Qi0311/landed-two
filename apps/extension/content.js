@@ -596,7 +596,67 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return true;
   }
+  // SW-initiated portal poll (background.js → here). We run the
+  // appropriate portal parser on the current page and return the event
+  // (or null) synchronously — SW dedupes via snapshot-store.
+  if (msg.action === 'parse-portal') {
+    sendResponse(detectPortalEventForCurrentPage());
+    return true;
+  }
 });
+
+// ─── Portal detection (auto-fire + SW-initiated) ──────────────────────────
+//
+// Two paths converge here:
+//   - Auto-fire: when content.js loads at document_idle on a known portal
+//     host, we parse once and send the result up to the SW for ingest.
+//     This is the user-visible fast path — the user submits a Greenhouse
+//     application, the confirmation page loads, and within ~1s we've
+//     staged the event for #35 to push.
+//   - SW-initiated: the 6h alarm wakes the SW; SW sends `parse-portal`
+//     to every open Greenhouse tab; we run the same parser and reply.
+//     This catches tabs that were already open when the user installed
+//     the extension, or sessions the user kept open between SW restarts.
+//
+// detectPortalEventForCurrentPage is the single source of truth — both
+// paths route through it.
+
+function detectPortalEventForCurrentPage() {
+  try {
+    const url = (typeof location !== 'undefined' && location.href) || '';
+    const ns = window.LandedPortalParsers;
+    if (!ns) return null;
+    if (ns.greenhouse && ns.greenhouse.isGreenhouseUrl(url)) {
+      return ns.greenhouse.parseGreenhousePage(document, url);
+    }
+    // Future portals (Lever / Workday / Ashby) extend the if-chain here.
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Auto-fire on first script load. Wrapped in try/catch + setTimeout so a
+// parser bug never breaks the fill path that follows in the same file.
+setTimeout(() => {
+  try {
+    const event = detectPortalEventForCurrentPage();
+    if (!event) return;
+    let portal = null;
+    if (event.app_url && window.LandedPortalParsers && window.LandedPortalParsers.greenhouse
+        && window.LandedPortalParsers.greenhouse.isGreenhouseUrl(event.app_url)) {
+      portal = 'greenhouse';
+    }
+    if (!portal) return;
+    chrome.runtime.sendMessage({ action: 'portal-event', portal, event }, () => {
+      // No-op on response. SW does its own logging; suppress lastError to
+      // avoid the unchecked-runtime-error warning in DevTools.
+      void chrome.runtime.lastError;
+    });
+  } catch (e) {
+    // Never let portal-detection failure break the rest of content.js.
+  }
+}, 0);
 
 async function handleFill(resumeData, customFields, opts) {
   opts = opts || {};

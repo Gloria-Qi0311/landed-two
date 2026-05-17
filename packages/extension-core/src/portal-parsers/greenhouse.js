@@ -196,7 +196,7 @@ export function parseSubmitConfirmation(root, url, now = new Date()) {
     company,
     role,
     applied_at: now.toISOString(),
-    app_url: url || '',
+    app_url: url || '',  // TODO(#34.2): strip PII query params (?candidate_email=, ?token=) before staging
     detected_via,
   }
 }

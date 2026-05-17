@@ -3,7 +3,7 @@
   "name": "Landed",
   "version": "2.2",
   "description": "Landed: job-hunt operations — auto-fill applications + portal sync. (Renamed from ApplyMint after merge in Sprint 3.)",
-  "permissions": ["activeTab", "storage", "scripting", "sidePanel"],
+  "permissions": ["activeTab", "storage", "scripting", "sidePanel", "alarms"],
   "action": {
     "default_icon": {
       "16": "icons/icon16.png",
@@ -21,7 +21,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["schema.js", "lib/field-detect.js", "lib/value-match.js", "lib/cross-lingual.js", "lib/llm-providers.js", "lib/llm-match.js", "content.js"],
+      "js": ["schema.js", "lib/field-detect.js", "lib/value-match.js", "lib/cross-lingual.js", "lib/llm-providers.js", "lib/llm-match.js", "lib/portal-parsers/greenhouse.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
