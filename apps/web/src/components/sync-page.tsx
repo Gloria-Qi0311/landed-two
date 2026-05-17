@@ -13,12 +13,12 @@
 //
 // Replaces the prototype port at src/components/sync-page.jsx, which used
 // hardcoded COMPANIES / PORTAL_STATUS arrays.
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { CompanyMark, Icon } from './primitives'
 import { PageHeader } from './shell'
 import { useCompanies, useApplications } from '../hooks/queries'
 import {
-  usePortalConnections, usePortalEvents,
+  usePortalConnections, usePortalEvents, usePortalEventsRealtime,
   useUpsertPortalConnection, useAddPortalEvent,
   type DbPortalConnection, type DbPortalEvent,
   type PortalProvider, type PortalStatus, type PortalEventType,
@@ -78,6 +78,18 @@ export function SyncPage() {
   const { data: events = [], isLoading: evLoading } = usePortalEvents(50)
   const { data: companies = [] } = useCompanies()
   const { data: applications = [] } = useApplications()
+
+  // Live updates from the extension push pipeline (#35). The hook
+  // already invalidates the events query; the returned `latest` powers
+  // an inline "just arrived" banner that auto-dismisses.
+  const liveEvent = usePortalEventsRealtime()
+  const [recentlyArrived, setRecentlyArrived] = useState<DbPortalEvent | null>(null)
+  useEffect(() => {
+    if (!liveEvent) return
+    setRecentlyArrived(liveEvent)
+    const t = setTimeout(() => setRecentlyArrived((cur) => (cur && cur.id === liveEvent.id ? null : cur)), 6000)
+    return () => clearTimeout(t)
+  }, [liveEvent])
 
   const companyById = useMemo(() => {
     const m = new Map<string, CompanyShape>()
@@ -189,6 +201,8 @@ export function SyncPage() {
       />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 28px 24px' }}>
+        {recentlyArrived && <LiveEventBanner event={recentlyArrived} onDismiss={() => setRecentlyArrived(null)} />}
+
         {/* Top status strip */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
           <ExtCard
@@ -302,6 +316,52 @@ export function SyncPage() {
 }
 
 // ── Subcomponents ─────────────────────────────────────────────────────────
+
+function LiveEventBanner({ event, onDismiss }: { event: DbPortalEvent; onDismiss: () => void }) {
+  const payload = (event.payload_json || {}) as Record<string, unknown>
+  const source = typeof payload.source === 'string' ? payload.source : 'portal'
+  const company = typeof payload.company === 'string' ? payload.company : ''
+  const role = typeof payload.role === 'string' ? payload.role : ''
+  const summary = [company, role].filter(Boolean).join(' · ') || 'New event'
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        marginBottom: 14,
+        padding: '10px 14px',
+        background: 'oklch(0.96 0.06 155)',
+        border: '0.5px solid oklch(0.82 0.10 155)',
+        borderRadius: 8,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        fontSize: 12.5,
+        color: 'oklch(0.35 0.13 155)',
+      }}
+    >
+      <span style={{
+        width: 7, height: 7, borderRadius: '50%',
+        background: 'oklch(0.62 0.18 155)',
+        boxShadow: '0 0 0 3px oklch(0.62 0.18 155 / 0.2)',
+      }} />
+      <span style={{ flex: 1 }}>
+        <strong style={{ fontWeight: 600 }}>Live · {source}</strong>
+        {' — '}
+        {summary} ({event.type})
+      </span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="link"
+        aria-label="Dismiss"
+        style={{ fontSize: 11, color: 'inherit' }}
+      >
+        Dismiss
+      </button>
+    </div>
+  )
+}
 
 function ExtCard({
   label, value, sub, dot, warn,

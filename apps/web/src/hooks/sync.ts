@@ -7,6 +7,7 @@
 // The browser extension (Sprint 4, #34–#38) will eventually write to both
 // tables. Until then, the page is read-only with a DEV-gated demo seed so
 // the UI can be exercised without the extension being wired up.
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 
@@ -123,6 +124,59 @@ export function useUpsertPortalConnection() {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal_connections'] }),
   })
+}
+
+// ── Realtime: subscribe to portal_events INSERT (#38) ────────────────────
+//
+// The extension push pipeline (#35) inserts rows into portal_events via
+// PostgREST. This hook subscribes to Supabase Realtime so the Sync page
+// reflects new events without polling.
+//
+// Mechanics:
+//   - One per-mount channel ('portal-events:<random>'), with a unique
+//     suffix so two tabs / two mounts don't collide on the channel name
+//     (Supabase Realtime keys channels by name across the auth session).
+//   - postgres_changes filter on INSERT against public.portal_events. RLS
+//     is honored on the server side; subscribers only see their own rows.
+//   - On INSERT: invalidate the cached ['portal_events'] query so the
+//     activity list refreshes from the source of truth (avoids us trying
+//     to splice the incoming row into the cache and getting cache shape
+//     drift).
+//   - Returns the most recent event for opt-in inline UX (toast/banner).
+//
+// Requires the migration 20260517072000_portal_events_realtime.sql which
+// adds public.portal_events to the supabase_realtime publication. Without
+// that, the subscription succeeds silently but never fires.
+//
+// Channel teardown on unmount via supabase.removeChannel — important
+// because subscriptions accumulate across navigation otherwise (Supabase
+// JS doesn't garbage-collect channels on its own).
+export function usePortalEventsRealtime() {
+  const qc = useQueryClient()
+  const [latest, setLatest] = useState<DbPortalEvent | null>(null)
+  useEffect(() => {
+    // Unique channel name per mount so concurrent SyncPage instances
+    // (e.g. two browser tabs) don't collide.
+    const name = 'portal-events:' + Math.random().toString(36).slice(2)
+    const channel = supabase
+      .channel(name)
+      .on(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        'postgres_changes' as any,
+        { event: 'INSERT', schema: 'public', table: 'portal_events' },
+        (payload: { new: DbPortalEvent }) => {
+          if (payload && payload.new) setLatest(payload.new)
+          qc.invalidateQueries({ queryKey: ['portal_events'] })
+        },
+      )
+      .subscribe()
+    return () => {
+      // removeChannel both unsubscribes and removes from the client's
+      // tracked-channels list.
+      supabase.removeChannel(channel)
+    }
+  }, [qc])
+  return latest
 }
 
 export function useAddPortalEvent() {
