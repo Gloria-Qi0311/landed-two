@@ -1,4 +1,5 @@
-// Ambient types for the apps/extension content script.
+/// <reference types="vite/client" />
+// Ambient types for the apps/extension content script + Vite-bundled popup/options.
 //
 // We don't pull in @types/chrome (~3 MB) — content.js touches a tiny slice
 // of the chrome.* surface, and listing it explicitly here keeps the dep

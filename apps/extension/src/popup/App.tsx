@@ -103,31 +103,81 @@ export function App() {
           setBusy(false)
         }
       }}
+      onSkipToCode={(email) => {
+        // Skip the send step entirely; user already has a code from elsewhere
+        // (terminal `pnpm dev:otp`, previous send, etc).
+        setError(null)
+        setState({ kind: 'codeSent', email })
+      }}
     />
+  )
+}
+
+// Brand mark — verbatim port of LandedMark from apps/web/src/components/primitives.jsx.
+// Keep in lockstep with the web version; design system parity is the goal.
+function LandedMark({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-label="Landed">
+      <path d="M7 5.5 L10 5.5 L10 15.5 L17 15.5 L17 18.5 L7 18.5 Z" fill="currentColor" />
+      <circle cx="18" cy="7" r="2" fill="var(--landed-dot)" />
+    </svg>
   )
 }
 
 function Header() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--fg)' }}>Landed</div>
-      <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>extension</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
+      <LandedMark size={20} />
+      <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>
+        Landed
+      </span>
+      <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>extension</span>
     </div>
   )
 }
 
-function EmailForm({ busy, error, onSubmit }: { busy: boolean; error: string | null; onSubmit: (e: string) => void }) {
+function EmailForm({
+  busy, error, onSubmit, onSkipToCode,
+}: {
+  busy: boolean
+  error: string | null
+  onSubmit: (e: string) => void
+  onSkipToCode: (e: string) => void
+}) {
   const [email, setEmail] = useState('')
   return (
     <>
       <Header />
-      <div style={{ color: 'var(--fg-muted)' }}>Sign in to use Landed across web + extension.</div>
+      <div style={{ color: 'var(--fg-muted)' }}>
+        Sign in to use Landed across web + extension. No password — we'll email a 6-digit code.
+      </div>
       <form onSubmit={(e) => { e.preventDefault(); if (email.trim()) onSubmit(email.trim()) }} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={busy} autoFocus />
         <button className="primary" type="submit" disabled={busy || !email.trim()}>
           {busy ? 'Sending…' : 'Send sign-in code'}
         </button>
+        {/* Skip-to-code bypass — same as the web app's "Already have a code?" link.
+            Useful when (a) email rate-limited, (b) you ran `pnpm dev:otp <email>`
+            in the terminal and already have the code, (c) you got the code from
+            a previous send that didn't pop the popup. */}
+        <button
+          type="button"
+          onClick={() => { if (email.trim()) onSkipToCode(email.trim()) }}
+          disabled={busy || !email.trim()}
+          style={{ fontSize: 11, color: 'var(--fg-muted)', background: 'transparent', border: 0, padding: 4, cursor: 'pointer', textAlign: 'center', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+        >
+          Already have a code? Enter it →
+        </button>
       </form>
+      {/* DEV-only hint: tells you how to bypass email entirely during dev.
+          Vite strips this whole block from production builds. */}
+      {import.meta.env.DEV && (
+        <div style={{ padding: 8, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 6, fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--fg)' }}>Dev tip:</strong> hitting the Supabase email rate limit?
+          Run <span style={{ fontFamily: 'var(--font-mono)' }}>pnpm dev:otp {email || '&lt;email&gt;'}</span> in your terminal
+          (uses service_role to print the code), then click "Already have a code?" above.
+        </div>
+      )}
       {error && <ErrorBanner message={error} />}
     </>
   )
