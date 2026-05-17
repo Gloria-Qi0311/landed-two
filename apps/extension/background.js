@@ -46,6 +46,11 @@ const PORTAL_HOSTS = {
     '*://jobs.lever.co/*',
     '*://jobs.eu.lever.co/*',
   ],
+  workday: [
+    '*://*.myworkdayjobs.com/*',
+    '*://*.myworkdaysite.com/*',
+    '*://*.myworkday.com/*',
+  ],
 }
 
 // ── Side panel (preserved from earlier behaviour) ────────────────────────

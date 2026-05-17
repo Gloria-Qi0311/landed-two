@@ -6,8 +6,8 @@
 //   - parseSubmitConfirmation(root, url, now?)
 //   - parseAppliedBadge(root, url)  (when the portal exposes one)
 //
-// Greenhouse + Lever (#33 / #33.1). Workday + Ashby land in follow-up
-// PRs (#33.2 / #33.3) — same shape.
+// Greenhouse + Lever + Workday (#33 / #33.1 / #33.2). Ashby lands in
+// #33.3 — same shape.
 //
 // Output event shape (consumed by #34's service-worker diff + #35's
 // push-to-Landed flow):
@@ -20,3 +20,4 @@
 //   }
 export * as greenhouse from './greenhouse.js'
 export * as lever from './lever.js'
+export * as workday from './workday.js'
