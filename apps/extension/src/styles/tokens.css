@@ -1,0 +1,73 @@
+/* Shared design tokens + base controls for the Landed extension's bundled
+ * surfaces (popup + options). Mirrors apps/web's visual language; not a
+ * cross-package import yet (web's CSS is Tailwind + globals.css inside
+ * Vite). Factor into a real shared package when a third bundled surface
+ * appears.
+ */
+
+:root {
+  --bg: #fafbfc;
+  --fg: #1a1d24;
+  --fg-muted: #6b7280;
+  --surface: #ffffff;
+  --surface-2: #f4f5f7;
+  --border: #e5e7eb;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+button {
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+}
+button.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+button.primary:hover {
+  background: var(--accent-hover);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input {
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  width: 100%;
+}
+input:focus {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
