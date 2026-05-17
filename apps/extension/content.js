@@ -635,7 +635,9 @@ function detectPortalEventForCurrentPage() {
     if (ns.workday && ns.workday.isWorkdayUrl(url)) {
       return ns.workday.parseWorkdayPage(document, url);
     }
-    // Future portals (Ashby) extend the if-chain here.
+    if (ns.ashby && ns.ashby.isAshbyUrl(url)) {
+      return ns.ashby.parseAshbyPage(document, url);
+    }
     return null;
   } catch {
     return null;
@@ -654,6 +656,7 @@ setTimeout(() => {
       if (ns.greenhouse && ns.greenhouse.isGreenhouseUrl(event.app_url)) portal = 'greenhouse';
       else if (ns.lever && ns.lever.isLeverUrl(event.app_url)) portal = 'lever';
       else if (ns.workday && ns.workday.isWorkdayUrl(event.app_url)) portal = 'workday';
+      else if (ns.ashby && ns.ashby.isAshbyUrl(event.app_url)) portal = 'ashby';
     }
     if (!portal) return;
     chrome.runtime.sendMessage({ action: 'portal-event', portal, event }, () => {

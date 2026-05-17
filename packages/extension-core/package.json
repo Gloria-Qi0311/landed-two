@@ -16,7 +16,8 @@
     "./portal-parsers": "./src/portal-parsers/index.js",
     "./portal-parsers/greenhouse": "./src/portal-parsers/greenhouse.js",
     "./portal-parsers/lever": "./src/portal-parsers/lever.js",
-    "./portal-parsers/workday": "./src/portal-parsers/workday.js"
+    "./portal-parsers/workday": "./src/portal-parsers/workday.js",
+    "./portal-parsers/ashby": "./src/portal-parsers/ashby.js"
   },
   "scripts": {
     "test": "vitest run",

@@ -51,6 +51,10 @@ const PORTAL_HOSTS = {
     '*://*.myworkdaysite.com/*',
     '*://*.myworkday.com/*',
   ],
+  ashby: [
+    '*://*.ashbyhq.com/*',
+    '*://ashbyhq.com/*',
+  ],
 }
 
 // ── Side panel (preserved from earlier behaviour) ────────────────────────
