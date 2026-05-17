@@ -6,9 +6,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="../styles/tokens.css" />
     <style>
-      html, body { width: 360px; min-height: 280px; }
-      body { padding: 16px; }
-      #root { display: flex; flex-direction: column; gap: 12px; }
+      /* Side-panel friendly — fluid width, scrollable content. Chrome side
+       * panel default is 360px; users can drag wider. The min-width keeps
+       * the layout from collapsing when used as a fallback popup. */
+      html, body { width: 100%; min-width: 320px; min-height: 100vh; }
+      body { padding: 32px 28px; background: var(--surface); }
+      #root { display: flex; flex-direction: column; gap: 14px; max-width: 420px; margin: 0 auto; }
     </style>
   </head>
   <body>

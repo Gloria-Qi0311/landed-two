@@ -5,7 +5,6 @@
   "description": "Landed: job-hunt operations — auto-fill applications + portal sync. (Renamed from ApplyMint after merge in Sprint 3.)",
   "permissions": ["activeTab", "storage", "scripting", "sidePanel"],
   "action": {
-    "default_popup": "popup/index.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

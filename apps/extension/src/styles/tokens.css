@@ -53,22 +53,56 @@ button {
   background: var(--surface);
   color: var(--fg);
   transition: background 80ms ease, border-color 80ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 button:hover:not(:disabled) {
   background: var(--surface-2);
 }
-button.primary {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
-}
-button.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Mirrors apps/web/src/styles/globals.css btn-primary + btn-secondary. The
+ * web's primary is the inverted dark button (--fg background, --bg text),
+ * not the accent — that's the brand we match. */
+button.btn-primary,
+.btn-primary {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+button.btn-primary:hover:not(:disabled),
+.btn-primary:hover:not(:disabled) {
+  background: oklch(0.30 0.01 240);
+  border-color: oklch(0.30 0.01 240);
+}
+button.btn-secondary,
+.btn-secondary {
+  background: var(--surface);
+  color: var(--fg);
+  border-color: var(--border);
+}
+button.btn-secondary:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+button.link,
+.link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 500;
+  cursor: pointer;
+}
+button.link:hover:not(:disabled),
+.link:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
 }
 
 input {

@@ -1,16 +1,13 @@
-// Landed extension popup — React rewrite shell.
+// Landed extension — side-panel surface (was popup; restored to side panel
+// per user feedback. Single React app, served from the side panel via
+// manifest.json's side_panel.default_path; clicking the toolbar icon opens
+// the panel via background.js's chrome.action.onClicked handler).
 //
-// SCOPE OF THIS PR (#29): bundler scaffold + sign-in / sign-out only.
-// The bulk of the old popup.js (resume picker, fill button, AI-takeover,
-// label-mapping editor — ~696 LOC) lands in #29.1 followup PRs.
-//
-// Auth wiring uses lib/auth.js from #28. Three states:
-//   loading  → spinner placeholder while getSession() resolves
-//   signedOut → "Sign in with Landed" → email input → 6-digit OTP input
-//   signedIn  → email pill + "Sign out" + placeholder for the rest of the UI
+// SCOPE OF THIS REWRITE: visual + brand parity with apps/web's LoginScreen
+// (LandedMark + display heading + OAuth row + OR-WITH-EMAIL divider + dark
+// .btn-primary + accent "Already have a code" + DEV SHORTCUT yellow card).
+// Resume picker + fill flow (the SignedIn surface) unchanged from PR #67.
 import React, { useEffect, useState } from 'react'
-// lib/auth.js is a vanilla CJS+IIFE module from #28; types declared at
-// apps/extension/lib/auth.d.ts so this import typechecks cleanly.
 import * as auth from '@lib/auth.js'
 
 type AuthState =
@@ -24,7 +21,6 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // Initial session check + onAuthChange subscription.
   useEffect(() => {
     let unsubscribe: (() => void) | null = null
     ;(async () => {
@@ -45,7 +41,12 @@ export function App() {
   }, [])
 
   if (state.kind === 'loading') {
-    return <div style={{ color: 'var(--fg-muted)', padding: '20px 0', textAlign: 'center' }}>Loading…</div>
+    return (
+      <>
+        <Header />
+        <div style={{ color: 'var(--fg-muted)', padding: '20px 0' }}>Loading…</div>
+      </>
+    )
   }
 
   if (state.kind === 'signedIn') {
@@ -76,7 +77,6 @@ export function App() {
           try {
             const result = await auth.verifyOtp(state.email, token)
             if (result.error) setError(result.error.message || 'Invalid code')
-            // onAuthChange will flip to signedIn on success
           } catch (e) {
             setError(toErr(e))
           } finally {
@@ -104,8 +104,6 @@ export function App() {
         }
       }}
       onSkipToCode={(email) => {
-        // Skip the send step entirely; user already has a code from elsewhere
-        // (terminal `pnpm dev:otp`, previous send, etc).
         setError(null)
         setState({ kind: 'codeSent', email })
       }}
@@ -113,8 +111,7 @@ export function App() {
   )
 }
 
-// Brand mark — verbatim port of LandedMark from apps/web/src/components/primitives.jsx.
-// Keep in lockstep with the web version; design system parity is the goal.
+// ── Brand mark — verbatim from apps/web LandedMark ────────────────────────
 function LandedMark({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-label="Landed">
@@ -126,8 +123,8 @@ function LandedMark({ size = 22 }: { size?: number }) {
 
 function Header() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
-      <LandedMark size={20} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+      <LandedMark size={22} />
       <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>
         Landed
       </span>
@@ -136,6 +133,28 @@ function Header() {
   )
 }
 
+function DisplayHeading({ subtitle }: { subtitle: string }) {
+  return (
+    <div style={{ marginTop: 24, marginBottom: 8 }}>
+      <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.025em', lineHeight: 1.2, fontFamily: 'var(--font-display)', marginBottom: 6 }}>
+        Land your next role.
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.55 }}>
+        {subtitle}
+      </div>
+    </div>
+  )
+}
+
+function ArrowRight({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  )
+}
+
+// ── Signed-out: email form (mirrors web LoginScreen) ──────────────────────
 function EmailForm({
   busy, error, onSubmit, onSkipToCode,
 }: {
@@ -148,61 +167,145 @@ function EmailForm({
   return (
     <>
       <Header />
-      <div style={{ color: 'var(--fg-muted)' }}>
-        Sign in to use Landed across web + extension. No password — we'll email a 6-digit code.
-      </div>
-      <form onSubmit={(e) => { e.preventDefault(); if (email.trim()) onSubmit(email.trim()) }} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={busy} autoFocus />
-        <button className="primary" type="submit" disabled={busy || !email.trim()}>
-          {busy ? 'Sending…' : 'Send sign-in code'}
+      <DisplayHeading subtitle="Sign in to keep your application pipeline in sync. No password — we'll email you a 6-digit code." />
+
+      <form onSubmit={(e) => { e.preventDefault(); if (email.trim()) onSubmit(email.trim()) }} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* OAuth placeholders — visual parity with web. chrome.identity wiring
+            is a follow-up (needs Web Store publication + OAuth scope config).
+            Disabled with tooltip explaining. */}
+        <button type="button" className="btn-secondary" disabled title="OAuth in the extension needs chrome.identity setup — Sprint 4 follow-up" style={{ width: '100%', justifyContent: 'center' }}>
+          Continue with Google
         </button>
-        {/* Skip-to-code bypass — same as the web app's "Already have a code?" link.
-            Useful when (a) email rate-limited, (b) you ran `pnpm dev:otp <email>`
-            in the terminal and already have the code, (c) you got the code from
-            a previous send that didn't pop the popup. */}
+        <button type="button" className="btn-secondary" disabled title="OAuth in the extension needs chrome.identity setup — Sprint 4 follow-up" style={{ width: '100%', justifyContent: 'center' }}>
+          Continue with GitHub
+        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          <span style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>or with email</span>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        </div>
+
+        <label htmlFor="login-email" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Email</label>
+        <input
+          id="login-email"
+          type="email"
+          required
+          autoFocus
+          placeholder="you@work.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={busy}
+        />
+
+        {error && <ErrorBanner message={error} />}
+
+        <button type="submit" className="btn-primary" disabled={busy || !email.trim()} style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px' }}>
+          {busy ? 'Sending code…' : <>Send code <ArrowRight /></>}
+        </button>
+
         <button
           type="button"
+          className="link"
+          disabled={!email.trim()}
           onClick={() => { if (email.trim()) onSkipToCode(email.trim()) }}
-          disabled={busy || !email.trim()}
-          style={{ fontSize: 11, color: 'var(--fg-muted)', background: 'transparent', border: 0, padding: 4, cursor: 'pointer', textAlign: 'center', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+          style={{ alignSelf: 'flex-start', marginTop: 4, fontSize: 12 }}
         >
           Already have a code? Enter it →
         </button>
+
+        {/* DEV SHORTCUT — yellow card, matches web's treatment exactly.
+            Extension can't reach the web's /api/dev/login (no Vite server +
+            CORS would block). The realistic shortcut for an extension is
+            "skip the email send + paste the code from `pnpm dev:otp` running
+            in your terminal". Same outcome (signed in without email), one
+            extra terminal command. Vite strips this block from prod. */}
+        {import.meta.env.DEV && (
+          <div style={{
+            marginTop: 10, padding: 10,
+            background: 'oklch(0.96 0.04 90)',
+            border: '0.5px dashed oklch(0.78 0.1 90)',
+            borderRadius: 6,
+            display: 'flex', flexDirection: 'column', gap: 6,
+          }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'oklch(0.40 0.12 90)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Dev shortcut
+            </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!email.trim()}
+              onClick={() => { if (email.trim()) onSkipToCode(email.trim()) }}
+              style={{ width: '100%', justifyContent: 'center' }}
+            >
+              Skip email — paste code from terminal
+            </button>
+            <div style={{ fontSize: 10.5, color: 'oklch(0.42 0.08 90)', lineHeight: 1.45 }}>
+              Run <span style={{ fontFamily: 'var(--font-mono)', background: 'oklch(1 0 0 / 0.5)', padding: '1px 4px', borderRadius: 3 }}>pnpm dev:otp {email || '<email>'}</span> in your terminal — uses service_role to print the code without sending email. Stripped from production builds.
+            </div>
+          </div>
+        )}
       </form>
-      {/* DEV-only hint: tells you how to bypass email entirely during dev.
-          Vite strips this whole block from production builds. */}
-      {import.meta.env.DEV && (
-        <div style={{ padding: 8, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 6, fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-          <strong style={{ color: 'var(--fg)' }}>Dev tip:</strong> hitting the Supabase email rate limit?
-          Run <span style={{ fontFamily: 'var(--font-mono)' }}>pnpm dev:otp {email || '&lt;email&gt;'}</span> in your terminal
-          (uses service_role to print the code), then click "Already have a code?" above.
-        </div>
-      )}
-      {error && <ErrorBanner message={error} />}
+
+      <div style={{ marginTop: 'auto', paddingTop: 24, fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
+        By continuing you agree to the terms and privacy policy. Cookies from portals never leave your browser.
+      </div>
     </>
   )
 }
 
+// ── Signed-out: code-entry form ───────────────────────────────────────────
 function CodeForm({ email, busy, error, onBack, onVerify }: { email: string; busy: boolean; error: string | null; onBack: () => void; onVerify: (t: string) => void }) {
   const [code, setCode] = useState('')
   return (
     <>
       <Header />
-      <div style={{ color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-        A 6-digit code is on its way to <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>{email}</span>.
-      </div>
-      <form onSubmit={(e) => { e.preventDefault(); if (code.trim()) onVerify(code.trim()) }} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <input type="text" required placeholder="123456" inputMode="numeric" pattern="[0-9]*" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} disabled={busy} autoFocus style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', fontSize: 16, textAlign: 'center' }} />
-        <button className="primary" type="submit" disabled={busy || code.length < 6}>
-          {busy ? 'Verifying…' : 'Verify'}
+      <DisplayHeading subtitle={`A 6-digit code is on its way to ${email}. Paste it below.`} />
+
+      <form onSubmit={(e) => { e.preventDefault(); if (code.trim()) onVerify(code.trim()) }} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ padding: 12, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fg)', marginBottom: 3 }}>Check your email</div>
+          <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+            Sent to <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>{email}</span>
+          </div>
+        </div>
+
+        <label htmlFor="login-code" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, marginTop: 4 }}>Code</label>
+        <input
+          id="login-code"
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          maxLength={8}
+          autoComplete="one-time-code"
+          autoFocus
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+          placeholder="123456"
+          required
+          disabled={busy}
+          style={{ padding: '10px 12px', fontSize: 16, fontFamily: 'var(--font-mono)', letterSpacing: '0.25em', textAlign: 'center' }}
+        />
+
+        {error && <ErrorBanner message={error} />}
+
+        <button type="submit" className="btn-primary" disabled={busy || code.length < 6} style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px' }}>
+          {busy ? 'Verifying…' : <>Sign in <ArrowRight /></>}
         </button>
-        <button type="button" onClick={onBack} disabled={busy} style={{ fontSize: 11 }}>← Use a different email</button>
+
+        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.5, marginTop: 2 }}>
+          Tip: in dev, run <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>pnpm dev:otp {email}</span> in your terminal to print the code without waiting for email.
+        </div>
+
+        <button type="button" className="link" onClick={onBack} style={{ alignSelf: 'flex-start', marginTop: 4, fontSize: 12 }}>
+          Use a different email →
+        </button>
       </form>
-      {error && <ErrorBanner message={error} />}
     </>
   )
 }
 
+// ── Signed-in: resume list + Use → fill (preserved from PR #67) ───────────
 type DbResume = {
   id: string
   name: string
@@ -241,18 +344,12 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
       const tab = tabs[0]
       if (!tab?.id) throw new Error('No active tab found')
-      // content.js's chrome.runtime.onMessage handler gates on
-      // msg.action === 'fill' (see content.js:591). Sending bare { resume }
-      // silently no-ops because the listener has no matching branch.
       chrome.tabs.sendMessage(tab.id, { action: 'fill', resume: resume.parsed_json }, () => {
-        // chrome.runtime.lastError fires when no content script is loaded
-        // (chrome://, file://, the new-tab page, etc). Surface gracefully.
         const err = chrome.runtime.lastError
         if (err) {
           setFillNotice(`Couldn't reach the page (${err.message || 'no content script'}). Make sure you're on a job-application form.`)
         } else {
           setFillNotice(`Filling with "${resume.name}"…`)
-          setTimeout(() => window.close(), 400)
         }
         setFillingId(null)
       })
@@ -265,9 +362,10 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
   return (
     <>
       <Header />
-      <div style={{ padding: 10, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 6 }}>
+
+      <div style={{ padding: 12, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 8 }}>
         <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Signed in</div>
-        <div style={{ fontFamily: 'var(--font-mono)' }}>{email}</div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{email}</div>
       </div>
 
       <div>
@@ -276,12 +374,12 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
         </div>
         {resumes === null && <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>Loading…</div>}
         {resumes && resumes.length === 0 && (
-          <div style={{ padding: 10, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 6, fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+          <div style={{ padding: 12, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 }}>
             No resumes yet. Open Landed → Resumes to add one, then come back.
           </div>
         )}
         {resumes && resumes.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
             {resumes.map((r) => (
               <ResumeRow key={r.id} resume={r} filling={fillingId === r.id} onFill={() => fillWith(r)} />
             ))}
@@ -289,9 +387,16 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
         )}
       </div>
 
-      {fillNotice && <div style={{ fontSize: 11, padding: 8, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 6, color: 'var(--fg)' }}>{fillNotice}</div>}
+      {fillNotice && (
+        <div style={{ fontSize: 11.5, padding: 10, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 6, color: 'var(--fg)', lineHeight: 1.5 }}>
+          {fillNotice}
+        </div>
+      )}
       {loadErr && <ErrorBanner message={loadErr} />}
-      <button onClick={onSignOut} disabled={busy}>{busy ? 'Signing out…' : 'Sign out'}</button>
+
+      <button onClick={onSignOut} disabled={busy} className="btn-secondary" style={{ marginTop: 'auto', justifyContent: 'center' }}>
+        {busy ? 'Signing out…' : 'Sign out'}
+      </button>
       {error && <ErrorBanner message={error} />}
     </>
   )
@@ -299,28 +404,34 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
 
 function ResumeRow({ resume, filling, onFill }: { resume: DbResume; filling: boolean; onFill: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 6 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8 }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resume.name}</div>
           {resume.is_current && (
-            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', background: '#dcfce7', color: 'var(--success)', borderRadius: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current</span>
+            <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 6px', background: 'oklch(0.92 0.06 155)', color: 'oklch(0.40 0.13 155)', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current</span>
           )}
         </div>
-        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>
+        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: 2 }}>
           {new Date(resume.created_at).toLocaleDateString()}
         </div>
       </div>
-      <button className="primary" onClick={onFill} disabled={filling} style={{ fontSize: 11, padding: '5px 9px' }}>
+      <button className="btn-primary" onClick={onFill} disabled={filling} style={{ fontSize: 11.5, padding: '6px 11px' }}>
         {filling ? 'Filling…' : 'Use'}
       </button>
     </div>
   )
 }
 
+// ── Shared bits ───────────────────────────────────────────────────────────
 function ErrorBanner({ message }: { message: string }) {
   return (
-    <div style={{ padding: 8, background: '#fef2f2', border: '0.5px solid #fecaca', borderRadius: 6, color: 'var(--danger)', fontSize: 11.5, lineHeight: 1.4 }}>
+    <div style={{
+      fontSize: 11.5, color: 'oklch(0.45 0.15 30)',
+      padding: '8px 10px', background: 'oklch(0.97 0.03 30)',
+      border: '0.5px solid oklch(0.88 0.06 30)', borderRadius: 6,
+      lineHeight: 1.4,
+    }}>
       {message}
     </div>
   )
