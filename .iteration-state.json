@@ -20,6 +20,14 @@
       "friction_count": 9,
       "friction_count_note": "9 events logged (incl. 2 safety_intentional bookkeeping). 7 real bugs caught by sub-agent reviewer across the run (3 fixed in-task without re-cycling so not friction-logged).",
       "retro_path": "RETRO-2026-05-17.md"
+    },
+    {
+      "id": "landed-devloop-20260517-2",
+      "ts": "2026-05-17T07:30:00Z",
+      "tasks_done": 7,
+      "friction_count": 6,
+      "friction_count_note": "6 events logged (incl. 2 safety_intentional bookkeeping). 2 real bugs caught by sub-agent reviewer (iife-to-esm async export miss; chrome message protocol mismatch). Lower bug-catch ratio than Run 2 (~33% vs ~78%) — reflects PR #2's Diff #4 already catching Run-2-class bugs at pre-PR self-review, leaving boundary-contract mismatches as the new dominant failure mode.",
+      "retro_path": "RETRO-2026-05-17-run3.md"
     }
   ],
   "friction_accumulators": {
@@ -67,17 +75,50 @@
       "pr_url": "https://github.com/AntaresYuan/claude-devloop/pull/2"
     },
     "subagent_flag_persistent::real-bug-1-cycle": {
-      "count": 4,
+      "count": 6,
       "first_seen": "2026-05-17T00:30:00Z",
-      "last_seen": "2026-05-17T01:40:00Z",
+      "last_seen": "2026-05-17T09:25:00Z",
       "examples": [
         { "run_id": "landed-devloop-20260517-1", "task": "issue-21", "step": "resume_match_paste_handler", "caught": "onChange wired to side-effecting handler → per-keystroke DB inserts" },
         { "run_id": "landed-devloop-20260517-1", "task": "issue-22", "step": "tailor_bullet_parse", "caught": "tryParseResponse tier-1 schema-mismatch raw obj would crash wordDiff(undefined,...)" },
         { "run_id": "landed-devloop-20260517-1", "task": "issue-23", "step": "companyById_map_type", "caught": "5-place type annotation lie masked by TS inference" },
-        { "run_id": "landed-devloop-20260517-1", "task": "issue-24", "step": "edge_fn_readme_curl", "caught": "README curl URL 404s (wrong subdomain pattern); dead corsHeaders import hidden by void hack" }
+        { "run_id": "landed-devloop-20260517-1", "task": "issue-24", "step": "edge_fn_readme_curl", "caught": "README curl URL 404s (wrong subdomain pattern); dead corsHeaders import hidden by void hack" },
+        { "run_id": "landed-devloop-20260517-2", "task": "issue-26", "step": "iife_to_esm_conversion", "caught": "Python regex transform missed 2 async function declarations + 2 stranded global. refs in llm-match.js" },
+        { "run_id": "landed-devloop-20260517-2", "task": "issue-31-32", "step": "chrome_tabs_sendMessage_contract", "caught": "popup sent bare { resume }; content.js listener gates strictly on msg.action === 'fill' — silent no-op in production" }
       ],
       "pr_status": "open",
-      "pr_url": "https://github.com/AntaresYuan/claude-devloop/pull/2"
+      "pr_url": "https://github.com/AntaresYuan/claude-devloop/pull/2",
+      "follow_up_pr_planned": "Run-3 Diff (c) extends PR #2's Diff #4 with named-field-contract + mechanical-transform-exhaustiveness checks; bundled into new PR with Diffs (a)+(b)"
+    },
+    "stop_condition_hit::scope_too_large_for_one_pr": {
+      "count": 1,
+      "first_seen": "2026-05-17T08:45:00Z",
+      "last_seen": "2026-05-17T08:45:00Z",
+      "examples": [
+        { "run_id": "landed-devloop-20260517-2", "task": "issue-29", "step": "scope_assessment", "action": "scope_cut_to_scaffold_only", "details": "popup React rewrite — old popup.js is 696 LOC with 4 distinct user-visible features; scope-cut to bundler + sign-in shell, deferred features to #29.1 / #29.2. Same prophylactic cut applied to #30 (options.js 1959 LOC)." }
+      ],
+      "pr_status": "open",
+      "pr_url": "https://github.com/AntaresYuan/claude-devloop/pull/3"
+    },
+    "stop_condition_hit::subagent_rate_limit": {
+      "count": 1,
+      "first_seen": "2026-05-17T08:55:00Z",
+      "last_seen": "2026-05-17T08:55:00Z",
+      "examples": [
+        { "run_id": "landed-devloop-20260517-2", "task": "issue-29", "action": "self_reviewed_off_checklist", "details": "Sub-agent rate-limited mid-review on PR #65. Recovery: self-reviewed against pre-prepared written checklist (Vite output paths, React 19 CSP, copy-plugin correctness, ambient .d.ts coverage, state-machine races, manifest path consistency, tsconfig+Vite alias agreement)." }
+      ],
+      "pr_status": "open",
+      "pr_url": "https://github.com/AntaresYuan/claude-devloop/pull/3"
+    },
+    "safety_intentional::git-rm-reuse": {
+      "count": 1,
+      "first_seen": "2026-05-17T08:00:00Z",
+      "last_seen": "2026-05-17T08:00:00Z",
+      "note": "Validates PR #2 Diff #3 (Vite .jsx-before-.tsx pitfall + git rm endorsement of rm:* deny rule). Pattern reused cleanly in Run 3's subtree-absorption cleanup with zero re-friction.",
+      "examples": [
+        { "run_id": "landed-devloop-20260517-2", "cmd": "rm apps/extension/{README.md,package.json}", "workaround": "git rm" }
+      ],
+      "pr_status": "anti_pattern"
     },
     "permission_blocked::rm-tracked-file": {
       "count": 1,
