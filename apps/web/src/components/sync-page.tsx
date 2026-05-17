@@ -252,13 +252,18 @@ export function SyncPage() {
               fontSize: 11.5, color: 'var(--fg-muted)',
             }}
           >
-            <span><strong style={{ color: 'var(--fg)' }}>Dev</strong> · seed sample connections + events so the page renders before the extension is wired up</span>
+            <span>
+              <strong style={{ color: 'var(--fg)' }}>Dev</strong>{' '}
+              {companies.length === 0
+                ? '· no companies in your account yet — add an application first (or use Import demo data on /applications) to enable seeding'
+                : `· seed ${Math.min(4, companies.length)} sample portal connections + events (uses your existing compan${companies.length === 1 ? 'y' : 'ies'})`}
+            </span>
             <div style={{ flex: 1 }} />
             <button
               className="btn-secondary"
               onClick={onSeedDemo}
-              disabled={seeding || companies.length === 0}
-              style={{ fontSize: 11, opacity: seeding || companies.length === 0 ? 0.6 : 1 }}
+              disabled={seeding}
+              style={{ fontSize: 11, opacity: seeding ? 0.6 : 1 }}
             >
               <Icon name="plus" size={11} /> {seeding ? 'Seeding…' : 'Seed sample data'}
             </button>
