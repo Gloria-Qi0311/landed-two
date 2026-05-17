@@ -1,14 +1,16 @@
 {
-  "name": "applymint",
-  "version": "2.2.0",
+  "name": "@landed/extension",
+  "version": "0.0.0",
   "private": true,
-  "description": "Chrome extension that fills job-application forms from a structured resume JSON.",
+  "description": "Landed browser extension (auto-fill + portal-sync). Imported from AntaresYuan/resume-filler via git subtree.",
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "benchmark": "node scripts/benchmark.js"
+    "benchmark": "node scripts/benchmark.js",
+    "build": "echo 'build pipeline lands in #29 / #30 (React rewrite of popup + options); current source is vanilla MV3 — load apps/extension/ directly in chrome://extensions as Load Unpacked'",
+    "typecheck": "echo 'no TS yet — content.js → content.ts ports in #27, popup/options ports in #29/#30'"
   },
   "jest": {
     "testEnvironment": "jsdom",
