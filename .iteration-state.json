@@ -28,6 +28,14 @@
       "friction_count": 6,
       "friction_count_note": "6 events logged (incl. 2 safety_intentional bookkeeping). 2 real bugs caught by sub-agent reviewer (iife-to-esm async export miss; chrome message protocol mismatch). Lower bug-catch ratio than Run 2 (~33% vs ~78%) — reflects PR #2's Diff #4 already catching Run-2-class bugs at pre-PR self-review, leaving boundary-contract mismatches as the new dominant failure mode.",
       "retro_path": "RETRO-2026-05-17-run3.md"
+    },
+    {
+      "id": "landed-devloop-20260517-3",
+      "ts": "2026-05-17T17:00:00Z",
+      "tasks_done": 5,
+      "friction_count": 4,
+      "friction_count_note": "4 events logged (3 subagent_flag_persistent + 1 safety_intentional bookkeeping). 4 real bugs caught by sub-agent reviewer across 3 PRs (PR #70 broad-selector false-positive; PR #72 missing user.id silently dropped queue; PR #73 ×2: sentinel re-shows on fresh sign-in + listener-after-async-get race). Highest bug-catch ratio yet (80% — Run 2 ~78%, Run 3 ~33%). All catches single-cycle. Zero permission_blocked / retry / pacing_mismatch / unexpected_state / stop_condition events — Runs 1-3 improvements are sticking. Scope-cut protocol applied to 3 of 5 tasks (#33 4 portals → 1; #34 full polling → MVP staging; #35 Realtime broadcast → REST insert) with zero user intervention. Pre-prepared review checklist used in every PR. End-to-end portal-sync pipeline shipped (extension auto-detect → SW ingest → 1-min drain → PostgREST → Realtime → web banner). 1 migration awaits user supabase db push.",
+      "retro_path": "RETRO-2026-05-17-run4.md"
     }
   ],
   "friction_accumulators": {
@@ -75,20 +83,33 @@
       "pr_url": "https://github.com/AntaresYuan/claude-devloop/pull/2"
     },
     "subagent_flag_persistent::real-bug-1-cycle": {
-      "count": 6,
+      "count": 10,
       "first_seen": "2026-05-17T00:30:00Z",
-      "last_seen": "2026-05-17T09:25:00Z",
+      "last_seen": "2026-05-17T17:55:00Z",
       "examples": [
         { "run_id": "landed-devloop-20260517-1", "task": "issue-21", "step": "resume_match_paste_handler", "caught": "onChange wired to side-effecting handler → per-keystroke DB inserts" },
         { "run_id": "landed-devloop-20260517-1", "task": "issue-22", "step": "tailor_bullet_parse", "caught": "tryParseResponse tier-1 schema-mismatch raw obj would crash wordDiff(undefined,...)" },
         { "run_id": "landed-devloop-20260517-1", "task": "issue-23", "step": "companyById_map_type", "caught": "5-place type annotation lie masked by TS inference" },
         { "run_id": "landed-devloop-20260517-1", "task": "issue-24", "step": "edge_fn_readme_curl", "caught": "README curl URL 404s (wrong subdomain pattern); dead corsHeaders import hidden by void hack" },
         { "run_id": "landed-devloop-20260517-2", "task": "issue-26", "step": "iife_to_esm_conversion", "caught": "Python regex transform missed 2 async function declarations + 2 stranded global. refs in llm-match.js" },
-        { "run_id": "landed-devloop-20260517-2", "task": "issue-31-32", "step": "chrome_tabs_sendMessage_contract", "caught": "popup sent bare { resume }; content.js listener gates strictly on msg.action === 'fill' — silent no-op in production" }
+        { "run_id": "landed-devloop-20260517-2", "task": "issue-31-32", "step": "chrome_tabs_sendMessage_contract", "caught": "popup sent bare { resume }; content.js listener gates strictly on msg.action === 'fill' — silent no-op in production" },
+        { "run_id": "landed-devloop-20260517-3", "task": "issue-33", "step": "parser_selector_too_broad", "caught": "'main' last-resort selector in parseAppliedBadge false-positives on body prose → phantom already_applied event" },
+        { "run_id": "landed-devloop-20260517-3", "task": "issue-35", "step": "missing_user_id_drops_queue", "caught": "drainPendingEvents missing session.user.id check → all mapEventToRow null → all-malformed branch → clearPending silently dropped queue" },
+        { "run_id": "landed-devloop-20260517-3", "task": "issue-36", "step": "react_storage_sentinel_lifecycle", "caught": "Banner re-shows on fresh sign-in (sentinel cleared only by SW push, not by user re-auth)" },
+        { "run_id": "landed-devloop-20260517-3", "task": "issue-36", "step": "react_listener_after_async_get_race", "caught": "chrome.storage.onChanged listener registered after await chrome.storage.local.get → value-ordering race where stale .get clobbers newer change" }
       ],
       "pr_status": "open",
       "pr_url": "https://github.com/AntaresYuan/claude-devloop/pull/2",
       "follow_up_pr_planned": "Run-3 Diff (c) extends PR #2's Diff #4 with named-field-contract + mechanical-transform-exhaustiveness checks; bundled into new PR with Diffs (a)+(b)"
+    },
+    "boundary_contract_meta::negative-space-probes": {
+      "count": 1,
+      "first_seen": "2026-05-17T17:55:00Z",
+      "last_seen": "2026-05-17T17:55:00Z",
+      "note": "META-pattern: all 4 Run-4 sub-agent catches + analogous Run-2/Run-3 catches fit one of 4 boundary-contract families (producer-output × downstream-trust; precondition × silent side-effect; producer/consumer state-machine; async ordering / subscription registration). Run-4 RETRO §E proposes adding named negative-space probes to the pre-prepared review checklist. Retrospectively, 7+ events across Runs 2-4 fit; tracking as count=1 (this run named it explicitly) to avoid revisionist reclassification of prior events.",
+      "pr_status": "proposed_in_retro_only",
+      "pr_url": null,
+      "reason_no_auto_pr": "Two existing PRs (#2, #3) to AntaresYuan/claude-devloop are still pending human review. Conservative default: don't pile on a 3rd PR — user can open manually from RETRO-2026-05-17-run4.md §E once #2/#3 land."
     },
     "stop_condition_hit::scope_too_large_for_one_pr": {
       "count": 1,
