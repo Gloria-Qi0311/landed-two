@@ -16,6 +16,10 @@ importers:
         version: 2.98.2
 
   apps/extension:
+    dependencies:
+      '@supabase/supabase-js':
+        specifier: ^2.105.4
+        version: 2.105.4
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1

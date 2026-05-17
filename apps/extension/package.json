@@ -16,6 +16,9 @@
     "testEnvironment": "jsdom",
     "testMatch": ["<rootDir>/tests/**/*.test.js"]
   },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.4"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.3.0",
