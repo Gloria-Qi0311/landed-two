@@ -28,6 +28,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.6)
+      '@landed/ai-roundtrip':
+        specifier: workspace:*
+        version: link:../../packages/ai-roundtrip
       '@landed/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -81,7 +84,20 @@ importers:
         specifier: ^8.0.13
         version: 8.0.13(@types/node@25.8.0)(jiti@1.21.7)
 
-  packages/ai-roundtrip: {}
+  packages/ai-roundtrip:
+    devDependencies:
+      '@supabase/supabase-js':
+        specifier: ^2.105.4
+        version: 2.105.4
+      '@types/node':
+        specifier: ^25.8.0
+        version: 25.8.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/extension-core: {}
 
