@@ -210,6 +210,19 @@ describe('generatePrompt resume_parse — classification + multi-word proper-nou
     expect(prompt).toMatch(/competition entry.+as an intern PM.+still a competition/i)
   })
 
+  it('rule 9 has the SELF-INITIATED PRODUCT TEST with domain-name + founder-title guards', () => {
+    const prompt = generatePrompt('resume_parse', {})
+    expect(prompt).toMatch(/SELF-INITIATED PRODUCT TEST/)
+    // Domain-name-as-employer signal (the actual Gmailplusplus.site failure case)
+    expect(prompt).toContain('Gmailplusplus.site')
+    expect(prompt).toContain('MyApp.io')
+    // Founder-title overrides
+    expect(prompt).toMatch(/Founder.+Product Owner.+Builder.+Maker/)
+    // The decisive TEST phrasing
+    expect(prompt).toMatch(/did an EXTERNAL organization.+HIRE this person.+or did they build it themselves/i)
+    expect(prompt).toMatch(/A domain name is NOT an employer/)
+  })
+
   it('rule 10 forbids inferring category from description content', () => {
     const prompt = generatePrompt('resume_parse', {})
     expect(prompt).toMatch(/10\. Do not infer an entry's category from its description content/)
