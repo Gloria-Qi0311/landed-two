@@ -13,6 +13,7 @@ describe('portal-sentinels', () => {
     expect(sentinels).toEqual({
       NEEDS_AUTH_KEY: 'landed:portal-push-needs-auth',
       PENDING_QUEUE_KEY: 'landed:pending-portal-events',
+      BACKOFF_STATE_KEY: 'landed:portal-push-backoff-state',
     })
   })
 

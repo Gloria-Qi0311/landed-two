@@ -7,6 +7,14 @@
 (function () {
   'use strict'
 
+  const BACKOFF_SCHEDULE_MS = [60_000, 120_000, 300_000, 900_000, 3_600_000]
+
+  function nextBackoffMs(consecutiveFailures) {
+    const n = Math.max(0, (consecutiveFailures | 0) - 1)
+    const idx = Math.min(n, BACKOFF_SCHEDULE_MS.length - 1)
+    return BACKOFF_SCHEDULE_MS[idx]
+  }
+
   const TYPE_FOR_KIND = {
     applied: 'status-change',
     already_applied: 'status-change',
@@ -73,7 +81,7 @@
     return { ok: false, fatal: true, error: 'http ' + response.status + ': ' + body.slice(0, 200) }
   }
 
-  const api = { mapEventToRow, pushEvents }
+  const api = { mapEventToRow, pushEvents, nextBackoffMs }
   if (typeof globalThis !== 'undefined') globalThis.LandedPortalEventsPush = api
   else if (typeof self !== 'undefined') self.LandedPortalEventsPush = api
 })()

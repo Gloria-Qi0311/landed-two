@@ -4,7 +4,7 @@
 //     5xx retryable, 4xx fatal, network error retryable)
 //   - service_role guard refuses to push
 import { describe, test, expect, vi } from 'vitest'
-import { mapEventToRow, pushEvents } from '../src/portal-events-push.js'
+import { mapEventToRow, pushEvents, nextBackoffMs } from '../src/portal-events-push.js'
 
 const USER = 'user-uuid-1234'
 const ANON = 'eyJhbGciOiJIUzI1NiIs.fake-anon-payload.signature'
@@ -181,5 +181,30 @@ describe('pushEvents', () => {
     const fetch_ = fakeFetch(201)
     await pushEvents(fetch_, 'https://abc.supabase.co/', ANON, TOKEN, [mapEventToRow(applied(), USER)])
     expect(fetch_.mock.calls[0][0]).toBe('https://abc.supabase.co/rest/v1/portal_events')
+  })
+})
+
+describe('nextBackoffMs', () => {
+  test('schedule: 1min → 2min → 5min → 15min → 60min (capped)', () => {
+    expect(nextBackoffMs(1)).toBe(60_000)      // 1 minute
+    expect(nextBackoffMs(2)).toBe(120_000)     // 2 minutes
+    expect(nextBackoffMs(3)).toBe(300_000)     // 5 minutes
+    expect(nextBackoffMs(4)).toBe(900_000)     // 15 minutes
+    expect(nextBackoffMs(5)).toBe(3_600_000)   // 60 minutes
+  })
+
+  test('caps at 60 min for failure counts past the schedule', () => {
+    expect(nextBackoffMs(6)).toBe(3_600_000)
+    expect(nextBackoffMs(100)).toBe(3_600_000)
+    expect(nextBackoffMs(1_000_000)).toBe(3_600_000)
+  })
+
+  test('0 / negative / non-integer inputs treated as the first retry', () => {
+    // Defensive: if caller forgets to bump the counter and passes 0, we
+    // still return a meaningful first-retry delay rather than 0 (which
+    // would cause an immediate hammer).
+    expect(nextBackoffMs(0)).toBe(60_000)
+    expect(nextBackoffMs(-5)).toBe(60_000)
+    expect(nextBackoffMs(1.7)).toBe(60_000)  // |0 truncates
   })
 })

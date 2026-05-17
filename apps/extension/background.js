@@ -29,6 +29,7 @@ const PUSH_PERIOD_MIN = 1    // drain pending queue every minute when signed in
 // lib/portal-sentinels.js since 3+ callers now read/write it (this file,
 // the popup banner hook, and #36.1's badge-counter).
 const NEEDS_AUTH_KEY = self.LandedPortalSentinels.NEEDS_AUTH_KEY
+const BACKOFF_STATE_KEY = self.LandedPortalSentinels.BACKOFF_STATE_KEY
 
 // Hosts the polling sweep should touch. Mirrors GREENHOUSE_HOSTS in the
 // parser but framed as URL-match patterns chrome.tabs.query accepts.
@@ -206,8 +207,28 @@ async function drainPendingEvents() {
   if (!store || !pushMod || !cfg) return
 
   const storage = store.chromeStorageAdapter(chrome.storage.local)
+
+  // Backoff gate (#35.2): on sustained retryable failures we don't want
+  // to hammer at the 1-min alarm cadence. If we set a future
+  // next_retry_at on the last failure, skip until that time. Doesn't
+  // gate needsAuth (user re-auth is the unblocker) or fatal (we
+  // already dropped the queue).
+  const backoffState = await loadBackoffState()
+  if (backoffState && backoffState.next_retry_at) {
+    const nextRetry = Date.parse(backoffState.next_retry_at)
+    if (Number.isFinite(nextRetry) && nextRetry > Date.now()) return
+  }
+
   const queue = await store.loadPending(storage)
-  if (!queue.events || queue.events.length === 0) return
+  if (!queue.events || queue.events.length === 0) {
+    // Queue empty — if backoff state was lingering from a prior outage,
+    // clear it so a future event starts at the 1-min step rather than
+    // continuing where the (no-longer-relevant) outage left off. The
+    // gate above already short-circuited if we were mid-cooldown; this
+    // only runs when cooldown has elapsed AND there's nothing to push.
+    if (backoffState) chrome.storage.local.remove(BACKOFF_STATE_KEY)
+    return
+  }
 
   const session = await readSession()
   if (!session || !session.user || !session.user.id) {
@@ -241,22 +262,47 @@ async function drainPendingEvents() {
 
   if (result.ok) {
     await store.clearPending(storage)
-    // Clear any stale "needs auth" sentinel — push just succeeded.
-    chrome.storage.local.remove(NEEDS_AUTH_KEY)
+    // Clear any stale "needs auth" sentinel + backoff — push just succeeded.
+    chrome.storage.local.remove([NEEDS_AUTH_KEY, BACKOFF_STATE_KEY])
     return
   }
   if (result.needsAuth) {
     chrome.storage.local.set({ [NEEDS_AUTH_KEY]: new Date().toISOString() })
     // Queue intact — retry on next alarm after the user re-authenticates.
+    // No backoff: the user re-auth is the unblocker, not waiting.
     return
   }
   if (result.fatal) {
     // Schema mismatch / RLS rejection — code bug, not transient. Log
     // loudly + drop the queue (retrying the same payload would fail
-    // forever and grow chrome.storage.local without bound).
+    // forever and grow chrome.storage.local without bound). Also clear
+    // backoff state — no point holding it for a queue we just dropped.
     console.error('[landed] portal-events push FATAL — dropping queue', result.error)
     await store.clearPending(storage)
+    chrome.storage.local.remove(BACKOFF_STATE_KEY)
     return
   }
-  // retryable — leave queue intact; next alarm tries again.
+  // retryable — leave queue intact; advance backoff state so the next
+  // few alarm wakes skip until next_retry_at, then try again.
+  const prevFailures = (backoffState && backoffState.consecutive_failures) || 0
+  const consecutive_failures = prevFailures + 1
+  const next_retry_at = new Date(Date.now() + pushMod.nextBackoffMs(consecutive_failures)).toISOString()
+  await saveBackoffState({ consecutive_failures, next_retry_at })
+}
+
+// ── Backoff state read/write (chrome.storage.local) ──────────────────────
+
+function loadBackoffState() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(BACKOFF_STATE_KEY, (res) => {
+      const v = res && res[BACKOFF_STATE_KEY]
+      resolve(v && typeof v === 'object' ? v : null)
+    })
+  })
+}
+
+function saveBackoffState(state) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [BACKOFF_STATE_KEY]: state }, () => resolve())
+  })
 }

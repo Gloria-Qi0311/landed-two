@@ -37,6 +37,39 @@
 // both represent "we now know the user has submitted this application."
 // The detected_via field distinguishes them in payload_json for debugging.
 
+// ── Exponential backoff schedule for retryable failures ─────────────────
+//
+// Without backoff, drainPendingEvents fires every 1min — on a sustained
+// outage that's 60 pointless requests/hour against a server that's
+// already failing. The schedule below stretches retries during outages
+// while staying fast enough on transient blips that a single 5xx
+// doesn't cost the user a meaningful delay.
+//
+// Index 0 = after 1st failure (1min), capped at index 4 (60min).
+// On `ok` outcome, caller resets `consecutiveFailures` to 0.
+// On `needsAuth`, caller skips backoff entirely (user re-auth unblocks).
+// On `fatal`, caller drops the queue + skips backoff.
+const BACKOFF_SCHEDULE_MS = [
+  60_000,      // 1 minute  (1st retry)
+  120_000,     // 2 minutes (2nd)
+  300_000,     // 5 minutes (3rd)
+  900_000,     // 15 minutes (4th)
+  3_600_000,   // 60 minutes (5th+ — cap)
+]
+
+/** Backoff delay for the Nth consecutive retryable failure (0-indexed
+ *  here, but the typical caller passes `consecutive_failures` from
+ *  chrome.storage which counts from 1). Treats any value ≥ schedule
+ *  length as the cap. Returns ms.
+ *  @param {number} consecutiveFailures  count of consecutive retryable
+ *    failures since last success. After the FIRST failure, pass 1.
+ */
+export function nextBackoffMs(consecutiveFailures) {
+  const n = Math.max(0, (consecutiveFailures | 0) - 1)
+  const idx = Math.min(n, BACKOFF_SCHEDULE_MS.length - 1)
+  return BACKOFF_SCHEDULE_MS[idx]
+}
+
 const TYPE_FOR_KIND = {
   applied: 'status-change',
   already_applied: 'status-change',

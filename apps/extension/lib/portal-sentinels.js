@@ -33,8 +33,13 @@
 
   const NEEDS_AUTH_KEY = 'landed:portal-push-needs-auth'
   const PENDING_QUEUE_KEY = 'landed:pending-portal-events'
+  // BACKOFF_STATE_KEY callers (#35.2):
+  //   - apps/extension/background.js — drainPendingEvents reads to skip
+  //     when next_retry_at > now; writes on retryable; clears on ok.
+  // Shape: { consecutive_failures: number, next_retry_at: ISO string }.
+  const BACKOFF_STATE_KEY = 'landed:portal-push-backoff-state'
 
-  const api = { NEEDS_AUTH_KEY, PENDING_QUEUE_KEY }
+  const api = { NEEDS_AUTH_KEY, PENDING_QUEUE_KEY, BACKOFF_STATE_KEY }
 
   global.LandedPortalSentinels = api
   if (typeof module !== 'undefined' && module.exports) {
