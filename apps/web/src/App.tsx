@@ -22,7 +22,7 @@ import { AddApplicationModal } from './components/add-application-modal';
 import { ResumesPage } from './components/resumes-page';
 import { SyncPage } from './components/sync-page';
 import { ResumeMatchPage } from './components/resume-match-page';
-import { JDBreakdownPage } from './components/jd-breakdown';
+import { JDBreakdownPage } from './components/jd-breakdown-page';
 import {
   EmptyApplicationsView,
   EmptySyncView,
