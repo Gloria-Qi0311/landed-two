@@ -185,3 +185,50 @@ describe('generatePrompt resume_parse — translation block', () => {
     }
   })
 })
+
+describe('generatePrompt resume_parse — classification + multi-word proper-noun rules', () => {
+  it('rule 9 spells out the experience / internship / projects decision order', () => {
+    const prompt = generatePrompt('resume_parse', {})
+    expect(prompt).toMatch(/9\. CLASSIFICATION/)
+    expect(prompt).toMatch(/experience vs internship vs projects/)
+    // Decision-order keywords
+    expect(prompt).toMatch(/internship:.+intern.+TITLE or POSITION field/i)
+    expect(prompt).toMatch(/competition.+ALWAYS a project, NEVER an internship/i)
+    // Reverse-direction trigger words for Chinese contest naming patterns
+    expect(prompt).toContain('挑战赛')
+    expect(prompt).toContain('大赛')
+    expect(prompt).toContain('hackathon')
+    // Tiebreaker note about section headers
+    expect(prompt).toMatch(/section headers.+tiebreaker/i)
+    expect(prompt).toMatch(/OVERRIDES section placement/i)
+  })
+
+  it('rule 9 explicitly prevents "intern" from leaking via description body', () => {
+    const prompt = generatePrompt('resume_parse', {})
+    expect(prompt).toMatch(/NOT in the description body/)
+    expect(prompt).toMatch(/competition entry.+as an intern PM.+still a competition/i)
+  })
+
+  it('rule 10 forbids inferring category from description content', () => {
+    const prompt = generatePrompt('resume_parse', {})
+    expect(prompt).toMatch(/10\. Do not infer an entry's category from its description content/)
+    expect(prompt).toMatch(/Category comes from WHAT THE ENTRY IS, not what the person did inside it/)
+  })
+
+  it('translation block adds competitions/events to the no-translate list + the parenthesized-form rule', () => {
+    const prompt = generatePrompt('resume_parse', { sourceLang: 'zh-CN', targetLang: 'en' })
+    expect(prompt).toMatch(/names of competitions \/ contests \/ challenges \/ hackathons \/ events \/ programs/)
+    // The worked example for the parenthesized form
+    expect(prompt).toContain('飞书 AI 校园挑战赛 (Lark AI Campus Challenge)')
+    expect(prompt).toMatch(/never replace the original with a translated paraphrase/)
+  })
+
+  it('translation block adds the multi-word-name-as-whole rule + extra canonical examples', () => {
+    const prompt = generatePrompt('resume_parse', { sourceLang: 'zh-CN', targetLang: 'en' })
+    expect(prompt).toMatch(/multi-word name is still a single proper noun as a whole/)
+    expect(prompt).toMatch(/test whether the entire string is the official NAME of a thing/i)
+    // Newly added canonical pairs
+    expect(prompt).toContain('飞书 ↔ Lark')
+    expect(prompt).toContain('字节跳动 ↔ ByteDance')
+  })
+})

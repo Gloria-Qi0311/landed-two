@@ -253,8 +253,10 @@ function buildResumeParsePrompt(
           ? '- Detect the resume\'s source language first. If it differs from the target, translate descriptive prose into the target language while parsing. If they match, parse in place without translation.'
           : '- Translate descriptive prose into the target language while parsing.',
         '- TRANSLATE these fields when crossing languages: title, role, major, degree, location, description, summary, intent.apply_position.',
-        '- DO NOT TRANSLATE proper nouns: company names, school names, technology names (React, Python, Kubernetes, etc.), product names, person names, brand names, social handles, URLs, emails, phone numbers, GPA values. Keep these in their original form.',
-        '- If a proper noun has a well-known canonical form in the target language (e.g. 上海交通大学 ↔ Shanghai Jiao Tong University), prefer the form the institution itself uses; when in doubt, keep the source form.',
+        '- DO NOT TRANSLATE proper nouns: company names, school names, technology names (React, Python, Kubernetes, etc.), product names, names of competitions / contests / challenges / hackathons / events / programs, person names, brand names, social handles, URLs, emails, phone numbers, GPA values. Keep these in their original form.',
+        '- For a competition or event name, keep the original name verbatim; if the target-language reader would not recognize it, you MAY append a recognizable form in parentheses ONCE — e.g. "飞书 AI 校园挑战赛 (Lark AI Campus Challenge)" — but never replace the original with a translated paraphrase.',
+        '- A multi-word name is still a single proper noun as a whole. Do NOT translate it word-by-word just because each component word is translatable — test whether the entire string is the official NAME of a thing (a contest, a product, a program, an institution). If yes, keep it.',
+        '- If a proper noun has a well-known canonical form in the target language (e.g. 上海交通大学 ↔ Shanghai Jiao Tong University, 飞书 ↔ Lark, 字节跳动 ↔ ByteDance), prefer the form the institution itself uses; when in doubt, keep the source form.',
         '- JSON field names (keys) stay in English regardless of language settings.',
       ].join('\n')
     : ''
@@ -271,6 +273,13 @@ function buildResumeParsePrompt(
     '6. Escape any " inside string values as \\". Do NOT use 「」 『』 or other special quote characters — replace with plain text or standard quotes.',
     '7. In description fields, separate bullet points with periods — never use newline characters inside a string value.',
     '8. Before outputting, self-check that the JSON parses cleanly: balanced braces, no trailing commas, all keys quoted, no unescaped control characters.',
+    '9. CLASSIFICATION — experience vs internship vs projects. Apply this decision order strictly:',
+    '   - internship: a paid or formally hosted position at a company/organization where the person was an employee or official intern. Signals: a job title at a named employer, an employment relationship, and the word "intern" / "实习" appearing in the entry\'s TITLE or POSITION field (NOT in the description body — a competition entry whose description mentions "as an intern PM" is still a competition). → goes in `internship`.',
+    '   - experience: a full-time or long-term employment position that is NOT an internship. → goes in `experience`.',
+    '   - projects: any competition, hackathon, challenge, contest, course project, lab project, research project, or self-initiated product. A named contest or event (anything ending in 挑战赛 / 大赛 / 比赛 / hackathon / challenge / cup / competition / program) is ALWAYS a project, NEVER an internship — even if the person held a PM / lead / organizer title within it, and even if it was hosted or sponsored by a major company. → goes in `projects`.',
+    '   - If an entry could fit multiple categories, prefer the more specific one in this priority: competition/contest → projects; otherwise employment → internship / experience.',
+    '   - When the resume groups entries under explicit section headers (e.g. "相关经验" vs "核心项目"), use those headers as a tiebreaker — but the competition-is-always-a-project test above OVERRIDES section placement.',
+    '10. Do not infer an entry\'s category from its description content. A challenge / competition project keeps its event nature even if the work resembles a real job (product launches, team leadership, KPIs hit). Category comes from WHAT THE ENTRY IS, not what the person did inside it.',
     translationBlock,
     '',
     'Target schema (return JSON in this exact shape):',
