@@ -82,12 +82,10 @@ export function usePortalEvents(limit = 50) {
 // ── Writes ────────────────────────────────────────────────────────────────
 
 /**
- * Upsert a connection on (company_id, provider). The schema doesn't enforce
- * a unique constraint on that pair, so we do client-side: SELECT first, then
- * UPDATE-or-INSERT. Race-prone if two tabs upsert the same pair concurrently
- * (would produce duplicate rows). Acceptable for the dev seed flow; the
- * extension will hit this from a single service worker so multi-tab races
- * are not a real concern.
+ * Upsert a connection on (user_id, company_id, provider). Backed by the
+ * unique constraint added in 20260517070000_portal_connections_unique.sql,
+ * so this is a single atomic .upsert() — no SELECT-then-UPDATE-or-INSERT
+ * race window.
  */
 export function useUpsertPortalConnection() {
   const qc = useQueryClient()
@@ -104,39 +102,20 @@ export function useUpsertPortalConnection() {
       const userId = userRes.data.user?.id
       if (!userId) throw new Error('not signed in')
 
-      const { data: existing } = await supabase
-        .from('portal_connections')
-        .select('id')
-        .eq('company_id', input.company_id)
-        .eq('provider', input.provider)
-        .maybeSingle()
-
-      const patch = {
-        portal_host: input.portal_host ?? null,
-        status: input.status ?? 'active',
-        last_sync_at: input.last_sync_at ?? null,
-        failure_reason: input.failure_reason ?? null,
-      }
-
-      if (existing?.id) {
-        const { data, error } = await supabase
-          .from('portal_connections')
-          .update(patch)
-          .eq('id', existing.id)
-          .select()
-          .single()
-        if (error) throw error
-        return data as DbPortalConnection
-      }
-
       const { data, error } = await supabase
         .from('portal_connections')
-        .insert({
-          user_id: userId,
-          company_id: input.company_id,
-          provider: input.provider,
-          ...patch,
-        })
+        .upsert(
+          {
+            user_id: userId,
+            company_id: input.company_id,
+            provider: input.provider,
+            portal_host: input.portal_host ?? null,
+            status: input.status ?? 'active',
+            last_sync_at: input.last_sync_at ?? null,
+            failure_reason: input.failure_reason ?? null,
+          },
+          { onConflict: 'user_id,company_id,provider' },
+        )
         .select()
         .single()
       if (error) throw error

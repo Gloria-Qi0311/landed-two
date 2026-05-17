@@ -150,56 +150,30 @@ Deno.serve(async (req: Request) => {
   const body = v.body
 
   // ── Step 1: upsert portal_connections (only if company_id provided) ─────
+  // Single atomic .upsert() backed by the unique (user_id, company_id,
+  // provider) constraint added in 20260517070000_portal_connections_unique.sql.
   let connectionId: string | null = null
   if (body.company_id) {
-    // Look up an existing row for (company_id, provider). RLS auto-scopes to
-    // user_id = auth.uid(). If a future migration adds `unique (user_id,
-    // company_id, provider)`, this round-trip becomes redundant — swap to a
-    // single .upsert().
-    const { data: existing, error: lookupErr } = await supabase
+    const { data, error } = await supabase
       .from('portal_connections')
-      .select('id')
-      .eq('company_id', body.company_id)
-      .eq('provider', body.provider)
-      .maybeSingle()
-    if (lookupErr) {
-      return jsonResponse({ error: 'portal_connections lookup failed', detail: lookupErr.message }, 500)
-    }
-
-    const connPatch = {
-      portal_host: body.portal_host ?? null,
-      status: body.status ?? 'active',
-      last_sync_at: new Date().toISOString(),
-      failure_reason: body.failure_reason ?? null,
-    }
-
-    if (existing?.id) {
-      const { data, error } = await supabase
-        .from('portal_connections')
-        .update(connPatch)
-        .eq('id', existing.id)
-        .select('id')
-        .single()
-      if (error) {
-        return jsonResponse({ error: 'portal_connections update failed', detail: error.message }, 500)
-      }
-      connectionId = data.id
-    } else {
-      const { data, error } = await supabase
-        .from('portal_connections')
-        .insert({
+      .upsert(
+        {
           user_id: userId,
           company_id: body.company_id,
           provider: body.provider,
-          ...connPatch,
-        })
-        .select('id')
-        .single()
-      if (error) {
-        return jsonResponse({ error: 'portal_connections insert failed', detail: error.message }, 500)
-      }
-      connectionId = data.id
+          portal_host: body.portal_host ?? null,
+          status: body.status ?? 'active',
+          last_sync_at: new Date().toISOString(),
+          failure_reason: body.failure_reason ?? null,
+        },
+        { onConflict: 'user_id,company_id,provider' },
+      )
+      .select('id')
+      .single()
+    if (error) {
+      return jsonResponse({ error: 'portal_connections upsert failed', detail: error.message }, 500)
     }
+    connectionId = data.id
   }
 
   // ── Step 2: insert portal_events ────────────────────────────────────────
