@@ -47,6 +47,15 @@ declare global {
       }
       const local: StorageArea
       const sync: StorageArea
+      interface StorageChange { oldValue?: any; newValue?: any }
+      type StorageChangeListener = (
+        changes: Record<string, StorageChange>,
+        areaName: 'local' | 'sync' | 'managed' | 'session',
+      ) => void
+      const onChanged: {
+        addListener(listener: StorageChangeListener): void
+        removeListener(listener: StorageChangeListener): void
+      }
     }
     namespace tabs {
       function query(query: any): Promise<any[]>

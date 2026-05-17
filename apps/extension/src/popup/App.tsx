@@ -10,11 +10,58 @@
 import React, { useEffect, useState } from 'react'
 import * as auth from '@lib/auth.js'
 
+// Must match NEEDS_AUTH_KEY in apps/extension/background.js — the SW
+// sets this whenever pushEvents returns 401/403, and clears it on the
+// next successful push. The popup subscribes via chrome.storage.onChanged
+// and renders ReauthBanner whenever it's truthy.
+const NEEDS_AUTH_KEY = 'landed:portal-push-needs-auth'
+
 type AuthState =
   | { kind: 'loading' }
   | { kind: 'signedOut' }
   | { kind: 'codeSent'; email: string }
   | { kind: 'signedIn'; email: string }
+
+/** Reads + subscribes to the SW-side "session expired" sentinel.
+ *
+ *  Returns the ISO-timestamp string when the SW last detected a 401/403
+ *  on push, or null if everything is fine. Updates live via
+ *  chrome.storage.onChanged so the banner unmounts within ms of the SW
+ *  clearing the flag (next successful push after re-auth). */
+function useNeedsAuth(): string | null {
+  const [stamp, setStamp] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    // `gotChange` short-circuits a stale .get result from clobbering a
+    // newer onChanged update. Without it, if the SW clears the sentinel
+    // between listener registration and .get resolution, the listener
+    // sets null first, then .get resolves with the old value and resets
+    // the banner. Tiny window, but observable.
+    let gotChange = false
+    // Register the listener FIRST (synchronously in the effect body) so
+    // no onChanged events can fire in the gap between mount and .get.
+    const listener = (changes: any, areaName: string) => {
+      if (areaName !== 'local') return
+      if (!changes || !(NEEDS_AUTH_KEY in changes)) return
+      gotChange = true
+      // newValue is undefined when the key was removed (push succeeded).
+      setStamp(changes[NEEDS_AUTH_KEY].newValue ?? null)
+    }
+    try { chrome.storage.onChanged.addListener(listener) } catch { /* test env */ }
+    ;(async () => {
+      try {
+        const res = await chrome.storage.local.get(NEEDS_AUTH_KEY)
+        if (cancelled || gotChange) return
+        setStamp(res?.[NEEDS_AUTH_KEY] ?? null)
+      } catch { /* chrome.* unavailable in tests — leave as null */ }
+    })()
+    return () => {
+      cancelled = true
+      try { chrome.storage.onChanged.removeListener(listener) } catch { /* test env */ }
+    }
+  }, [])
+  return stamp
+}
 
 export function App() {
   const [state, setState] = useState<AuthState>({ kind: 'loading' })
@@ -319,6 +366,7 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [fillingId, setFillingId] = useState<string | null>(null)
   const [fillNotice, setFillNotice] = useState<string | null>(null)
+  const needsAuthAt = useNeedsAuth()
 
   useEffect(() => {
     ;(async () => {
@@ -367,6 +415,21 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
         <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Signed in</div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{email}</div>
       </div>
+
+      {needsAuthAt && (
+        <ReauthBanner
+          detectedAt={needsAuthAt}
+          onReauth={async () => {
+            // Clear the sentinel optimistically before signing out. Without
+            // this, the banner re-appears the instant the user signs back
+            // in (SignedIn remounts → useNeedsAuth reads → sentinel still
+            // there, SW hasn't had a chance to attempt a fresh push yet)
+            // — looks broken even though a push is seconds away.
+            try { await chrome.storage.local.remove(NEEDS_AUTH_KEY) } catch { /* ignore */ }
+            onSignOut()
+          }}
+        />
+      )}
 
       <div>
         <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
@@ -418,6 +481,55 @@ function ResumeRow({ resume, filling, onFill }: { resume: DbResume; filling: boo
       </div>
       <button className="btn-primary" onClick={onFill} disabled={filling} style={{ fontSize: 11.5, padding: '6px 11px' }}>
         {filling ? 'Filling…' : 'Use'}
+      </button>
+    </div>
+  )
+}
+
+// ── Re-auth banner (signedIn but SW push got 401/403) ─────────────────────
+//
+// Visible only when the SW has staged events that PostgREST rejected on
+// auth grounds. We pair "you appear signed in locally" with "the server
+// disagrees" to nudge a re-auth. Sign-out + sign-in is the simplest fix
+// (it forces a fresh JWT); silently refreshing the existing session is a
+// #29.x followup once chrome.alarms-based token refresh lands.
+function ReauthBanner({ detectedAt, onReauth }: { detectedAt: string; onReauth: () => void }) {
+  let when: string
+  try {
+    const d = new Date(detectedAt)
+    when = Number.isNaN(+d) ? 'recently' : d.toLocaleTimeString()
+  } catch { when = 'recently' }
+  return (
+    // role="alert" + aria-live="polite" is intentional: role="alert"
+    // implies aria-live="assertive" by default, but this message is a
+    // nudge, not an emergency — polite waits for the user to finish
+    // current speech rather than interrupting.
+    <div
+      role="alert"
+      aria-live="polite"
+      style={{
+        padding: 12,
+        background: 'oklch(0.97 0.04 80)',
+        border: '0.5px solid oklch(0.85 0.08 80)',
+        borderRadius: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'oklch(0.40 0.13 80)' }}>
+        Sync session expired
+      </div>
+      <div style={{ fontSize: 11.5, color: 'oklch(0.40 0.10 80)', lineHeight: 1.5 }}>
+        Some portal events couldn't sync (detected {when}). Sign in again to push them — your queue is preserved.
+      </div>
+      <button
+        type="button"
+        className="btn-primary"
+        onClick={onReauth}
+        style={{ alignSelf: 'flex-start', fontSize: 11.5, padding: '6px 11px' }}
+      >
+        Sign in again
       </button>
     </div>
   )
