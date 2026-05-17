@@ -262,7 +262,7 @@ function buildResumeParsePrompt(
     : ''
 
   return [
-    'You are a resume parser. Parse the resume below into the JSON schema. Output ONLY JSON — no commentary, no markdown code fences, no explanation text.',
+    'You are a resume parser. Parse the resume below into the JSON schema. ONLY output the JSON that we parsed — REMEMBER!! no commentary, no markdown code fences, no explanation text.',
     '',
     'Rules:',
     '1. For fields you cannot extract, use "" or [] — never fabricate.',

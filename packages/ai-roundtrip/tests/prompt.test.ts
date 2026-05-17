@@ -120,7 +120,8 @@ describe('generatePrompt resume_parse — hardened ruleset', () => {
 
   it('reinforces JSON-only + bans markdown fences and special CJK quotes', () => {
     const prompt = generatePrompt('resume_parse', {})
-    expect(prompt).toMatch(/ONLY JSON/i)
+    expect(prompt).toMatch(/ONLY output the JSON/i)
+    expect(prompt).toMatch(/REMEMBER!!/)
     expect(prompt).toMatch(/markdown code fences?/i)
     expect(prompt).toContain('「」')
     expect(prompt).toContain('『』')
