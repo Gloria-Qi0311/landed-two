@@ -12,7 +12,9 @@
     "./llm-providers": "./src/llm-providers.js",
     "./profiles": "./src/profiles.js",
     "./validators": "./src/validators.js",
-    "./value-match": "./src/value-match.js"
+    "./value-match": "./src/value-match.js",
+    "./portal-parsers": "./src/portal-parsers/index.js",
+    "./portal-parsers/greenhouse": "./src/portal-parsers/greenhouse.js"
   },
   "scripts": {
     "test": "vitest run",
@@ -20,6 +22,7 @@
     "typecheck": "echo 'JS-only for now — JSDoc → .d.ts generation lands in a Sprint 3 follow-up'"
   },
   "devDependencies": {
+    "jsdom": "^27.0.1",
     "vitest": "^4.1.6"
   }
 }
