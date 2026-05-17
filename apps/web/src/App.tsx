@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from './lib/supabase';
@@ -95,27 +96,30 @@ export function App() {
     return () => sub.subscription.unsubscribe();
   }, [queryClient]);
 
-  // `landed:onboarded_at` is still localStorage-backed; the real
-  // `users.onboarded_at TIMESTAMP` column (created by 0001_initial_schema)
-  // gets wired when we add a `useProfile()` hook in a follow-up.
+  // Onboarding flag — server-side per-user (public.users.onboarded_at). The
+  // earlier localStorage approach was destructive (cleared on sign-out, not
+  // scoped by user_id) so users re-saw the tour every time they signed back
+  // in and on every new account. Source of truth is now the DB; survives
+  // sign-out, scoped to auth.uid() via RLS.
+  const { data: onboardedAt, isLoading: profileLoading } = useOnboardedAt();
+  const markOnboarded = useMarkOnboarded();
+  const resetOnboarded = useResetOnboarded();
   useEffect(() => {
-    if (signedIn && !localStorage.getItem('landed:onboarded_at')) {
+    if (signedIn && !profileLoading && !onboardedAt) {
       setShowTour(true);
     }
-  }, [signedIn]);
+  }, [signedIn, profileLoading, onboardedAt]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    // Intentionally clear onboarded_at so the next sign-in re-shows the tour.
-    localStorage.removeItem('landed:onboarded_at');
     setProfileOpen(false);
   };
   const handleTourClose = () => {
     setShowTour(false);
-    localStorage.setItem('landed:onboarded_at', new Date().toISOString());
+    markOnboarded.mutate();
   };
   const handleShowTour = () => {
-    localStorage.removeItem('landed:onboarded_at');
+    resetOnboarded.mutate();
     setShowTour(true);
     setProfileOpen(false);
   };
