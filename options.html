@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>ApplyMint · 编辑简历</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --page-bg: #f7f7f3;
+  --hero-bg: #dbe7ff;
+  --hero-bg-deep: #d1e0ff;
+  --line: #eaedf5;
+  --line-strong: #dde3ef;
+  --text: #23263a;
+  --text-soft: #7d8194;
+  --blue-pill: #c3d8ff;
+  --blue-copy: #436bb4;
+  --mint-pill: #d7efe3;
+  --mint-copy: #43775e;
+  --card-shadow: 0 20px 40px rgba(40, 58, 109, 0.08);
+}
+
+html, body {
+  min-height: 100vh;
+  background: var(--page-bg);
+  color: var(--text);
+}
+
+body {
+  font-family: 'Avenir Next', 'SF Pro Display', 'PingFang SC', 'Helvetica Neue', sans-serif;
+  padding: 20px;
+}
+
+.editor-shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  border-radius: 40px;
+  overflow: hidden;
+  box-shadow: 0 22px 50px rgba(45, 57, 96, 0.12);
+}
+
+.editor-hero {
+  background: linear-gradient(180deg, var(--hero-bg) 0%, var(--hero-bg-deep) 100%);
+  padding: 20px 24px 84px;
+  position: relative;
+}
+.editor-hero::before,
+.editor-hero::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.36);
+}
+.editor-hero::before {
+  width: 170px;
+  height: 170px;
+  top: -50px;
+  right: -40px;
+}
+.editor-hero::after {
+  width: 110px;
+  height: 110px;
+  bottom: -26px;
+  left: -22px;
+}
+
+.hero-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.hero-logo {
+  width: 86px;
+  height: 86px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.54);
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+.hero-logo img {
+  width: 58px;
+  height: 58px;
+}
+
+.hero-copy h1 {
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  margin-bottom: 8px;
+}
+
+.hero-copy p {
+  font-size: 14px;
+  color: #586582;
+  line-height: 1.72;
+  max-width: 460px;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.pill-btn {
+  appearance: none;
+  border: none;
+  background: var(--blue-pill);
+  color: var(--blue-copy);
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(130, 164, 229, 0.18);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+.pill-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(130, 164, 229, 0.24);
+}
+.pill-btn.ghost {
+  background: rgba(255, 255, 255, 0.7);
+  color: #546584;
+}
+.pill-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 20px rgba(130, 164, 229, 0.14);
+}
+.pill-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+}
+.pill-btn.save {
+  background: var(--mint-pill);
+  color: var(--mint-copy);
+  box-shadow: 0 10px 20px rgba(112, 178, 144, 0.18);
+}
+.pill-btn.save.saved {
+  background: #c9ebd6;
+}
+
+.editor-sheet {
+  margin-top: -48px;
+  background: #fff;
+  border-radius: 32px 32px 0 0;
+  padding: 24px 20px 40px;
+  position: relative;
+  z-index: 2;
+}
+
+.hint-banner {
+  border-radius: 24px;
+  background: linear-gradient(135deg, #f5f8ff 0%, #f9fbff 100%);
+  border: 1px solid var(--line);
+  padding: 16px 20px;
+  font-size: 13px;
+  color: #6b7590;
+  line-height: 1.78;
+  box-shadow: 0 6px 18px rgba(40, 58, 109, 0.05);
+  margin-bottom: 20px;
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.section {
+  border-radius: 30px;
+  overflow: hidden;
+  box-shadow: var(--card-shadow);
+}
+
+.s-blue  { --section-bg: #dbe8ff; --section-soft: #edf3ff; --section-text: #4f6aab; }
+.s-mint  { --section-bg: #dcf2e8; --section-soft: #edf8f2; --section-text: #4b8669; }
+.s-yellow{ --section-bg: #fff1bf; --section-soft: #fff8df; --section-text: #987235; }
+.s-pink  { --section-bg: #ffe3eb; --section-soft: #fff3f7; --section-text: #a16078; }
+.s-purple{ --section-bg: #e9e1ff; --section-soft: #f5f1ff; --section-text: #6c58ae; }
+.s-orange{ --section-bg: #ffe9d4; --section-soft: #fff4ea; --section-text: #b27844; }
+.s-sky   { --section-bg: #dff0ff; --section-soft: #eef7ff; --section-text: #4e80a9; }
+.s-slate { --section-bg: #e8edf7; --section-soft: #f5f7fb; --section-text: #61718a; }
+.s-teal  { --section-bg: #d2f0ea; --section-soft: #ebfaf6; --section-text: #3e8b7e; }
+
+.section-art {
+  background: var(--section-bg);
+  min-height: 136px;
+  padding: 22px 24px;
+  position: relative;
+  overflow: hidden;
+}
+.section-art::before {
+  content: '';
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  top: -48px;
+  right: -32px;
+  pointer-events: none;
+}
+.section-art::after {
+  content: '';
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  bottom: -28px;
+  left: -18px;
+  pointer-events: none;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  position: relative;
+  z-index: 1;
+}
+
+.section-ident {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.section-icon-wrap {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 4px 12px rgba(0,0,0,0.06);
+  color: var(--section-text);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.section-title {
+  font-size: 25px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  margin-bottom: 6px;
+}
+
+.section-sub {
+  font-size: 13px;
+  color: rgba(35, 38, 58, 0.66);
+  line-height: 1.6;
+}
+
+.section-body {
+  background: #fff;
+  border-radius: 28px 28px 0 0;
+  margin-top: -6px;
+  padding: 20px 20px 24px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+}
+
+.field.full { grid-column: 1 / -1; }
+
+.field label {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: #9ba2b4;
+  text-transform: uppercase;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #fbfcff;
+  border-radius: 18px;
+  padding: 11px 13px;
+  color: #5f6a84;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+}
+
+.field input:focus,
+.field textarea:focus,
+.tag-editor:focus-within,
+.modal textarea:focus {
+  border-color: #cad4e8;
+  box-shadow: 0 0 0 4px rgba(221, 230, 243, 0.55);
+}
+
+.field textarea { min-height: 88px; }
+
+.field input.invalid,
+.field textarea.invalid {
+  border-color: #d94f4f;
+  background: #fff6f6;
+}
+.field input.invalid:focus,
+.field textarea.invalid:focus {
+  box-shadow: 0 0 0 4px rgba(217, 79, 79, 0.18);
+}
+
+.field-error {
+  display: block;
+  color: #b53d3d;
+  font-size: 11px;
+  margin-top: 5px;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+.validation-banner {
+  display: none;
+  border-radius: 22px;
+  padding: 14px 18px;
+  background: #fdecec;
+  border: 1px solid #f3c8c8;
+  color: #8a2424;
+  font-size: 13px;
+  margin-bottom: 18px;
+}
+.validation-banner.show { display: block; }
+.validation-banner-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.validation-banner ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.validation-banner li { margin-top: 2px; }
+
+.profile-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: 0 6px 14px rgba(40, 58, 109, 0.05);
+  flex-wrap: wrap;
+}
+.profile-bar-label {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9ba2b4;
+  font-weight: 800;
+}
+.profile-name-input {
+  flex: 1;
+  min-width: 160px;
+  border: 1px solid var(--line);
+  background: #fbfcff;
+  border-radius: 14px;
+  padding: 9px 13px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  outline: none;
+}
+.profile-name-input:focus {
+  border-color: #cad4e8;
+  box-shadow: 0 0 0 4px rgba(221, 230, 243, 0.55);
+}
+.profile-bar .mini-btn { white-space: nowrap; }
+
+.card {
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 16px;
+  box-shadow: 0 8px 20px rgba(40, 58, 109, 0.06);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.card:hover {
+  box-shadow: 0 14px 30px rgba(40, 58, 109, 0.1);
+  transform: translateY(-1px);
+}
+.card + .card { margin-top: 12px; }
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.card-title {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.card-title .muted {
+  color: #929aad;
+  font-weight: 600;
+  margin-left: 5px;
+}
+
+.card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mini-btn {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 0 12px;
+  background: var(--section-soft);
+  color: var(--section-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mini-btn.danger {
+  background: #fff0f0;
+  color: #be5e5e;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-soft);
+  margin-top: 8px;
+}
+.checkbox-row input {
+  width: auto;
+  accent-color: #7ea6f8;
+}
+
+.tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 56px;
+  border: 1px solid var(--line);
+  background: #fbfcff;
+  border-radius: 20px;
+  padding: 10px 12px;
+  cursor: text;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 5px 6px 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--section-soft);
+  color: var(--section-text);
+}
+
+.tag button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.tag-input {
+  flex: 1;
+  min-width: 140px;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.custom-fields-sub:not(:empty) {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line-strong);
+}
+.cf-sub-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #b4bcc9;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.custom-field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--section-soft);
+}
+.custom-field-row + .custom-field-row { margin-top: 6px; }
+.cf-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.cf-value {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-soft);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(27, 35, 67, 0.36);
+  backdrop-filter: blur(6px);
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  width: 100%;
+  max-width: 640px;
+  background: #fff;
+  border-radius: 30px;
+  padding: 22px;
+  box-shadow: 0 30px 50px rgba(34, 44, 82, 0.18);
+}
+.modal h2 {
+  font-size: 28px;
+  letter-spacing: -0.04em;
+  margin-bottom: 10px;
+}
+.modal p {
+  font-size: 13px;
+  color: var(--text-soft);
+  line-height: 1.7;
+  margin-bottom: 14px;
+}
+.modal textarea {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid var(--line);
+  background: #fbfcff;
+  border-radius: 18px;
+  padding: 13px 14px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #69738c;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  outline: none;
+  resize: vertical;
+}
+.modal-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+.modal-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.modal-error {
+  font-size: 12px;
+  color: #bf5555;
+  min-height: 18px;
+  margin-top: 8px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: none;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: #2f3550;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 18px 30px rgba(34, 44, 82, 0.18);
+}
+.toast.show { display: block; }
+.toast.success { background: #4b8669; }
+.toast.warn { background: #b06f3a; }
+
+@media (max-width: 900px) {
+  body { padding: 12px; }
+  .editor-hero { padding: 18px 16px 96px; }
+  .hero-toolbar { flex-direction: column; align-items: stretch; }
+  .hero-brand { align-items: flex-start; }
+  .hero-actions { justify-content: flex-start; }
+  .editor-sheet { padding: 18px 12px 18px; }
+  .grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="editor-shell">
+  <div class="editor-hero">
+    <div class="hero-toolbar">
+      <div class="hero-brand">
+        <div class="hero-logo">
+          <img src="assets/brand-mark.svg" alt="ApplyMint logo">
+        </div>
+        <div class="hero-copy">
+          <h1>ApplyMint</h1>
+          <p data-i18n="options.hero_desc">把一份简历整理成结构化资料，后面填表时就能一直复用。</p>
+        </div>
+      </div>
+
+      <div class="hero-actions">
+        <button class="pill-btn ghost" type="button" data-lang-toggle>EN</button>
+        <button class="pill-btn ghost" id="btn-import" data-i18n="options.btn_import">导入 JSON</button>
+        <button class="pill-btn ghost" id="btn-export" data-i18n="options.btn_export">导出 JSON</button>
+        <button class="pill-btn save" id="btn-save" data-i18n="options.btn_save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="editor-sheet">
+    <div class="profile-bar" id="profileBar">
+      <label class="profile-bar-label" for="profileNameInput" data-i18n="options.profile_name_label">简历名称</label>
+      <input type="text" class="profile-name-input" id="profileNameInput" autocomplete="off">
+      <button class="mini-btn" type="button" id="btnProfileDuplicate" data-i18n="options.profile_duplicate">复制为新</button>
+      <button class="mini-btn danger" type="button" id="btnProfileDelete" data-i18n="options.profile_delete">删除此简历</button>
+    </div>
+
+    <div class="hint-banner" data-i18n-html="options.hint_html">多段经历按时间倒序排列（<b>最近的放第一条</b>），填表时会优先使用第一条。字段留空没关系，填表时会自动跳过。</div>
+
+    <div class="validation-banner" id="validationBanner" role="alert" aria-live="polite"></div>
+
+    <div class="sections">
+      <div class="section s-blue">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/>
+                  <path d="M4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.basic_title">基本信息</div>
+                <div class="section-sub" data-i18n="options.section.basic_sub">姓名、联系方式、个人链接</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="grid">
+            <div class="field">
+              <label data-i18n="options.basic.name_label">姓名（全名）</label>
+              <input data-path="basic.name" data-i18n-placeholder="options.basic.name_placeholder" placeholder="张三">
+            </div>
+            <div class="field">
+              <label data-i18n="options.basic.first_name_label">名 First Name</label>
+              <input data-path="basic.firstName" data-i18n-placeholder="options.basic.first_name_placeholder" placeholder="三">
+            </div>
+            <div class="field">
+              <label data-i18n="options.basic.last_name_label">姓 Last Name</label>
+              <input data-path="basic.lastName" data-i18n-placeholder="options.basic.last_name_placeholder" placeholder="张">
+            </div>
+            <div class="field">
+              <label data-i18n="options.basic.email_label">邮箱</label>
+              <input data-path="basic.email" type="email" data-i18n-placeholder="options.basic.email_placeholder" placeholder="zhangsan@gmail.com">
+            </div>
+            <div class="field">
+              <label data-i18n="options.basic.phone_label">手机</label>
+              <input data-path="basic.phone" data-i18n-placeholder="options.basic.phone_placeholder" placeholder="138-0000-0000">
+            </div>
+            <div class="field">
+              <label data-i18n="options.basic.wechat_label">微信</label>
+              <input data-path="basic.wechat" data-i18n-placeholder="options.basic.wechat_placeholder" placeholder="wxid_xxx">
+            </div>
+            <div class="field">
+              <label data-i18n="options.basic.location_label">所在城市</label>
+              <input data-path="basic.location" data-i18n-placeholder="options.basic.location_placeholder" placeholder="上海">
+            </div>
+            <div class="field">
+              <label data-i18n="options.basic.linkedin_label">LinkedIn</label>
+              <input data-path="basic.linkedin" data-i18n-placeholder="options.basic.linkedin_placeholder" placeholder="linkedin.com/in/xxx">
+            </div>
+            <div class="field">
+              <label data-i18n="options.basic.github_label">GitHub</label>
+              <input data-path="basic.github" data-i18n-placeholder="options.basic.github_placeholder" placeholder="github.com/xxx">
+            </div>
+            <div class="field">
+              <label data-i18n="options.basic.portfolio_label">个人网站</label>
+              <input data-path="basic.portfolio" data-i18n-placeholder="options.basic.portfolio_placeholder" placeholder="https://xxx.com">
+            </div>
+          </div>
+          <div class="custom-fields-sub" data-custom-for="basic"></div>
+        </div>
+      </div>
+
+      <div class="section s-mint">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+                  <path d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.intent_title">求职意向</div>
+                <div class="section-sub" data-i18n="options.section.intent_sub">应聘岗位、薪资、到岗时间</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="grid">
+            <div class="field">
+              <label data-i18n="options.intent.position_label">应聘职位</label>
+              <input data-path="intent.apply_position" data-i18n-placeholder="options.intent.position_placeholder" placeholder="前端工程师">
+            </div>
+            <div class="field">
+              <label data-i18n="options.intent.salary_label">期望薪资</label>
+              <input data-path="intent.salary" data-i18n-placeholder="options.intent.salary_placeholder" placeholder="25k-35k / 面议">
+            </div>
+            <div class="field">
+              <label data-i18n="options.intent.available_label">最早到岗</label>
+              <input data-path="intent.available_date" data-i18n-placeholder="options.intent.available_placeholder" placeholder="2 周内 / 随时">
+            </div>
+            <div class="field">
+              <label data-i18n="options.intent.years_label">工作年限</label>
+              <input data-path="intent.years_exp" data-i18n-placeholder="options.intent.years_placeholder" placeholder="3 年">
+            </div>
+          </div>
+          <div class="custom-fields-sub" data-custom-for="intent"></div>
+        </div>
+      </div>
+
+      <div class="section s-yellow" data-section="education">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.627 48.627 0 0 1 12 20.904a48.627 48.627 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347"/>
+                  <path d="M12 13.489a50.697 50.697 0 0 1-7.74-3.342A59.906 59.906 0 0 1 12 3.493a59.902 59.902 0 0 1 7.74 3.342A50.702 50.702 0 0 1 12 13.489Z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.education_title">教育经历</div>
+                <div class="section-sub" data-i18n="options.section.education_sub">按时间倒序，最近的学历放第一条</div>
+              </div>
+            </div>
+            <button class="pill-btn ghost" data-add="education" data-i18n="common.add_item">+ 添加一条</button>
+          </div>
+        </div>
+        <div class="section-body">
+          <div data-list="education"></div>
+          <div class="custom-fields-sub" data-custom-for="education"></div>
+        </div>
+      </div>
+
+      <div class="section s-pink" data-section="experience">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25"/>
+                  <path d="M3 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 0 1 14.326 0C20.232 6.69 21 7.625 21 8.706v3.783"/>
+                  <path d="M8.25 6.144V5.25A2.25 2.25 0 0 1 10.5 3h3A2.25 2.25 0 0 1 15.75 5.25v.894"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.experience_title">工作经历</div>
+                <div class="section-sub" data-i18n="options.section.experience_sub">按时间倒序，最近的工作放第一条</div>
+              </div>
+            </div>
+            <button class="pill-btn ghost" data-add="experience" data-i18n="common.add_item">+ 添加一条</button>
+          </div>
+        </div>
+        <div class="section-body">
+          <div data-list="experience"></div>
+          <div class="custom-fields-sub" data-custom-for="experience"></div>
+        </div>
+      </div>
+
+      <div class="section s-sky" data-section="internship">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap" style="background:#dff0ff;">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4e80a9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.internship_title">实习经历</div>
+                <div class="section-sub" data-i18n="options.section.internship_sub">按时间倒序，最近的实习放第一条</div>
+              </div>
+            </div>
+            <button class="pill-btn ghost" data-add="internship" data-i18n="common.add_item">+ 添加一条</button>
+          </div>
+        </div>
+        <div class="section-body">
+          <div data-list="internship"></div>
+          <div class="custom-fields-sub" data-custom-for="internship"></div>
+        </div>
+      </div>
+
+      <div class="section s-purple" data-section="projects">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8"/>
+                  <path d="M15.59 14.37a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41"/>
+                  <path d="M9.75 16.95a14.926 14.926 0 0 1 5.841-2.58"/>
+                  <path d="M8.25 14.25h-4.8a6 6 0 0 1 7.381-5.84"/>
+                  <path d="M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.projects_title">项目经验</div>
+                <div class="section-sub" data-i18n="options.section.projects_sub">可选；按时间倒序</div>
+              </div>
+            </div>
+            <button class="pill-btn ghost" data-add="projects" data-i18n="common.add_item">+ 添加一条</button>
+          </div>
+        </div>
+        <div class="section-body">
+          <div data-list="projects"></div>
+          <div class="custom-fields-sub" data-custom-for="projects"></div>
+        </div>
+      </div>
+
+      <div class="section s-orange">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.skills_title">技能</div>
+                <div class="section-sub" data-i18n="options.section.skills_sub">按回车或逗号分隔添加</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="tag-editor" id="skills-editor">
+            <input class="tag-input" id="skills-input" data-i18n-placeholder="options.skills_placeholder" placeholder="输入技能后回车，例如 React">
+          </div>
+          <div class="custom-fields-sub" data-custom-for="skills"></div>
+        </div>
+      </div>
+
+      <div class="section s-sky">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3 7.5 7.03 7.5 12s2.015 9 4.5 9Z"/>
+                  <path d="M3 12h18"/>
+                  <path d="M4.157 7.582A8.997 8.997 0 0 1 12 3a8.997 8.997 0 0 1 7.843 4.582"/>
+                  <path d="M19.843 16.418A8.997 8.997 0 0 1 12 21a8.997 8.997 0 0 1-7.843-4.582"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.languages_title">语言</div>
+                <div class="section-sub" data-i18n="options.section.languages_sub">例如：英语 - 流利 / 日语 - N2</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="tag-editor" id="languages-editor">
+            <input class="tag-input" id="languages-input" data-i18n-placeholder="options.languages_placeholder" placeholder="输入语言后回车，例如 英语 - 流利">
+          </div>
+          <div class="custom-fields-sub" data-custom-for="languages"></div>
+        </div>
+      </div>
+
+      <div class="section s-slate">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5A3.375 3.375 0 0 0 10.125 2.25H8.25"/>
+                  <path d="M8.25 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/>
+                  <path d="M8.25 15h7.5"/>
+                  <path d="M8.25 18h3.75"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.summary_title">自我介绍</div>
+                <div class="section-sub" data-i18n="options.section.summary_sub">会用于匹配 summary / about 这类字段</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="field full">
+            <textarea data-path="summary" rows="5" data-i18n-placeholder="options.summary_placeholder" placeholder="3 年前端开发经验，熟悉 React / Vue，专注性能优化..."></textarea>
+          </div>
+          <div class="custom-fields-sub" data-custom-for="summary"></div>
+        </div>
+      </div>
+      <div class="section s-teal" id="section-other" style="display:none">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+                  <path d="M18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.custom_title">自定义字段</div>
+                <div class="section-sub" data-i18n="options.section.custom_sub">填表未匹配到的字段，手动保存后可复用</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="custom-fields-sub" data-custom-for="other" style="margin-top:0;padding-top:0;border-top:none;"></div>
+        </div>
+      </div>
+
+      <div class="section s-orange" id="section-ai">
+        <div class="section-art">
+          <div class="section-head">
+            <div class="section-ident">
+              <div class="section-icon-wrap">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.354a15.057 15.057 0 0 1-3 0M3 16.5v-9A2.25 2.25 0 0 1 5.25 5.25h13.5A2.25 2.25 0 0 1 21 7.5v9a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 16.5Z"/>
+              </svg>
+              </div>
+              <div>
+                <div class="section-title" data-i18n="options.section.ai_title">AI 设置</div>
+                <div class="section-sub" data-i18n="options.section.ai_sub">可选：当规则匹配失败时让 LLM 兜底（你自带 API key）</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="hint-banner" data-i18n="options.ai.privacy_warning" style="background:#ffe9d4;color:#7a4a1a;border-color:#f3c993;">⚠️ 启用后，未匹配字段的标签 + 你的简历会被发送到所选 LLM 服务（你自己的 key）。仅在你信任该提供商时启用。API key 在本地 chrome.storage 用 base64 转码存储——这只能挡偶尔的肉眼浏览，不是加密。</div>
+
+          <div class="grid">
+            <div class="field full">
+              <label data-i18n="options.ai.enable_label">启用 AI 兜底</label>
+              <div style="display:flex;align-items:center;gap:10px;padding-top:6px;">
+                <input type="checkbox" id="ai-enabled" style="width:18px;height:18px;">
+                <span data-i18n="options.ai.enable_hint" style="color:#7d8194;font-size:13px;">未启用时所有 AI 功能都关闭，简历不会被发送</span>
+              </div>
+            </div>
+
+            <div class="field">
+              <label data-i18n="options.ai.provider_label">LLM 提供商</label>
+              <select id="ai-provider"></select>
+            </div>
+            <div class="field">
+              <label data-i18n="options.ai.model_label">模型 (可选)</label>
+              <input id="ai-model" data-i18n-placeholder="options.ai.model_placeholder" placeholder="留空使用默认">
+            </div>
+            <div class="field full">
+              <label data-i18n="options.ai.endpoint_label">Endpoint (可选)</label>
+              <input id="ai-endpoint" data-i18n-placeholder="options.ai.endpoint_placeholder" placeholder="留空使用提供商默认">
+            </div>
+            <div class="field full">
+              <label data-i18n="options.ai.api_key_label">API Key</label>
+              <div style="display:flex;gap:8px;">
+                <input id="ai-api-key" type="password" autocomplete="off" data-i18n-placeholder="options.ai.api_key_placeholder" placeholder="sk-..." style="flex:1;">
+                <button class="pill-btn ghost" type="button" id="ai-show-key" data-i18n="options.ai.show_key">显示</button>
+              </div>
+            </div>
+
+            <div class="field full">
+              <div style="display:flex;gap:10px;align-items:center;">
+                <button class="pill-btn save" type="button" id="ai-test-btn" data-i18n="options.ai.test_btn">测试 Key</button>
+                <button class="pill-btn ghost" type="button" id="ai-save-btn" data-i18n="options.ai.save_btn">保存 AI 设置</button>
+                <span id="ai-test-status" style="color:#7d8194;font-size:13px;"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <h2 data-i18n="options.import_modal_title">从 JSON 导入</h2>
+    <p data-i18n-html="options.import_modal_body">这会 <b>覆盖</b> 当前编辑器里的所有内容。如果只想备份，请先点“导出 JSON”。</p>
+    <textarea id="importText" data-i18n-placeholder="options.import_modal_placeholder" placeholder='{&#10;  "version": 1,&#10;  "basic": { "name": "..." },&#10;  ...&#10;}'></textarea>
+    <label class="modal-checkbox">
+      <input type="checkbox" id="importAsNew">
+      <span data-i18n="options.import_as_new">作为新简历导入（保留当前这份）</span>
+    </label>
+    <div class="modal-error" id="importErr"></div>
+    <div class="modal-actions">
+      <button class="pill-btn ghost" id="importCancel" data-i18n="options.import_modal_cancel">取消</button>
+      <button class="pill-btn save" id="importOk" data-i18n="options.import_modal_ok">导入并覆盖</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="schema.js"></script>
+<script src="lib/llm-providers.js"></script>
+<script src="lib/validators.js"></script>
+<script src="lib/profiles.js"></script>
+<script src="i18n.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

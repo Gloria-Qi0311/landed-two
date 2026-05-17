@@ -1,0 +1,25 @@
+{
+  "name": "applymint",
+  "version": "2.2.0",
+  "private": true,
+  "description": "Chrome extension that fills job-application forms from a structured resume JSON.",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "benchmark": "node scripts/benchmark.js"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "testMatch": ["<rootDir>/tests/**/*.test.js"]
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.3.0",
+    "eslint-plugin-no-unsanitized": "^4.1.5",
+    "globals": "^17.6.0",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1"
+  }
+}

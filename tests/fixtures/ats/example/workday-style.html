@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head><title>Synthetic Workday-style apply form</title></head>
+<body>
+  <h1>Apply</h1>
+  <form>
+    <fieldset>
+      <legend>Personal Information</legend>
+      <div>
+        <label for="full_name">Full Name</label>
+        <input id="full_name" name="full_name" type="text">
+      </div>
+      <div>
+        <label for="email_addr">Email Address</label>
+        <input id="email_addr" name="email_addr" type="email">
+      </div>
+      <div>
+        <label for="phone_num">Phone Number</label>
+        <input id="phone_num" name="phone_num" type="tel">
+      </div>
+      <div>
+        <label for="city">City</label>
+        <input id="city" name="city" type="text">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Education</legend>
+      <div>
+        <label for="school">University</label>
+        <input id="school" name="school" type="text">
+      </div>
+      <div>
+        <label for="major">Field of Study</label>
+        <input id="major" name="major" type="text">
+      </div>
+      <div>
+        <label for="gpa">GPA</label>
+        <input id="gpa" name="gpa" type="text">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Custom Questions</legend>
+      <div>
+        <label for="auth">Are you authorized to work in the US?</label>
+        <select id="auth" name="auth">
+          <option value="">Please select</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+      <div>
+        <label for="referral">How did you hear about this role?</label>
+        <input id="referral" name="referral" type="text">
+      </div>
+    </fieldset>
+  </form>
+</body>
+</html>
