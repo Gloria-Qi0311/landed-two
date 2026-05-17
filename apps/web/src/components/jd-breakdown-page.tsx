@@ -416,7 +416,16 @@ export function JDBreakdownPage() {
                   `${s.parsed.must_have.length} must · ${s.parsed.nice_to_have.length} nice · ${s.parsed.gaps.length} gaps`
                 }
                 onLaunch={() => onLaunchBreakdown(p)}
-                onPaste={() => { setPasteFor({ task: 'breakdown', provider: p }); setPasteDraft('') }}
+                onPaste={() => {
+                  // If the card is still IDLE (manual paste path — user ran the
+                  // prompt in another tab without using Launch), transition to
+                  // awaiting so the textarea gate below opens.
+                  setBreakdown((s) => s[p].status === 'idle'
+                    ? { ...s, [p]: { status: 'awaiting', prompt: breakdownPrompt } }
+                    : s)
+                  setPasteFor({ task: 'breakdown', provider: p })
+                  setPasteDraft('')
+                }}
                 onReset={() => resetBreakdown(p)}
               />
             ))}
@@ -454,7 +463,13 @@ export function JDBreakdownPage() {
                       `${s.parsed.accepted.size}/${s.parsed.bullets.length} accepted`
                     }
                     onLaunch={() => onLaunchTailor(p)}
-                    onPaste={() => { setPasteFor({ task: 'tailor', provider: p }); setPasteDraft('') }}
+                    onPaste={() => {
+                      setTailor((s) => s[p].status === 'idle'
+                        ? { ...s, [p]: { status: 'awaiting', prompt: tailorPrompt } }
+                        : s)
+                      setPasteFor({ task: 'tailor', provider: p })
+                      setPasteDraft('')
+                    }}
                     onReset={() => resetTailor(p)}
                   />
                 ))}
@@ -638,10 +653,21 @@ function ProviderCard<T>({
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {state.status === 'idle' && (
-          <button className="btn-primary" disabled={!canLaunch} onClick={onLaunch}
-            style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}>
-            <Icon name="external" size={12} /> Launch
-          </button>
+          <>
+            <button className="btn-primary" disabled={!canLaunch} onClick={onLaunch}
+              style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}>
+              <Icon name="external" size={12} /> Launch
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={!canLaunch}
+              onClick={onPaste}
+              title="If you already ran the prompt manually (or the popup was blocked), paste the reply here"
+              style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}
+            >
+              <Icon name="doc" size={12} /> Paste reply
+            </button>
+          </>
         )}
         {state.status === 'awaiting' && (
           <>

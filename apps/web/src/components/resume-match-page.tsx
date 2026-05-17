@@ -261,7 +261,15 @@ export function ResumeMatchPage() {
                 state={providers[p]}
                 canLaunch={canLaunch}
                 onLaunch={() => onLaunch(p)}
-                onPaste={() => setPasteFor(p)}
+                onPaste={() => {
+                  // If still IDLE (manual paste path), transition to awaiting
+                  // so the paste textarea section below opens.
+                  setProviders((s) => s[p].status === 'idle'
+                    ? { ...s, [p]: { status: 'awaiting', prompt } }
+                    : s)
+                  setPasteFor(p)
+                  setPasteDraft('')
+                }}
                 onReset={() => resetProvider(p)}
               />
             ))}
@@ -487,10 +495,21 @@ function ProviderCard({
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {state.status === 'idle' && (
-          <button className="btn-primary" disabled={!canLaunch} onClick={onLaunch}
-            style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}>
-            <Icon name="external" size={12} /> Launch
-          </button>
+          <>
+            <button className="btn-primary" disabled={!canLaunch} onClick={onLaunch}
+              style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}>
+              <Icon name="external" size={12} /> Launch
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={!canLaunch}
+              onClick={onPaste}
+              title="If you already ran the prompt manually (or the popup was blocked), paste the reply here"
+              style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}
+            >
+              <Icon name="doc" size={12} /> Paste reply
+            </button>
+          </>
         )}
         {state.status === 'awaiting' && (
           <>
