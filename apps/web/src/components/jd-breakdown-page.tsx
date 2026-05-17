@@ -168,8 +168,6 @@ export function JDBreakdownPage() {
   const [tailor, setTailor] = useState<Record<Provider, TailorState>>(
     initialStates<{ bullets: TailoredBullet[]; accepted: Set<number> }>(),
   )
-  const [pasteFor, setPasteFor] = useState<{ task: 'breakdown' | 'tailor'; provider: Provider } | null>(null)
-  const [pasteDraft, setPasteDraft] = useState('')
   const [applyNotice, setApplyNotice] = useState<string>('')
 
   const jdReady = jdBody.trim().length > 0
@@ -200,8 +198,6 @@ export function JDBreakdownPage() {
       return
     }
     setBreakdown((p) => ({ ...p, [provider]: { status: 'awaiting', prompt: breakdownPrompt } }))
-    setPasteFor({ task: 'breakdown', provider })
-    setPasteDraft('')
   }
 
   const onLaunchTailor = async (provider: Provider) => {
@@ -212,8 +208,25 @@ export function JDBreakdownPage() {
       return
     }
     setTailor((p) => ({ ...p, [provider]: { status: 'awaiting', prompt: tailorPrompt } }))
-    setPasteFor({ task: 'tailor', provider })
-    setPasteDraft('')
+  }
+
+  // Manual-paste path: user already ran the prompt elsewhere; transition the
+  // card straight to 'awaiting' without re-copying / re-opening the popup.
+  const onManualPasteBreakdown = (provider: Provider) => {
+    if (!jdReady) return
+    setBreakdown((p) =>
+      p[provider].status === 'idle' || p[provider].status === 'failed'
+        ? { ...p, [provider]: { status: 'awaiting', prompt: breakdownPrompt } }
+        : p,
+    )
+  }
+  const onManualPasteTailor = (provider: Provider) => {
+    if (!jdReady || !currentResume?.parsed_json) return
+    setTailor((p) =>
+      p[provider].status === 'idle' || p[provider].status === 'failed'
+        ? { ...p, [provider]: { status: 'awaiting', prompt: tailorPrompt } }
+        : p,
+    )
   }
 
   // ── Paste handlers (parse + save once on explicit click) ─────────────────
@@ -281,23 +294,11 @@ export function JDBreakdownPage() {
     }
   }
 
-  const onPaste = async (provider: Provider, text: string) => {
-    if (!pasteFor) return
-    if (pasteFor.task === 'breakdown') await onPasteBreakdown(provider, text)
-    else await onPasteTailor(provider, text)
-  }
-
   const resetBreakdown = (provider: Provider) => {
     setBreakdown((p) => ({ ...p, [provider]: { status: 'idle' } }))
-    if (pasteFor?.task === 'breakdown' && pasteFor.provider === provider) {
-      setPasteFor(null); setPasteDraft('')
-    }
   }
   const resetTailor = (provider: Provider) => {
     setTailor((p) => ({ ...p, [provider]: { status: 'idle' } }))
-    if (pasteFor?.task === 'tailor' && pasteFor.provider === provider) {
-      setPasteFor(null); setPasteDraft('')
-    }
   }
 
   // ── Tailor: toggle accept / accept-all / reject-all / apply ──────────────
@@ -415,17 +416,10 @@ export function JDBreakdownPage() {
                 parsedSummary={(s) =>
                   `${s.parsed.must_have.length} must · ${s.parsed.nice_to_have.length} nice · ${s.parsed.gaps.length} gaps`
                 }
+                placeholder='{"must_have":[...],"nice_to_have":[...],"gaps":[{"skill":"...","weeks_to_close":2,"why":"..."}],"match_percent":72}'
                 onLaunch={() => onLaunchBreakdown(p)}
-                onPaste={() => {
-                  // If the card is still IDLE (manual paste path — user ran the
-                  // prompt in another tab without using Launch), transition to
-                  // awaiting so the textarea gate below opens.
-                  setBreakdown((s) => s[p].status === 'idle'
-                    ? { ...s, [p]: { status: 'awaiting', prompt: breakdownPrompt } }
-                    : s)
-                  setPasteFor({ task: 'breakdown', provider: p })
-                  setPasteDraft('')
-                }}
+                onManualPaste={() => onManualPasteBreakdown(p)}
+                onSubmit={(text) => onPasteBreakdown(p, text)}
                 onReset={() => resetBreakdown(p)}
               />
             ))}
@@ -462,14 +456,10 @@ export function JDBreakdownPage() {
                     parsedSummary={(s) =>
                       `${s.parsed.accepted.size}/${s.parsed.bullets.length} accepted`
                     }
+                    placeholder='{"tailored_bullets":[{"original":"...","tailored":"...","reason":"..."}]}'
                     onLaunch={() => onLaunchTailor(p)}
-                    onPaste={() => {
-                      setTailor((s) => s[p].status === 'idle'
-                        ? { ...s, [p]: { status: 'awaiting', prompt: tailorPrompt } }
-                        : s)
-                      setPasteFor({ task: 'tailor', provider: p })
-                      setPasteDraft('')
-                    }}
+                    onManualPaste={() => onManualPasteTailor(p)}
+                    onSubmit={(text) => onPasteTailor(p, text)}
                     onReset={() => resetTailor(p)}
                   />
                 ))}
@@ -488,61 +478,6 @@ export function JDBreakdownPage() {
           )}
         </section>
 
-        {/* Shared paste area */}
-        {pasteFor && (
-          (pasteFor.task === 'breakdown' ? breakdown[pasteFor.provider].status : tailor[pasteFor.provider].status) === 'awaiting'
-        ) && (
-          <section>
-            <SectionLabel
-              label={`Paste ${PROVIDERS[pasteFor.provider as Exclude<Provider, 'other'>].label}'s ${pasteFor.task === 'breakdown' ? 'breakdown' : 'tailored bullets'} reply`}
-            />
-            <textarea
-              autoFocus
-              value={pasteDraft}
-              onChange={(e) => setPasteDraft(e.target.value)}
-              placeholder={
-                pasteFor.task === 'breakdown'
-                  ? '{"must_have":[...],"nice_to_have":[...],"gaps":[{"skill":"...","weeks_to_close":2,"why":"..."}],"match_percent":72}'
-                  : '{"tailored_bullets":[{"original":"...","tailored":"...","reason":"..."}]}'
-              }
-              style={{
-                width: '100%', minHeight: 200, padding: 10,
-                fontSize: 11.5, fontFamily: 'var(--font-mono)', resize: 'vertical',
-              }}
-            />
-            <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                className="btn-primary"
-                disabled={!pasteDraft.trim()}
-                onClick={() => onPaste(pasteFor.provider, pasteDraft)}
-                style={{ opacity: pasteDraft.trim() ? 1 : 0.5 }}
-              >
-                <Icon name="check" size={12} /> Parse &amp; save
-              </button>
-              <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
-                {pasteDraft.length.toLocaleString()} chars — parses + writes to ai_runs once on click
-              </span>
-            </div>
-          </section>
-        )}
-
-        {/* Shared failed-paste surface */}
-        {pasteFor && (
-          (pasteFor.task === 'breakdown' ? breakdown[pasteFor.provider].status : tailor[pasteFor.provider].status) === 'failed'
-        ) && (
-          <FailedNotice
-            provider={pasteFor.provider}
-            error={
-              pasteFor.task === 'breakdown'
-                ? (breakdown[pasteFor.provider] as Extract<BreakdownState, { status: 'failed' }>).error
-                : (tailor[pasteFor.provider] as Extract<TailorState, { status: 'failed' }>).error
-            }
-            onReset={() => {
-              if (pasteFor.task === 'breakdown') resetBreakdown(pasteFor.provider)
-              else resetTailor(pasteFor.provider)
-            }}
-          />
-        )}
       </div>
     </>
   )
@@ -619,20 +554,32 @@ function SavedAppPicker({
   )
 }
 
+// Provider card with inline paste textarea — same Launch / Paste / Parse
+// rhythm as the Resume upload flow (resumes-page.tsx). Each card owns its
+// own draft state; parent only sees the final text on Submit.
 function ProviderCard<T>({
-  provider, state, canLaunch, parsedSummary, onLaunch, onPaste, onReset,
+  provider, state, canLaunch, parsedSummary, placeholder,
+  onLaunch, onManualPaste, onSubmit, onReset,
 }: {
   provider: Provider
   state: ProviderState<T>
   canLaunch: boolean
   parsedSummary: (s: Extract<ProviderState<T>, { status: 'parsed' }>) => string
+  placeholder?: string
   onLaunch: () => void
-  onPaste: () => void
+  onManualPaste: () => void
+  onSubmit: (text: string) => void | Promise<void>
   onReset: () => void
 }) {
   const cfg = PROVIDERS[provider as Exclude<Provider, 'other'>]
   if (!cfg) return null
-  const pill = pillFor(state.status)
+  const [draft, setDraft] = useState('')
+
+  // Clear the textarea any time the card transitions out of awaiting.
+  React.useEffect(() => {
+    if (state.status !== 'awaiting') setDraft('')
+  }, [state.status])
+
   return (
     <div
       style={{
@@ -640,92 +587,86 @@ function ProviderCard<T>({
         padding: 12, display: 'flex', flexDirection: 'column', gap: 10,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{cfg.label}</div>
-        <span
-          style={{
-            fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em',
-            padding: '2px 6px', borderRadius: 4, background: pill.bg, color: pill.fg,
-          }}
-        >
-          {pill.label}
-        </span>
-      </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {state.status === 'idle' && (
-          <>
-            <button className="btn-primary" disabled={!canLaunch} onClick={onLaunch}
-              style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}>
-              <Icon name="external" size={12} /> Launch
-            </button>
-            <button
-              className="btn-secondary"
-              disabled={!canLaunch}
-              onClick={onPaste}
-              title="If you already ran the prompt manually (or the popup was blocked), paste the reply here"
-              style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}
-            >
-              <Icon name="doc" size={12} /> Paste reply
-            </button>
-          </>
-        )}
-        {state.status === 'awaiting' && (
-          <>
-            <button className="btn-secondary" onClick={onPaste} style={{ fontSize: 12 }}>
-              <Icon name="doc" size={12} /> Paste reply
-            </button>
-            <button className="btn-secondary" onClick={onReset} style={{ fontSize: 12 }}>Cancel</button>
-          </>
-        )}
-        {state.status === 'parsed' && (
-          <>
-            <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
-              {parsedSummary(state)} ({state.format})
-            </span>
-            <button className="btn-secondary" onClick={onReset}
-              style={{ fontSize: 11, marginLeft: 'auto', padding: '3px 8px' }}>Re-run</button>
-          </>
-        )}
-        {state.status === 'failed' && (
-          <button className="btn-secondary" onClick={onReset} style={{ fontSize: 12 }}>
-            <Icon name="refresh" size={12} /> Try again
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{cfg.label}</div>
+
+      {state.status === 'idle' && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button className="btn-primary" disabled={!canLaunch} onClick={onLaunch}
+            style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}>
+            <Icon name="external" size={12} /> Launch
           </button>
-        )}
-      </div>
+          <button
+            className="btn-secondary"
+            disabled={!canLaunch}
+            onClick={onManualPaste}
+            title="Already ran the prompt in another tab? Paste the reply here"
+            style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}
+          >
+            <Icon name="doc" size={12} /> Paste reply
+          </button>
+        </div>
+      )}
+
+      {state.status === 'awaiting' && (
+        <>
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={placeholder}
+            style={{
+              width: '100%', minHeight: 140, padding: 8,
+              fontSize: 11, fontFamily: 'var(--font-mono)', resize: 'vertical',
+            }}
+          />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="btn-primary"
+              disabled={!draft.trim()}
+              onClick={() => onSubmit(draft)}
+              style={{ fontSize: 12, opacity: draft.trim() ? 1 : 0.5 }}
+            >
+              <Icon name="check" size={12} /> Parse &amp; save
+            </button>
+            <button className="btn-secondary" onClick={onReset} style={{ fontSize: 11 }}>Cancel</button>
+            <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--fg-muted)' }}>
+              {draft.length.toLocaleString()} chars
+            </span>
+          </div>
+        </>
+      )}
+
+      {state.status === 'parsed' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Icon name="check" size={12} />
+          <span style={{ fontSize: 11.5, color: 'var(--fg)' }}>{parsedSummary(state)}</span>
+          <span style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>· {state.format}</span>
+          <button className="btn-secondary" onClick={onReset}
+            style={{ fontSize: 11, marginLeft: 'auto', padding: '3px 8px' }}>Re-run</button>
+        </div>
+      )}
+
+      {state.status === 'failed' && (
+        <>
+          <div style={{
+            fontSize: 11.5, color: 'oklch(0.45 0.15 30)',
+            padding: 8, background: 'oklch(0.97 0.03 30)',
+            border: '0.5px solid oklch(0.88 0.06 30)', borderRadius: 6,
+            lineHeight: 1.5,
+          }}>
+            {state.error}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn-secondary" onClick={onReset} style={{ fontSize: 12 }}>
+              <Icon name="refresh" size={12} /> Try again
+            </button>
+            <button className="btn-secondary" onClick={onManualPaste} style={{ fontSize: 12 }}>
+              <Icon name="doc" size={12} /> Paste new reply
+            </button>
+          </div>
+        </>
+      )}
     </div>
-  )
-}
-
-function pillFor(status: 'idle' | 'awaiting' | 'parsed' | 'failed') {
-  switch (status) {
-    case 'idle':     return { label: 'Idle',     bg: 'var(--surface-3)',    fg: 'var(--fg-muted)' }
-    case 'awaiting': return { label: 'Awaiting', bg: 'oklch(0.97 0.04 240)', fg: 'oklch(0.42 0.14 240)' }
-    case 'parsed':   return { label: 'Parsed',   bg: 'oklch(0.96 0.05 155)', fg: 'oklch(0.40 0.13 155)' }
-    case 'failed':   return { label: 'Failed',   bg: 'oklch(0.97 0.03 30)',  fg: 'oklch(0.45 0.15 30)' }
-  }
-}
-
-function FailedNotice({
-  provider, error, onReset,
-}: { provider: Provider; error: string; onReset: () => void }) {
-  const label = PROVIDERS[provider as Exclude<Provider, 'other'>]?.label ?? provider
-  return (
-    <section>
-      <div
-        style={{
-          padding: 12, background: 'oklch(0.97 0.03 30)',
-          border: '0.5px solid oklch(0.88 0.06 30)', borderRadius: 8,
-        }}
-      >
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'oklch(0.45 0.15 30)' }}>
-          Couldn't parse {label}'s response
-        </div>
-        <div style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)', marginTop: 4 }}>{error}</div>
-        <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
-          <button className="btn-secondary" onClick={onReset}>Try again</button>
-        </div>
-      </div>
-    </section>
   )
 }
 

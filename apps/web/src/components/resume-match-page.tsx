@@ -70,11 +70,6 @@ export function ResumeMatchPage() {
 
   const [jds, setJds] = useState<JdSlot[]>([newSlot(), newSlot()])
   const [providers, setProviders] = useState<Record<Provider, ProviderState>>(initialProviders)
-  const [pasteFor, setPasteFor] = useState<Provider | null>(null)
-  // Local draft text for the paste textarea — kept out of providers state so
-  // we don't parse + persist on every keystroke. User clicks "Parse & save"
-  // to submit.
-  const [pasteDraft, setPasteDraft] = useState('')
 
   // The prompt the user will send. Memoized so the displayed text only
   // recomputes when inputs change.
@@ -99,8 +94,17 @@ export function ResumeMatchPage() {
       return
     }
     setProviders((p) => ({ ...p, [provider]: { status: 'awaiting', prompt } }))
-    setPasteFor(provider)
-    setPasteDraft('')
+  }
+
+  // Manual-paste path: card transitions straight to 'awaiting' without
+  // re-copying or re-opening the popup.
+  const onManualPaste = (provider: Provider) => {
+    if (!canLaunch) return
+    setProviders((p) =>
+      p[provider].status === 'idle' || p[provider].status === 'failed'
+        ? { ...p, [provider]: { status: 'awaiting', prompt } }
+        : p,
+    )
   }
 
   const onPaste = async (provider: Provider, text: string) => {
@@ -143,10 +147,6 @@ export function ResumeMatchPage() {
 
   const resetProvider = (provider: Provider) => {
     setProviders((p) => ({ ...p, [provider]: { status: 'idle' } }))
-    if (pasteFor === provider) {
-      setPasteFor(null)
-      setPasteDraft('')
-    }
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -260,77 +260,16 @@ export function ResumeMatchPage() {
                 provider={p}
                 state={providers[p]}
                 canLaunch={canLaunch}
+                parsedSummary={(s) => `${s.rankings.length} ranking${s.rankings.length === 1 ? '' : 's'}`}
+                placeholder='{"rankings":[{"jd_id":"jd-xxx","rank":1,"score":8.5,"reasons":["..."],"gaps":["..."]}]}'
                 onLaunch={() => onLaunch(p)}
-                onPaste={() => {
-                  // If still IDLE (manual paste path), transition to awaiting
-                  // so the paste textarea section below opens.
-                  setProviders((s) => s[p].status === 'idle'
-                    ? { ...s, [p]: { status: 'awaiting', prompt } }
-                    : s)
-                  setPasteFor(p)
-                  setPasteDraft('')
-                }}
+                onManualPaste={() => onManualPaste(p)}
+                onSubmit={(text) => onPaste(p, text)}
                 onReset={() => resetProvider(p)}
               />
             ))}
           </div>
         </section>
-
-        {/* Paste textarea (only when a provider is awaiting). Local draft +
-            explicit "Parse & save" button so we don't slam ai_runs on every
-            keystroke. */}
-        {pasteFor && providers[pasteFor].status === 'awaiting' && (
-          <section>
-            <SectionLabel label={`Paste ${PROVIDERS[pasteFor as Exclude<Provider, 'other'>].label}'s reply`} />
-            <textarea
-              autoFocus
-              value={pasteDraft}
-              onChange={(e) => setPasteDraft(e.target.value)}
-              placeholder='{"rankings":[{"jd_id":"jd-xxx","rank":1,"score":8.5,"reasons":["..."],"gaps":["..."]}]}'
-              style={{
-                width: '100%', minHeight: 200, padding: 10,
-                fontSize: 11.5, fontFamily: 'var(--font-mono)', resize: 'vertical',
-              }}
-            />
-            <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                className="btn-primary"
-                disabled={!pasteDraft.trim()}
-                onClick={() => onPaste(pasteFor, pasteDraft)}
-                style={{ opacity: pasteDraft.trim() ? 1 : 0.5 }}
-              >
-                <Icon name="check" size={12} /> Parse &amp; save
-              </button>
-              <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
-                {pasteDraft.length.toLocaleString()} chars — parses + writes to ai_runs once on click
-              </span>
-            </div>
-          </section>
-        )}
-
-        {/* Failed-paste error surface */}
-        {pasteFor && providers[pasteFor].status === 'failed' && (
-          <section>
-            <div
-              style={{
-                padding: 12, background: 'oklch(0.97 0.03 30)',
-                border: '0.5px solid oklch(0.88 0.06 30)', borderRadius: 8,
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'oklch(0.45 0.15 30)' }}>
-                Couldn't parse {PROVIDERS[pasteFor as Exclude<Provider, 'other'>].label}'s response
-              </div>
-              <div style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)', marginTop: 4 }}>
-                {(providers[pasteFor] as Extract<ProviderState, { status: 'failed' }>).error}
-              </div>
-              <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
-                <button className="btn-secondary" onClick={() => resetProvider(pasteFor)}>
-                  Try again
-                </button>
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* Comparison */}
         {PROVIDER_LIST.some((p) => providers[p].status === 'parsed') && (
@@ -453,24 +392,32 @@ function JdSlotCard({
   )
 }
 
+// Provider card with inline paste textarea. Same Launch / Paste / Parse
+// rhythm as resumes-page.tsx and jd-breakdown-page.tsx. Each card owns its
+// own draft state; parent only sees the final text on Submit.
 function ProviderCard({
-  provider,
-  state,
-  canLaunch,
-  onLaunch,
-  onPaste,
-  onReset,
+  provider, state, canLaunch, parsedSummary, placeholder,
+  onLaunch, onManualPaste, onSubmit, onReset,
 }: {
   provider: Provider
   state: ProviderState
   canLaunch: boolean
+  parsedSummary: (s: Extract<ProviderState, { status: 'parsed' }>) => string
+  placeholder?: string
   onLaunch: () => void
-  onPaste: () => void
+  onManualPaste: () => void
+  onSubmit: (text: string) => void | Promise<void>
   onReset: () => void
 }) {
   const cfg = PROVIDERS[provider as Exclude<Provider, 'other'>]
   if (!cfg) return null
-  const pill = pillFor(state.status)
+  const [draft, setDraft] = useState('')
+
+  // Clear textarea whenever the card transitions out of awaiting.
+  React.useEffect(() => {
+    if (state.status !== 'awaiting') setDraft('')
+  }, [state.status])
+
   return (
     <div
       style={{
@@ -481,73 +428,87 @@ function ProviderCard({
         display: 'flex', flexDirection: 'column', gap: 10,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{cfg.label}</div>
-        <span
-          style={{
-            fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em',
-            padding: '2px 6px', borderRadius: 4,
-            background: pill.bg, color: pill.fg,
-          }}
-        >
-          {pill.label}
-        </span>
-      </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {state.status === 'idle' && (
-          <>
-            <button className="btn-primary" disabled={!canLaunch} onClick={onLaunch}
-              style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}>
-              <Icon name="external" size={12} /> Launch
-            </button>
-            <button
-              className="btn-secondary"
-              disabled={!canLaunch}
-              onClick={onPaste}
-              title="If you already ran the prompt manually (or the popup was blocked), paste the reply here"
-              style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}
-            >
-              <Icon name="doc" size={12} /> Paste reply
-            </button>
-          </>
-        )}
-        {state.status === 'awaiting' && (
-          <>
-            <button className="btn-secondary" onClick={onPaste} style={{ fontSize: 12 }}>
-              <Icon name="doc" size={12} /> Paste reply
-            </button>
-            <button className="btn-secondary" onClick={onReset} style={{ fontSize: 12 }}>
-              Cancel
-            </button>
-          </>
-        )}
-        {state.status === 'parsed' && (
-          <>
-            <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
-              {state.rankings.length} ranking{state.rankings.length === 1 ? '' : 's'} parsed ({state.format})
-            </span>
-            <button className="btn-secondary" onClick={onReset} style={{ fontSize: 11, marginLeft: 'auto', padding: '3px 8px' }}>
-              Re-run
-            </button>
-          </>
-        )}
-        {state.status === 'failed' && (
-          <button className="btn-secondary" onClick={onReset} style={{ fontSize: 12 }}>
-            <Icon name="refresh" size={12} /> Try again
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{cfg.label}</div>
+
+      {state.status === 'idle' && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button className="btn-primary" disabled={!canLaunch} onClick={onLaunch}
+            style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}>
+            <Icon name="external" size={12} /> Launch
           </button>
-        )}
-      </div>
+          <button
+            className="btn-secondary"
+            disabled={!canLaunch}
+            onClick={onManualPaste}
+            title="Already ran the prompt in another tab? Paste the reply here"
+            style={{ fontSize: 12, opacity: canLaunch ? 1 : 0.5 }}
+          >
+            <Icon name="doc" size={12} /> Paste reply
+          </button>
+        </div>
+      )}
+
+      {state.status === 'awaiting' && (
+        <>
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={placeholder}
+            style={{
+              width: '100%', minHeight: 140, padding: 8,
+              fontSize: 11, fontFamily: 'var(--font-mono)', resize: 'vertical',
+            }}
+          />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="btn-primary"
+              disabled={!draft.trim()}
+              onClick={() => onSubmit(draft)}
+              style={{ fontSize: 12, opacity: draft.trim() ? 1 : 0.5 }}
+            >
+              <Icon name="check" size={12} /> Parse &amp; save
+            </button>
+            <button className="btn-secondary" onClick={onReset} style={{ fontSize: 11 }}>Cancel</button>
+            <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--fg-muted)' }}>
+              {draft.length.toLocaleString()} chars
+            </span>
+          </div>
+        </>
+      )}
+
+      {state.status === 'parsed' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Icon name="check" size={12} />
+          <span style={{ fontSize: 11.5, color: 'var(--fg)' }}>{parsedSummary(state)}</span>
+          <span style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>· {state.format}</span>
+          <button className="btn-secondary" onClick={onReset}
+            style={{ fontSize: 11, marginLeft: 'auto', padding: '3px 8px' }}>Re-run</button>
+        </div>
+      )}
+
+      {state.status === 'failed' && (
+        <>
+          <div style={{
+            fontSize: 11.5, color: 'oklch(0.45 0.15 30)',
+            padding: 8, background: 'oklch(0.97 0.03 30)',
+            border: '0.5px solid oklch(0.88 0.06 30)', borderRadius: 6,
+            lineHeight: 1.5,
+          }}>
+            {state.error}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn-secondary" onClick={onReset} style={{ fontSize: 12 }}>
+              <Icon name="refresh" size={12} /> Try again
+            </button>
+            <button className="btn-secondary" onClick={onManualPaste} style={{ fontSize: 12 }}>
+              <Icon name="doc" size={12} /> Paste new reply
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
-}
-
-function pillFor(status: ProviderState['status']): { label: string; bg: string; fg: string } {
-  switch (status) {
-    case 'idle':     return { label: 'Idle',     bg: 'var(--surface-3)',    fg: 'var(--fg-muted)' }
-    case 'awaiting': return { label: 'Awaiting', bg: 'oklch(0.97 0.04 240)', fg: 'oklch(0.42 0.14 240)' }
-    case 'parsed':   return { label: 'Parsed',   bg: 'oklch(0.96 0.05 155)', fg: 'oklch(0.40 0.13 155)' }
-    case 'failed':   return { label: 'Failed',   bg: 'oklch(0.97 0.03 30)',  fg: 'oklch(0.45 0.15 30)' }
-  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
