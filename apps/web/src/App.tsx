@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
+import type { Session } from '@supabase/supabase-js';
 
+import { supabase } from './lib/supabase';
 import { Sidebar, PageHeader, StatsBanner } from './components/shell';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
 import { Icon } from './components/primitives';
@@ -37,10 +39,11 @@ export function App() {
   const [openApp, setOpenApp] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
 
-  // Auth + onboarding state — persisted to localStorage so reloads remember
-  const [signedIn, setSignedIn] = useState<boolean>(
-    () => localStorage.getItem('landed:signedIn') === 'true'
-  );
+  // Auth state — Supabase manages session persistence under sb-<ref>-auth-token
+  // in localStorage; we mirror the session object here and gate render on it.
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const signedIn = !!session;
   const [profileOpen, setProfileOpen] = useState(false);
   const [showTour, setShowTour] = useState(false);
 
@@ -50,23 +53,33 @@ export function App() {
     localStorage.setItem('landed:theme', theme);
   }, [theme]);
 
-  // `landed:onboarded_at` mirrors the eventual `users.onboarded_at TIMESTAMP` Supabase
-  // column (spec.md §3). Stored as an ISO 8601 string so the migration to a real DB
-  // is a JSON.stringify(new Date()) → DB write swap, nothing more.
+  // Hydrate session on mount + subscribe to subsequent changes (sign-in /
+  // sign-out / token refresh / OAuth redirect-return).
   useEffect(() => {
-    if (signedIn) {
-      localStorage.setItem('landed:signedIn', 'true');
-      if (!localStorage.getItem('landed:onboarded_at')) {
-        setShowTour(true);
-      }
-    } else {
-      localStorage.removeItem('landed:signedIn');
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      setSession(sess);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // `landed:onboarded_at` is still localStorage-backed for now; the real
+  // `users.onboarded_at TIMESTAMP` column (created by 0001_initial_schema)
+  // gets wired in #10 when the data layer lands. ISO 8601 format here means
+  // the migration is a single .from('users').update({ onboarded_at: ... }).
+  useEffect(() => {
+    if (signedIn && !localStorage.getItem('landed:onboarded_at')) {
+      setShowTour(true);
     }
   }, [signedIn]);
 
-  const handleSignIn = () => setSignedIn(true);
-  const handleSignOut = () => {
-    setSignedIn(false);
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    // Intentionally clear onboarded_at so the next sign-in re-shows the tour.
+    // Matches the prototype's behavior and is friendly for testing.
     localStorage.removeItem('landed:onboarded_at');
     setProfileOpen(false);
   };
@@ -87,9 +100,15 @@ export function App() {
     setApps((prev) => [newApp, ...prev]);
   };
 
+  // While the session hydrates on mount, render nothing — avoids a flash of
+  // the LoginScreen for users with a valid token.
+  if (!authReady) {
+    return <div style={{ height: '100vh', width: '100vw', background: 'var(--bg)' }} />;
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)' }}>
-      {!signedIn && <LoginScreen onSignIn={handleSignIn} />}
+      {!signedIn && <LoginScreen />}
 
       <Sidebar apps={apps} onProfileClick={() => setProfileOpen((o) => !o)} />
 
