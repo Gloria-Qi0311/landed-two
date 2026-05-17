@@ -136,7 +136,7 @@ describe('generatePrompt resume_parse — hardened ruleset', () => {
     // The named failure mode
     expect(prompt).toMatch(/closes the string at the first inner.+breaks parsing/)
     // Fallback: escape \" only if you must
-    expect(prompt).toMatch(/escape it as \\\\"/)
+    expect(prompt).toContain('escape it as \\"')
   })
 
   it('requires reverse-chrono ordering + self-check + period-separated descriptions', () => {
