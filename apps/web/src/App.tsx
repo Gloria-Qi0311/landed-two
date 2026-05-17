@@ -1,8 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from './lib/supabase';
+import {
+  useApplications,
+  useCompanies,
+  useUpdateApplication,
+  useAddApplication,
+  useImportDemoData,
+} from './hooks/queries';
 import { Sidebar, PageHeader, StatsBanner } from './components/shell';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
 import { Icon } from './components/primitives';
@@ -20,12 +28,11 @@ import {
   EmptyResumeMatchView,
   EmptyJDBreakdownView,
 } from './components/empty-states';
-import { STAGES, COMPANIES, APPLICATIONS } from './data';
+import { STAGES, COMPANIES as COMPANY_CATALOG } from './data';
 
-// Pre-Supabase placeholder. Real "no data" wiring (apps.length === 0,
-// portal_connections.length === 0, etc.) lands with the data layer in #10.
-// Until then, empty states are previewable via `?preview=empty` URL param —
-// driven by the screenshot harness (apps/web/scripts/screens.js).
+// Preview empty states via `?preview=empty` URL param — used by the
+// screenshot harness. Real empty states render when the data layer returns
+// no rows (apps.length === 0).
 function usePreviewEmpty() {
   const [params] = useSearchParams();
   return params.get('preview') === 'empty';
@@ -35,7 +42,6 @@ export function App() {
   const [theme, setTheme] = useState<string>(
     () => localStorage.getItem('landed:theme') || 'cool'
   );
-  const [apps, setApps] = useState<any[]>(APPLICATIONS);
   const [openApp, setOpenApp] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
 
@@ -47,6 +53,21 @@ export function App() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [showTour, setShowTour] = useState(false);
 
+  // Data layer (TanStack Query → Supabase). enabled=signedIn so we don't
+  // fire RLS-rejected requests while the LoginScreen is showing.
+  const appsQuery = useApplications();
+  const companiesQuery = useCompanies();
+  const updateApp = useUpdateApplication();
+  const addApp = useAddApplication();
+  const importDemo = useImportDemoData();
+
+  const apps = appsQuery.data ?? [];
+  // Companies for rendering: prefer the user's table; fall back to the
+  // catalog so newly-added apps don't visually break before the next refetch.
+  const companies = (companiesQuery.data && companiesQuery.data.length > 0)
+    ? companiesQuery.data
+    : COMPANY_CATALOG;
+
   // Theme: apply on <body> + persist
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);
@@ -54,22 +75,28 @@ export function App() {
   }, [theme]);
 
   // Hydrate session on mount + subscribe to subsequent changes (sign-in /
-  // sign-out / token refresh / OAuth redirect-return).
+  // sign-out / token refresh / OAuth redirect-return). On SIGNED_IN /
+  // SIGNED_OUT we also clear the TanStack Query cache so user A's data
+  // never leaks into user B's session — RLS scopes the DB query, but the
+  // client-side cache survives sign-out otherwise.
+  const queryClient = useQueryClient();
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthReady(true);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
       setSession(sess);
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        queryClient.clear();
+      }
     });
     return () => sub.subscription.unsubscribe();
-  }, []);
+  }, [queryClient]);
 
-  // `landed:onboarded_at` is still localStorage-backed for now; the real
+  // `landed:onboarded_at` is still localStorage-backed; the real
   // `users.onboarded_at TIMESTAMP` column (created by 0001_initial_schema)
-  // gets wired in #10 when the data layer lands. ISO 8601 format here means
-  // the migration is a single .from('users').update({ onboarded_at: ... }).
+  // gets wired when we add a `useProfile()` hook in a follow-up.
   useEffect(() => {
     if (signedIn && !localStorage.getItem('landed:onboarded_at')) {
       setShowTour(true);
@@ -79,7 +106,6 @@ export function App() {
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     // Intentionally clear onboarded_at so the next sign-in re-shows the tour.
-    // Matches the prototype's behavior and is friendly for testing.
     localStorage.removeItem('landed:onboarded_at');
     setProfileOpen(false);
   };
@@ -91,13 +117,6 @@ export function App() {
     localStorage.removeItem('landed:onboarded_at');
     setShowTour(true);
     setProfileOpen(false);
-  };
-
-  const updateApp = (id: string, patch: any) => {
-    setApps((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
-  };
-  const addApp = (newApp: any) => {
-    setApps((prev) => [newApp, ...prev]);
   };
 
   // While the session hydrates on mount, render nothing — avoids a flash of
@@ -131,9 +150,13 @@ export function App() {
             element={
               <ApplicationsPage
                 apps={apps}
+                companies={companies}
+                isLoading={appsQuery.isLoading}
                 onOpenApp={setOpenApp}
-                onMoveCard={(id, stage) => updateApp(id, { stage })}
+                onMoveCard={(id, stage) => updateApp.mutate({ id, patch: { stage } })}
                 onOpenAddModal={() => setAddModalOpen(true)}
+                onImportDemo={() => importDemo.mutate()}
+                importing={importDemo.isPending}
               />
             }
           />
@@ -149,16 +172,16 @@ export function App() {
         <DetailDrawer
           appId={openApp}
           apps={apps}
-          companies={COMPANIES}
+          companies={companies}
           onClose={() => setOpenApp(null)}
-          onUpdate={updateApp}
+          onUpdate={(id, patch) => updateApp.mutate({ id, patch })}
         />
       )}
 
       <AddApplicationModal
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
-        onAdd={addApp}
+        onAdd={(input) => addApp.mutateAsync(input)}
       />
     </div>
   );
@@ -166,14 +189,22 @@ export function App() {
 
 function ApplicationsPage({
   apps,
+  companies,
+  isLoading,
   onOpenApp,
   onMoveCard,
   onOpenAddModal,
+  onImportDemo,
+  importing,
 }: {
   apps: any[];
+  companies: any[];
+  isLoading: boolean;
   onOpenApp: (id: string) => void;
   onMoveCard: (id: string, stage: string) => void;
   onOpenAddModal: () => void;
+  onImportDemo: () => void;
+  importing: boolean;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get('view') || 'kanban';
@@ -195,7 +226,7 @@ function ApplicationsPage({
     if (query) {
       const q = query.toLowerCase();
       list = list.filter((a) => {
-        const c = COMPANIES.find((x: any) => x.id === a.companyId);
+        const c = companies.find((x: any) => x.id === a.companyId);
         return (
           (c?.name || '').toLowerCase().includes(q) ||
           a.role.toLowerCase().includes(q) ||
@@ -204,7 +235,7 @@ function ApplicationsPage({
       });
     }
     return list;
-  }, [apps, filter, query]);
+  }, [apps, companies, filter, query]);
 
   const views = [
     { id: 'kanban', icon: 'kanban', label: 'Kanban' },
@@ -223,14 +254,26 @@ function ApplicationsPage({
   };
   const ViewComp = ViewCompMap[view] || KanbanView;
 
-  if (usePreviewEmpty()) {
+  const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0);
+
+  if (showEmpty) {
     return (
       <>
         <PageHeader
           title="Applications"
-          subtitle="No applications yet — start by connecting a portal or adding manually"
+          subtitle="No applications yet — add one, or import demo data to look around"
+          actions={
+            <button
+              onClick={onImportDemo}
+              disabled={importing}
+              className="btn-secondary"
+              style={{ opacity: importing ? 0.6 : 1 }}
+            >
+              <Icon name="sparkle" size={13} /> {importing ? 'Importing…' : 'Try with demo data'}
+            </button>
+          }
         />
-        <EmptyApplicationsView onAddManual={() => {}} onConnectPortal={() => {}} />
+        <EmptyApplicationsView onAddManual={onOpenAddModal} onConnectPortal={() => {}} />
       </>
     );
   }
@@ -239,7 +282,11 @@ function ApplicationsPage({
     <>
       <PageHeader
         title="Applications"
-        subtitle={`${filteredApps.length} of ${apps.length} · across ${new Set(filteredApps.map((a) => a.companyId)).size} companies`}
+        subtitle={
+          isLoading
+            ? 'Loading…'
+            : `${filteredApps.length} of ${apps.length} · across ${new Set(filteredApps.map((a) => a.companyId)).size} companies`
+        }
         actions={
           <>
             <div style={{ position: 'relative' }}>
@@ -299,7 +346,7 @@ function ApplicationsPage({
       />
       <StatsBanner apps={apps} />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        <ViewComp apps={filteredApps} companies={COMPANIES} onOpen={onOpenApp} onMoveCard={onMoveCard} />
+        <ViewComp apps={filteredApps} companies={companies} onOpen={onOpenApp} onMoveCard={onMoveCard} />
       </div>
     </>
   );

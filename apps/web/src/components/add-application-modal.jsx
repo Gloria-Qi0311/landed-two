@@ -51,31 +51,28 @@ export function AddApplicationModal({ open, onClose, onAdd }) {
 
   const canSubmit = companyId && role.trim();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!canSubmit) return;
     const company = COMPANIES.find(c => c.id === companyId);
-    const newApp = {
-      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      companyId,
-      role: role.trim(),
-      team: team.trim(),
-      stage,
-      salary: salary.trim() || '—',
-      location: location.trim() || company?.loc || '',
-      remote: 'Hybrid',
-      appliedDays: 0,
-      lastActivity: 0,
-      nextStep: stage === 'saved' ? 'Tailor resume' : 'Awaiting response',
-      referral: false,
-      source: source.trim() || 'Manual',
-      jobId: '',
-      portal_application_url: null,
-      notes: notes.trim(),
-      starred: false,
-    };
-    onAdd(newApp);
-    onClose();
+    try {
+      await onAdd({
+        companyName: company?.name || '',
+        role: role.trim(),
+        team: team.trim(),
+        stage,
+        salary: salary.trim(),
+        location: location.trim() || company?.loc || '',
+        source: source.trim(),
+        notes: notes.trim(),
+      });
+      onClose();
+    } catch (err) {
+      // onAdd throws if the DB write fails; surface to console for now
+      // (modal stays open so user can retry without retyping).
+      console.error('add application failed:', err);
+      alert(`Could not save: ${err?.message || err}`);
+    }
   };
 
   return (
