@@ -3,12 +3,17 @@
 // or merge content.js typecheck into the bundler's tsconfig. Also: ratchet
 // `strict: true` incrementally — current relaxation masks Element vs HTMLElement
 // looseness in findAddBtnInContainer + isYearSelect/isMonthSelect.
+//
+// Update (PR #29): popup TS files added via src/popup/*; included alongside
+// content.js. Vite handles the actual transpile via @vitejs/plugin-react;
+// this tsconfig is for type-checking only (noEmit).
 {
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "allowJs": true,
     "checkJs": true,
     "noEmit": true,
@@ -19,8 +24,13 @@
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "noUnusedParameters": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "paths": {
+      "@lib/*": ["./lib/*"]
+    }
   },
-  "include": ["content.js", "globals.d.ts"],
-  "exclude": ["node_modules", "tests", "lib", "scripts"]
+  "include": ["content.js", "globals.d.ts", "src/**/*"],
+  "exclude": ["node_modules", "dist", "tests", "lib", "scripts"]
 }

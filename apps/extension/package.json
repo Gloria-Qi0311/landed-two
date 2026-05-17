@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "benchmark": "node scripts/benchmark.js",
-    "build": "echo 'build pipeline lands in #29 / #30 (React rewrite of popup + options); current source is vanilla MV3 — load apps/extension/ directly in chrome://extensions as Load Unpacked'",
+    "build": "vite build",
+    "dev": "vite build --watch",
     "typecheck": "tsc --noEmit -p ."
   },
   "jest": {
@@ -17,15 +18,21 @@
     "testMatch": ["<rootDir>/tests/**/*.test.js"]
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.105.4"
+    "@supabase/supabase-js": "^2.105.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.3",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
     "eslint": "^10.3.0",
     "eslint-plugin-no-unsanitized": "^4.1.5",
     "globals": "^17.6.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.13"
   }
 }

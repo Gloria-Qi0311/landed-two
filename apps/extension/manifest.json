@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "ApplyMint",
+  "name": "Landed",
   "version": "2.2",
-  "description": "把简历整理成 JSON，一次导入后可视化编辑，并在求职表单上一键自动填写",
+  "description": "Landed: job-hunt operations — auto-fill applications + portal sync. (Renamed from ApplyMint after merge in Sprint 3.)",
   "permissions": ["activeTab", "storage", "scripting", "sidePanel"],
   "action": {
+    "default_popup": "popup/index.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -12,7 +13,7 @@
     }
   },
   "side_panel": {
-    "default_path": "popup.html"
+    "default_path": "popup/index.html"
   },
   "background": {
     "service_worker": "background.js"

@@ -50,3 +50,5 @@ test-results/
 
 # Devloop telemetry (machine-local; /iterate reads this)
 LOOP-FRICTION.jsonl
+
+apps/extension/dist/
