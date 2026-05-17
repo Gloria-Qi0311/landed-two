@@ -80,14 +80,34 @@ export function SyncPage() {
   const { data: applications = [] } = useApplications()
 
   // Live updates from the extension push pipeline (#35). The hook
-  // already invalidates the events query; the returned `latest` powers
-  // an inline "just arrived" banner that auto-dismisses.
+  // already invalidates the events query; `latest` powers an inline
+  // banner. Under rapid arrivals (#38.3), we aggregate into
+  // `recentBatch` so the banner shows "N new events" instead of
+  // flickering through individual ones. The 6s dismiss timer RESETS
+  // on every arrival, so the banner stays visible 6s past the LAST
+  // event in a burst, not 6s past the first.
   const liveEvent = usePortalEventsRealtime()
-  const [recentlyArrived, setRecentlyArrived] = useState<DbPortalEvent | null>(null)
+  const [recentBatch, setRecentBatch] = useState<DbPortalEvent[]>([])
   useEffect(() => {
     if (!liveEvent) return
-    setRecentlyArrived(liveEvent)
-    const t = setTimeout(() => setRecentlyArrived((cur) => (cur && cur.id === liveEvent.id ? null : cur)), 6000)
+    // Append + cap. 100 is generous: a flood beyond that would be
+    // suspicious anyway and we just need an accurate count, not the
+    // events themselves.
+    setRecentBatch((prev) => {
+      // Dedup by id — Realtime can occasionally double-fire on reconnect.
+      if (prev.some((e) => e.id === liveEvent.id)) return prev
+      const next = prev.concat(liveEvent)
+      return next.length > 100 ? next.slice(-100) : next
+    })
+    const t = setTimeout(() => {
+      // Only clear if THIS event is still the most recent in the batch
+      // (i.e. no newer event has arrived since this timer started).
+      setRecentBatch((cur) => {
+        if (cur.length === 0) return cur
+        const last = cur[cur.length - 1]
+        return last && last.id === liveEvent.id ? [] : cur
+      })
+    }, 6000)
     return () => clearTimeout(t)
   }, [liveEvent])
 
@@ -201,7 +221,13 @@ export function SyncPage() {
       />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 28px 24px' }}>
-        {recentlyArrived && <LiveEventBanner event={recentlyArrived} onDismiss={() => setRecentlyArrived(null)} />}
+        {recentBatch.length > 0 && (
+          <LiveEventBanner
+            batch={recentBatch}
+            onDismiss={() => setRecentBatch([])}
+            onViewAll={() => { setTab('activity'); setRecentBatch([]) }}
+          />
+        )}
 
         {/* Top status strip */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
@@ -317,13 +343,63 @@ export function SyncPage() {
 
 // ── Subcomponents ─────────────────────────────────────────────────────────
 
-function LiveEventBanner({ event, onDismiss }: { event: DbPortalEvent; onDismiss: () => void }) {
-  const payload = (event.payload_json || {}) as Record<string, unknown>
-  const source = typeof payload.source === 'string' ? payload.source : 'portal'
-  const company = typeof payload.company === 'string' ? payload.company : ''
-  const role = typeof payload.role === 'string' ? payload.role : ''
-  const summary = [company, role].filter(Boolean).join(' · ') || 'New event'
+function LiveEventBanner({
+  batch, onDismiss, onViewAll,
+}: {
+  batch: DbPortalEvent[]
+  onDismiss: () => void
+  onViewAll: () => void
+}) {
+  if (batch.length === 0) return null
+  const latest = batch[batch.length - 1]
+  const latestPayload = (latest.payload_json || {}) as Record<string, unknown>
+  const latestSource = typeof latestPayload.source === 'string' ? latestPayload.source : 'portal'
+
+  // Single-event vs aggregate display. Aggregate when there are 2+ events
+  // (rapid arrivals — without this, the banner would flicker through
+  // each one in sequence, only showing the last). Single-event keeps the
+  // existing detailed format.
+  const isAggregate = batch.length > 1
+  // For the aggregate label, derive a unique source list — if every
+  // event is from the same portal, surface that; otherwise say "portals".
+  const distinctSources = isAggregate
+    ? Array.from(new Set(batch
+        .map((e) => (e.payload_json as Record<string, unknown> | null)?.source)
+        .filter((s): s is string => typeof s === 'string')))
+    : [latestSource]
+  const sourceLabel = distinctSources.length === 1 ? distinctSources[0] : 'portals'
+
+  let body: React.ReactNode
+  if (isAggregate) {
+    // Batch is capped at 100 in the page-level state; show "100+" rather
+    // than imply we counted exactly 100 during a flood.
+    const countLabel = batch.length >= 100 ? '100+' : String(batch.length)
+    body = (
+      <>
+        <strong style={{ fontWeight: 600 }}>{countLabel} new events</strong>
+        {' from '}
+        {sourceLabel}
+      </>
+    )
+  } else {
+    const company = typeof latestPayload.company === 'string' ? latestPayload.company : ''
+    const role = typeof latestPayload.role === 'string' ? latestPayload.role : ''
+    const summary = [company, role].filter(Boolean).join(' · ') || 'New event'
+    body = (
+      <>
+        <strong style={{ fontWeight: 600 }}>Live · {latestSource}</strong>
+        {' — '}
+        {summary} ({latest.type})
+      </>
+    )
+  }
+
   return (
+    // role="status" + aria-live="polite" preserved from the original
+    // single-event banner. Polite means the screen reader waits for the
+    // user to finish current speech rather than interrupting — right
+    // call for a non-emergency notification, even on aggregate flows
+    // where multiple announcements would otherwise pile up.
     <div
       role="status"
       aria-live="polite"
@@ -345,11 +421,17 @@ function LiveEventBanner({ event, onDismiss }: { event: DbPortalEvent; onDismiss
         background: 'oklch(0.62 0.18 155)',
         boxShadow: '0 0 0 3px oklch(0.62 0.18 155 / 0.2)',
       }} />
-      <span style={{ flex: 1 }}>
-        <strong style={{ fontWeight: 600 }}>Live · {source}</strong>
-        {' — '}
-        {summary} ({event.type})
-      </span>
+      <span style={{ flex: 1 }}>{body}</span>
+      {isAggregate && (
+        <button
+          type="button"
+          onClick={onViewAll}
+          className="link"
+          style={{ fontSize: 11, color: 'inherit', fontWeight: 600 }}
+        >
+          View all →
+        </button>
+      )}
       <button
         type="button"
         onClick={onDismiss}
