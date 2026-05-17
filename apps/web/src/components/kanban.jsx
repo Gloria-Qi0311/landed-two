@@ -1,5 +1,5 @@
 // Kanban view with drag-and-drop between stages (optimistic update on drop).
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -12,12 +12,13 @@ import {
 } from '@dnd-kit/core';
 import { CompanyMark, PortalDot, Icon, stageColors } from './primitives';
 import { STAGES } from '../data';
+import { findDuplicateAppIds } from '../lib/duplicates';
 
 // ────────────────────────────────────────────────────────────────────────
 // Pure card markup (shared between sortable card + DragOverlay preview).
 // Extracted so the floating overlay can render identical visuals.
 // ────────────────────────────────────────────────────────────────────────
-function CardContent({ app, comp, c }) {
+function CardContent({ app, comp, c, isDuplicate }) {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -29,6 +30,20 @@ function CardContent({ app, comp, c }) {
         <PortalDot companyId={comp.id} />
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{app.role}</div>
+      {isDuplicate && (
+        <div
+          title="Same company + role exists on another application — possible duplicate from a second portal."
+          style={{
+            fontSize: 10, color: 'oklch(0.42 0.12 60)',
+            background: 'oklch(0.97 0.04 60)',
+            border: '0.5px solid oklch(0.85 0.06 60)',
+            padding: '1px 6px', borderRadius: 4, width: 'fit-content',
+            display: 'flex', alignItems: 'center', gap: 4,
+          }}
+        >
+          <Icon name="alert" size={9} /> Possible duplicate
+        </div>
+      )}
       {app.nextStep && app.nextStep !== '—' && (
         <div style={{ fontSize: 10.5, color: c.fg, display: 'flex', alignItems: 'center', gap: 4, background: c.bg, padding: '3px 6px', borderRadius: 5, marginTop: -2, width: 'fit-content' }}>
           <Icon name={app.stage === 'offer' ? 'sparkle' : 'calendar'} size={10} />
@@ -48,7 +63,7 @@ function CardContent({ app, comp, c }) {
 // Draggable card. PointerSensor's activationConstraint distinguishes drag
 // from click — a quick tap fires onOpen; a >5px drag enters drag mode.
 // ────────────────────────────────────────────────────────────────────────
-function DraggableCard({ app, comp, c, onOpen }) {
+function DraggableCard({ app, comp, c, onOpen, isDuplicate }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: app.id });
   return (
     <div
@@ -70,7 +85,7 @@ function DraggableCard({ app, comp, c, onOpen }) {
       }}
       className="kanban-card"
     >
-      <CardContent app={app} comp={comp} c={c} />
+      <CardContent app={app} comp={comp} c={c} isDuplicate={isDuplicate} />
     </div>
   );
 }
@@ -79,7 +94,7 @@ function DraggableCard({ app, comp, c, onOpen }) {
 // Droppable column. Highlights its border/background when an active drag
 // is hovering over it.
 // ────────────────────────────────────────────────────────────────────────
-function DroppableColumn({ stage, items, c, getCompany, onOpen }) {
+function DroppableColumn({ stage, items, c, getCompany, onOpen, duplicateIds }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   return (
     <div
@@ -102,7 +117,7 @@ function DroppableColumn({ stage, items, c, getCompany, onOpen }) {
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1 }}>
         {items.map(a => {
           const comp = getCompany(a.companyId);
-          return <DraggableCard key={a.id} app={a} comp={comp} c={c} onOpen={onOpen} />;
+          return <DraggableCard key={a.id} app={a} comp={comp} c={c} onOpen={onOpen} isDuplicate={duplicateIds.has(a.id)} />;
         })}
         {items.length === 0 && (
           <div style={{ fontSize: 11, color: 'var(--fg-muted)', textAlign: 'center', padding: 16, border: '1px dashed var(--border)', borderRadius: 6 }}>empty</div>
@@ -125,6 +140,11 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard }) => {
 
   const pipelineStages = STAGES.filter(s => !['ghosted'].includes(s.id));
   const getCompany = (id) => companies.find(c => c.id === id);
+
+  // Group apps by (companyId, normalized role) — same key on 2+ apps means
+  // the user has applied for the same role at the same company via two
+  // different portals. We surface a "Possible duplicate" badge per spec.md §8 #1.
+  const duplicateIds = useMemo(() => findDuplicateAppIds(apps), [apps]);
 
   const handleDragEnd = ({ active, over }) => {
     setActiveId(null);
@@ -156,6 +176,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard }) => {
             c={stageColors[stage.id]}
             getCompany={getCompany}
             onOpen={onOpen}
+            duplicateIds={duplicateIds}
           />
         ))}
       </div>
@@ -171,7 +192,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard }) => {
             width: 264, // matches column inner width (280 - 8*2 padding)
             transform: 'rotate(1deg)',
           }}>
-            <CardContent app={activeApp} comp={getCompany(activeApp.companyId)} c={activeStageColors} />
+            <CardContent app={activeApp} comp={getCompany(activeApp.companyId)} c={activeStageColors} isDuplicate={duplicateIds.has(activeApp.id)} />
           </div>
         ) : null}
       </DragOverlay>

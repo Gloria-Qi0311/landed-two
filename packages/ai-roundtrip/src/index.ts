@@ -41,6 +41,42 @@ export type AiTask =
   | 'resume_tailor'
   | 'resume_parse'
 
+// ─── truncation ───────────────────────────────────────────────────────────
+
+/**
+ * ~4k tokens at the typical ~4 chars/token ratio. Matches spec.md §8 #7.
+ * Most provider context windows handle far more, but keeping prompts tight
+ * (a) stays under hidden per-prompt limits across providers, (b) reduces
+ * the risk of the LLM dropping early context, and (c) is fast to paste.
+ */
+export const PROMPT_MAX_JD_CHARS = 16_000
+
+/**
+ * Cap a long string at `maxChars` and append a visible "[truncated]" marker
+ * so the LLM (and the user inspecting the prompt) knows content was cut.
+ * Returns the truncated text + a `truncated` flag + the original length so
+ * callers can surface a "JD truncated — consider a 2-pass summarize+rank"
+ * hint in their UI.
+ */
+export function truncateForPrompt(
+  text: string,
+  maxChars: number = PROMPT_MAX_JD_CHARS,
+): { text: string; truncated: boolean; originalChars: number } {
+  const original = text ?? ''
+  if (original.length <= maxChars) {
+    return { text: original, truncated: false, originalChars: original.length }
+  }
+  // Cut at a paragraph break near the limit if we can find one in the last 200 chars.
+  // Guard against -1 (no break found) and small breaks near offset 0.
+  const cut = original.slice(0, maxChars)
+  const lastBreak = cut.lastIndexOf('\n\n')
+  const sliceAt = lastBreak > 0 && lastBreak >= maxChars - 200 ? lastBreak : maxChars
+  const truncated =
+    original.slice(0, sliceAt) +
+    `\n\n[...truncated from ${original.length} chars to ${sliceAt}; ${original.length - sliceAt} chars omitted...]`
+  return { text: truncated, truncated: true, originalChars: original.length }
+}
+
 // ─── 1. generatePrompt ────────────────────────────────────────────────────
 
 /**
@@ -91,7 +127,12 @@ function buildResumeMatchPrompt(input: Record<string, unknown>, schemaText?: str
     typeof resume === 'string' ? resume : JSON.stringify(resume, null, 2),
     '',
     '# JDS',
-    jds.map((jd: any, i: number) => `## ${jd.id ?? `jd${i + 1}`} — ${jd.title ?? ''}\n${jd.body ?? ''}`).join('\n\n'),
+    jds
+      .map((jd: any, i: number) => {
+        const truncated = truncateForPrompt(jd.body ?? '')
+        return `## ${jd.id ?? `jd${i + 1}`} — ${jd.title ?? ''}\n${truncated.text}`
+      })
+      .join('\n\n'),
   ].join('\n')
 }
 
@@ -104,6 +145,7 @@ function buildJdBreakdownPrompt(input: Record<string, unknown>, schemaText?: str
   "gaps": [{ "skill": "...", "weeks_to_close": 2, "why": "..." }],
   "match_percent": 0
 }`
+  const jdBody = truncateForPrompt(jd.body ?? '').text
   return [
     'Extract the requirements from this job description.',
     resume ? 'Compare against the candidate resume and surface gaps.' : '',
@@ -113,7 +155,7 @@ function buildJdBreakdownPrompt(input: Record<string, unknown>, schemaText?: str
     '',
     '# JD',
     `## ${jd.title ?? ''}`,
-    jd.body ?? '',
+    jdBody,
     resume ? '\n# RESUME\n' + (typeof resume === 'string' ? resume : JSON.stringify(resume, null, 2)) : '',
   ].filter(Boolean).join('\n')
 }
