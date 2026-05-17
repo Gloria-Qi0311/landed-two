@@ -145,7 +145,9 @@
   }
 
   // SW context exposes `self`; content-script context exposes `window` +
-  // `globalThis`. Cover both.
+  // `globalThis`. Cover both. Also expose CJS exports so jest specs can
+  // `require()` (matches lib/auth.js / lib/config.js / lib/storage-adapter.js).
   if (typeof globalThis !== 'undefined') globalThis.LandedSnapshotStore = api
   else if (typeof self !== 'undefined') self.LandedSnapshotStore = api
+  if (typeof module !== 'undefined' && module.exports) module.exports = api
 })()

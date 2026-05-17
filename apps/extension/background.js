@@ -17,7 +17,7 @@
 // chrome.runtime.onStartup re-arms on browser restart in case the
 // onInstalled handler never ran.
 
-importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js')
+importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js')
 
 const ALARM_NAME = 'landed-portal-poll'
 const POLL_PERIOD_MIN = 360  // 6 hours
@@ -25,10 +25,10 @@ const POLL_PERIOD_MIN = 360  // 6 hours
 const PUSH_ALARM = 'landed-portal-push'
 const PUSH_PERIOD_MIN = 1    // drain pending queue every minute when signed in
 
-// chrome.storage.local key we set when push fails with 401/403 so #36's
-// expired-login flow can wake the user up via the popup. Value is an
-// ISO timestamp of the most recent auth failure.
-const NEEDS_AUTH_KEY = 'landed:portal-push-needs-auth'
+// chrome.storage.local key for #36's expired-login flow. Centralized in
+// lib/portal-sentinels.js since 3+ callers now read/write it (this file,
+// the popup banner hook, and #36.1's badge-counter).
+const NEEDS_AUTH_KEY = self.LandedPortalSentinels.NEEDS_AUTH_KEY
 
 // Hosts the polling sweep should touch. Mirrors GREENHOUSE_HOSTS in the
 // parser but framed as URL-match patterns chrome.tabs.query accepts.

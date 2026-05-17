@@ -9,12 +9,16 @@
 // Resume picker + fill flow (the SignedIn surface) unchanged from PR #67.
 import React, { useEffect, useState } from 'react'
 import * as auth from '@lib/auth.js'
+// Namespace import (vs. named) matches the existing @lib/auth.js pattern
+// and avoids Vite's CJS-interop edge case for named imports out of UMD
+// modules. Sub-agent flagged the named form as fragile-but-working.
+import * as sentinels from '@lib/portal-sentinels.js'
+const { NEEDS_AUTH_KEY } = sentinels
 
-// Must match NEEDS_AUTH_KEY in apps/extension/background.js — the SW
-// sets this whenever pushEvents returns 401/403, and clears it on the
-// next successful push. The popup subscribes via chrome.storage.onChanged
-// and renders ReauthBanner whenever it's truthy.
-const NEEDS_AUTH_KEY = 'landed:portal-push-needs-auth'
+// NEEDS_AUTH_KEY is the chrome.storage.local sentinel the SW sets on
+// 401/403 push failures and clears on the next successful push. The
+// popup subscribes via chrome.storage.onChanged and renders ReauthBanner
+// whenever it's truthy. Centralized in lib/portal-sentinels.js.
 
 type AuthState =
   | { kind: 'loading' }
