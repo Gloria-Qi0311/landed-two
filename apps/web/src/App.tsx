@@ -19,6 +19,7 @@ import { TableView } from './components/table';
 import { TimelineView, CardsView, MapView } from './components/other-views';
 import { DetailDrawer } from './components/drawer';
 import { AddApplicationModal } from './components/add-application-modal';
+import { ResumesPage } from './components/resumes-page';
 import { SyncPage } from './components/sync-page';
 import { ResumeMatchPage } from './components/resume-match';
 import { JDBreakdownPage } from './components/jd-breakdown';
@@ -163,7 +164,7 @@ export function App() {
           <Route path="/sync" element={<SyncRoute />} />
           <Route path="/resume-match" element={<ResumeMatchRoute />} />
           <Route path="/jd-breakdown" element={<JDBreakdownRoute />} />
-          <Route path="/resumes" element={<ResumesPlaceholder />} />
+          <Route path="/resumes" element={<ResumesPage />} />
           <Route path="*" element={<Navigate to="/applications" replace />} />
         </Routes>
       </main>
@@ -385,11 +386,3 @@ function JDBreakdownRoute() {
   );
 }
 
-function ResumesPlaceholder() {
-  return (
-    <>
-      <PageHeader title="Resumes" subtitle="Resume management lands in Sprint 2 (issue #20)" />
-      <div style={{ padding: 28, color: 'var(--fg-muted)', fontSize: 13 }}>Coming soon.</div>
-    </>
-  );
-}
