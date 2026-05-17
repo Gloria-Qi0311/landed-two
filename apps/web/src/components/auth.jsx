@@ -1,5 +1,6 @@
 // Auth + onboarding components — login modal, profile menu, first-run tour
 import React, { useState as authState, useEffect as authEffect, useRef as authRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon, LandedMark, StageBadge, CompanyMark } from './primitives';
 import { COMPANIES } from '../data';
 import { supabase } from '../lib/supabase';
@@ -13,6 +14,7 @@ const THEMES = [
 ];
 
 export function ProfileMenu({ open, onClose, onSignOut, onShowTour, theme, setTheme }) {
+  const navigate = useNavigate();
   authEffect(() => {
     if (!open) return;
     const onDocClick = (e) => {
@@ -86,7 +88,7 @@ export function ProfileMenu({ open, onClose, onSignOut, onShowTour, theme, setTh
 
       <div style={{ padding: '4px 0' }}>
         <Item icon={<Icon name="settings" size={13} />} label="Profile & account" kbd="⌘," />
-        <Item icon={<Icon name="doc" size={13} />} label="My resumes" />
+        <Item icon={<Icon name="doc" size={13} />} label="My resumes" onClick={() => navigate('/resumes')} />
         <Item icon={<Icon name="adjust" size={13} />} label="Preferences" />
       </div>
       <div style={{ borderTop: '0.5px solid var(--border)', padding: '4px 0' }}>
