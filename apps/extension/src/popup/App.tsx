@@ -153,7 +153,65 @@ function CodeForm({ email, busy, error, onBack, onVerify }: { email: string; bus
   )
 }
 
+type DbResume = {
+  id: string
+  name: string
+  parsed_json: any
+  is_current: boolean
+  created_at: string
+}
+
 function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut: () => void; busy: boolean; error: string | null }) {
+  const [resumes, setResumes] = useState<DbResume[] | null>(null)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [fillingId, setFillingId] = useState<string | null>(null)
+  const [fillNotice, setFillNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const client = auth.getSupabase()
+        const { data, error: e } = await client
+          .from('resumes')
+          .select('id, name, parsed_json, is_current, created_at')
+          .order('is_current', { ascending: false })
+          .order('created_at', { ascending: false })
+        if (e) throw new Error(e.message)
+        setResumes(data ?? [])
+      } catch (e) {
+        setLoadErr(toErr(e))
+        setResumes([])
+      }
+    })()
+  }, [])
+
+  async function fillWith(resume: DbResume) {
+    setFillingId(resume.id); setFillNotice(null)
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+      const tab = tabs[0]
+      if (!tab?.id) throw new Error('No active tab found')
+      // content.js's chrome.runtime.onMessage handler gates on
+      // msg.action === 'fill' (see content.js:591). Sending bare { resume }
+      // silently no-ops because the listener has no matching branch.
+      chrome.tabs.sendMessage(tab.id, { action: 'fill', resume: resume.parsed_json }, () => {
+        // chrome.runtime.lastError fires when no content script is loaded
+        // (chrome://, file://, the new-tab page, etc). Surface gracefully.
+        const err = chrome.runtime.lastError
+        if (err) {
+          setFillNotice(`Couldn't reach the page (${err.message || 'no content script'}). Make sure you're on a job-application form.`)
+        } else {
+          setFillNotice(`Filling with "${resume.name}"…`)
+          setTimeout(() => window.close(), 400)
+        }
+        setFillingId(null)
+      })
+    } catch (e) {
+      setFillNotice(toErr(e))
+      setFillingId(null)
+    }
+  }
+
   return (
     <>
       <Header />
@@ -161,12 +219,52 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
         <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Signed in</div>
         <div style={{ fontFamily: 'var(--font-mono)' }}>{email}</div>
       </div>
-      <div style={{ padding: 10, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 6, fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-        Resume picker + fill button land in PR #29.1 (this PR is the bundler + auth shell only).
+
+      <div>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+          Your resumes {resumes && `(${resumes.length})`}
+        </div>
+        {resumes === null && <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>Loading…</div>}
+        {resumes && resumes.length === 0 && (
+          <div style={{ padding: 10, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 6, fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+            No resumes yet. Open Landed → Resumes to add one, then come back.
+          </div>
+        )}
+        {resumes && resumes.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+            {resumes.map((r) => (
+              <ResumeRow key={r.id} resume={r} filling={fillingId === r.id} onFill={() => fillWith(r)} />
+            ))}
+          </div>
+        )}
       </div>
+
+      {fillNotice && <div style={{ fontSize: 11, padding: 8, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 6, color: 'var(--fg)' }}>{fillNotice}</div>}
+      {loadErr && <ErrorBanner message={loadErr} />}
       <button onClick={onSignOut} disabled={busy}>{busy ? 'Signing out…' : 'Sign out'}</button>
       {error && <ErrorBanner message={error} />}
     </>
+  )
+}
+
+function ResumeRow({ resume, filling, onFill }: { resume: DbResume; filling: boolean; onFill: () => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 6 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resume.name}</div>
+          {resume.is_current && (
+            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', background: '#dcfce7', color: 'var(--success)', borderRadius: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current</span>
+          )}
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>
+          {new Date(resume.created_at).toLocaleDateString()}
+        </div>
+      </div>
+      <button className="primary" onClick={onFill} disabled={filling} style={{ fontSize: 11, padding: '5px 9px' }}>
+        {filling ? 'Filling…' : 'Use'}
+      </button>
+    </div>
   )
 }
 
