@@ -1,0 +1,26 @@
+// TODO when #29 lands Vite for popup: either promote this to a project-references
+// setup (tsconfig.json at root, leaf tsconfig.popup.json / tsconfig.content.json)
+// or merge content.js typecheck into the bundler's tsconfig. Also: ratchet
+// `strict: true` incrementally — current relaxation masks Element vs HTMLElement
+// looseness in findAddBtnInContainer + isYearSelect/isMonthSelect.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["content.js", "globals.d.ts"],
+  "exclude": ["node_modules", "tests", "lib", "scripts"]
+}

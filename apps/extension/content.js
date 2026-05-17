@@ -1,6 +1,11 @@
+// @ts-check
 // content.js — scan the page, fill what we can, report what we can't.
 // Requires schema.js and lib/field-detect.js to load first
 // (see manifest.json content_scripts order).
+//
+// TS coverage is via JSDoc + checkJs (see apps/extension/tsconfig.json).
+// Cross-module surface (window.ResumeFiller*) is typed as `any` for now —
+// proper types arrive when packages/extension-core/src/*.js gains JSDoc.
 
 // Field detection (FIELD_MAP, normalize*, getFieldLabel, matchResumeKey)
 // lives in lib/field-detect.js. Value-to-option matching (abbreviations,
@@ -111,9 +116,11 @@ async function tryFillCombobox(el, value) {
 
   await new Promise((r) => setTimeout(r, 350));
 
-  const visibleOptions = Array.from(document.querySelectorAll(
-    '[role="option"], [role="listitem"], [role="menuitem"], li, .option, .item, .dropdown-item, .select-option'
-  )).filter((opt) => {
+  const visibleOptions = /** @type {HTMLElement[]} */ (
+    Array.from(document.querySelectorAll(
+      '[role="option"], [role="listitem"], [role="menuitem"], li, .option, .item, .dropdown-item, .select-option'
+    ))
+  ).filter((opt) => {
     if (!opt.offsetParent) return false;
     const rect = opt.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
@@ -414,9 +421,11 @@ function isDateField(el) {
 // ─── 可见 inputs ─────────────────────────────────────────────────────────────
 
 function getVisibleInputs() {
-  return Array.from(document.querySelectorAll(
-    'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea'
-  )).filter(el => el.offsetParent || el.type === 'email');
+  return /** @type {(HTMLInputElement | HTMLTextAreaElement)[]} */ (
+    Array.from(document.querySelectorAll(
+      'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea'
+    ))
+  ).filter(el => el.offsetParent || (el instanceof HTMLInputElement && el.type === 'email'));
 }
 
 // ─── 批量填 inputs ────────────────────────────────────────────────────────────
@@ -451,7 +460,9 @@ function fillInputBatch(inputs, flat, filled, manual, skipSet) {
 // ─── 找 section 的"添加"按钮 ─────────────────────────────────────────────────
 
 function findAddButtonForSection(keywords) {
-  const allEls = Array.from(document.querySelectorAll('*')).filter(el => {
+  const allEls = /** @type {HTMLElement[]} */ (
+    Array.from(document.querySelectorAll('*'))
+  ).filter(el => {
     if (!el.offsetParent) return false;
     const ownText = (el.childNodes[0]?.nodeValue || '').trim();
     if (!ownText) return false;
@@ -624,9 +635,11 @@ async function handleFill(resumeData, customFields, opts) {
   }
 
   // Phase 3：combobox / 自定义下拉
-  const comboboxes = Array.from(document.querySelectorAll(
-    '[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"]'
-  )).filter(el => el.offsetParent && el.tagName.toLowerCase() !== 'select');
+  const comboboxes = /** @type {HTMLElement[]} */ (
+    Array.from(document.querySelectorAll(
+      '[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"]'
+    ))
+  ).filter(el => el.offsetParent && el.tagName.toLowerCase() !== 'select');
 
   for (const el of comboboxes) {
     const match = matchResumeKey(el);
