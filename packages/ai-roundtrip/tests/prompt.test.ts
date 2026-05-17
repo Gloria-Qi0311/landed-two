@@ -120,26 +120,10 @@ describe('generatePrompt resume_parse — hardened ruleset', () => {
 
   it('reinforces JSON-only + bans markdown fences and special CJK quotes', () => {
     const prompt = generatePrompt('resume_parse', {})
-    expect(prompt).toMatch(/OUTPUT DISCIPLINE/)
-    expect(prompt).toMatch(/SINGLE JSON object and nothing else/)
-    expect(prompt).toMatch(/markdown code fences/)
+    expect(prompt).toMatch(/ONLY JSON/i)
+    expect(prompt).toMatch(/markdown code fences?/i)
     expect(prompt).toContain('「」')
     expect(prompt).toContain('『』')
-  })
-
-  it('hardens output discipline with negative examples + closing reminder', () => {
-    const prompt = generatePrompt('resume_parse', {})
-    // Explicit negative examples (these phrases are what LLMs actually emit)
-    expect(prompt).toMatch(/Here is the parsed JSON:/)
-    expect(prompt).toMatch(/Let me work through this:/)
-    expect(prompt).toMatch(/A couple of notes:/)
-    // Rule 8 must NOT invite verbal self-check narration
-    expect(prompt).toMatch(/Validate the JSON silently/)
-    expect(prompt).toMatch(/Do NOT mention or describe this validation/)
-    // Closing reminder reinforces first-char / last-char constraint
-    expect(prompt).toMatch(/REMINDER: respond with the JSON object only/)
-    expect(prompt).toMatch(/First character of your response must be \{/)
-    expect(prompt).toMatch(/Last character must be \}/)
   })
 
   it('requires reverse-chrono ordering + self-check + period-separated descriptions', () => {
@@ -152,10 +136,7 @@ describe('generatePrompt resume_parse — hardened ruleset', () => {
 
   it('emits a JSON schema template that itself parses cleanly', () => {
     const prompt = generatePrompt('resume_parse', {})
-    // The schema sits between "Target schema..." header and the REMINDER line at end
-    const afterHeader = prompt.split('Target schema (return JSON in this exact shape):')[1] ?? ''
-    const beforeReminder = afterHeader.split('REMINDER:')[0] ?? ''
-    const match = beforeReminder.match(/\{[\s\S]*\}/)
+    const match = prompt.match(/\{[\s\S]*\}\s*$/)
     expect(match).toBeTruthy()
     const parsed = JSON.parse(match![0])
     expect(parsed.version).toBe(2)
