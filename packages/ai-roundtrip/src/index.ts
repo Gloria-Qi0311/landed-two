@@ -103,7 +103,7 @@ export function generatePrompt(
     case 'resume_tailor':
       return buildResumeTailorPrompt(input, schemaText)
     case 'resume_parse':
-      return buildResumeParsePrompt(schemaText)
+      return buildResumeParsePrompt(input, schemaText)
   }
 }
 
@@ -183,7 +183,30 @@ function buildResumeTailorPrompt(input: Record<string, unknown>, schemaText?: st
   ].join('\n')
 }
 
-function buildResumeParsePrompt(schemaText?: string): string {
+// Supported language codes for resume_parse translation. 'auto' means
+// "detect the source language first" and only applies to sourceLang.
+export type ResumeLang = 'auto' | 'en' | 'zh-CN' | 'zh-TW' | 'ja'
+
+const LANG_LABEL: Record<ResumeLang, string> = {
+  'auto':  'auto-detect',
+  'en':    'English',
+  'zh-CN': 'Chinese (Simplified, 简体中文)',
+  'zh-TW': 'Chinese (Traditional, 繁體中文)',
+  'ja':    'Japanese (日本語)',
+}
+
+function buildResumeParsePrompt(
+  input?: Record<string, unknown>,
+  schemaText?: string,
+): string {
+  const sourceLang = (input?.sourceLang as ResumeLang) ?? 'auto'
+  const targetLang = (input?.targetLang as ResumeLang) ?? 'en'
+  // Translation block fires when (a) sourceLang is auto (we don't know yet),
+  // or (b) we know source != target. When both are explicitly the same
+  // language, skip the translation block entirely — the prompt stays lean.
+  const needsTranslation =
+    sourceLang === 'auto' || sourceLang !== targetLang
+
   // Schema mirrors @landed/schema's Resume shape verbatim, including the 5
   // bilingual name fields (firstName/lastName/englishName/chineseName) and
   // wechat that zod accepts. Earlier prompt versions omitted these and the
@@ -221,6 +244,21 @@ function buildResumeParsePrompt(schemaText?: string): string {
   "languages": [],
   "summary": ""
 }`
+  const translationBlock = needsTranslation
+    ? [
+        '',
+        'Translation:',
+        `- Source language: ${LANG_LABEL[sourceLang]}. Target language: ${LANG_LABEL[targetLang]}.`,
+        sourceLang === 'auto'
+          ? '- Detect the resume\'s source language first. If it differs from the target, translate descriptive prose into the target language while parsing. If they match, parse in place without translation.'
+          : '- Translate descriptive prose into the target language while parsing.',
+        '- TRANSLATE these fields when crossing languages: title, role, major, degree, location, description, summary, intent.apply_position.',
+        '- DO NOT TRANSLATE proper nouns: company names, school names, technology names (React, Python, Kubernetes, etc.), product names, person names, brand names, social handles, URLs, emails, phone numbers, GPA values. Keep these in their original form.',
+        '- If a proper noun has a well-known canonical form in the target language (e.g. 上海交通大学 ↔ Shanghai Jiao Tong University), prefer the form the institution itself uses; when in doubt, keep the source form.',
+        '- JSON field names (keys) stay in English regardless of language settings.',
+      ].join('\n')
+    : ''
+
   return [
     'You are a resume parser. Parse the resume below into the JSON schema. Output ONLY JSON — no commentary, no markdown code fences, no explanation text.',
     '',
@@ -233,10 +271,11 @@ function buildResumeParsePrompt(schemaText?: string): string {
     '6. Escape any " inside string values as \\". Do NOT use 「」 『』 or other special quote characters — replace with plain text or standard quotes.',
     '7. In description fields, separate bullet points with periods — never use newline characters inside a string value.',
     '8. Before outputting, self-check that the JSON parses cleanly: balanced braces, no trailing commas, all keys quoted, no unescaped control characters.',
+    translationBlock,
     '',
     'Target schema (return JSON in this exact shape):',
     expected,
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 }
 
 // ─── 2. launchAI ──────────────────────────────────────────────────────────

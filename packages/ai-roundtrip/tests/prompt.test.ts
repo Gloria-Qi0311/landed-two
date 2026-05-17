@@ -145,3 +145,43 @@ describe('generatePrompt resume_parse — hardened ruleset', () => {
     expect(Array.isArray(parsed.internship)).toBe(true)
   })
 })
+
+describe('generatePrompt resume_parse — translation block', () => {
+  it('omits the translation block when source === target (both explicit)', () => {
+    const prompt = generatePrompt('resume_parse', { sourceLang: 'en', targetLang: 'en' })
+    expect(prompt).not.toMatch(/Translation:/)
+    expect(prompt).not.toMatch(/TRANSLATE these fields/)
+    expect(prompt).not.toMatch(/DO NOT TRANSLATE/)
+  })
+
+  it('includes auto-detect language in the block when source is auto', () => {
+    const prompt = generatePrompt('resume_parse', { sourceLang: 'auto', targetLang: 'en' })
+    expect(prompt).toMatch(/Translation:/)
+    expect(prompt).toMatch(/Source language: auto-detect/)
+    expect(prompt).toMatch(/Target language: English/)
+    expect(prompt).toMatch(/Detect the resume's source language first/)
+  })
+
+  it('includes proper-noun preservation rules when crossing languages (zh-CN → en)', () => {
+    const prompt = generatePrompt('resume_parse', { sourceLang: 'zh-CN', targetLang: 'en' })
+    expect(prompt).toMatch(/Translation:/)
+    expect(prompt).toMatch(/Source language: Chinese \(Simplified, 简体中文\)/)
+    expect(prompt).toMatch(/Target language: English/)
+    expect(prompt).toMatch(/DO NOT TRANSLATE proper nouns/)
+    expect(prompt).toContain('上海交通大学')
+    expect(prompt).toContain('Shanghai Jiao Tong University')
+    expect(prompt).toMatch(/JSON field names \(keys\) stay in English/)
+  })
+
+  it('handles each supported target language label correctly', () => {
+    const labels = [
+      { code: 'zh-CN', label: 'Chinese (Simplified, 简体中文)' },
+      { code: 'zh-TW', label: 'Chinese (Traditional, 繁體中文)' },
+      { code: 'ja', label: 'Japanese (日本語)' },
+    ] as const
+    for (const { code, label } of labels) {
+      const prompt = generatePrompt('resume_parse', { sourceLang: 'en', targetLang: code })
+      expect(prompt).toContain(`Target language: ${label}`)
+    }
+  })
+})

@@ -222,8 +222,17 @@ function UploadFlow({
   const [parseError, setParseError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
+  // Translation controls. Default: auto-detect source, output English.
+  // Common case (English resume → English output) stays auto + en, which the
+  // prompt template handles efficiently — the auto-detect branch still runs
+  // a no-op when languages match.
+  const [sourceLang, setSourceLang] = useState<'auto' | 'en' | 'zh-CN' | 'zh-TW' | 'ja'>('auto')
+  const [targetLang, setTargetLang] = useState<'en' | 'zh-CN' | 'zh-TW' | 'ja'>('en')
 
-  const prompt = useMemo(() => generatePrompt('resume_parse', {}), [])
+  const prompt = useMemo(
+    () => generatePrompt('resume_parse', { sourceLang, targetLang }),
+    [sourceLang, targetLang],
+  )
 
   const onLaunch = async (provider: Provider) => {
     setLaunchError(null)
@@ -287,8 +296,51 @@ function UploadFlow({
         />
       </Section>
 
-      {/* Step 2: launch */}
-      <Section number={2} title="Send the prompt to your AI of choice">
+      {/* Step 2: language */}
+      <Section number={2} title="Languages (translate if they differ)">
+        <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginBottom: 8, lineHeight: 1.5 }}>
+          Defaults are auto-detect → English. Pick a different target if you want the parsed
+          fields in another language. Proper nouns (companies, schools, technologies) stay in
+          the original.
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Source (your resume)
+            </span>
+            <select
+              value={sourceLang}
+              onChange={(e) => setSourceLang(e.target.value as typeof sourceLang)}
+              style={{ padding: '6px 8px', fontSize: 12.5, minWidth: 180 }}
+            >
+              <option value="auto">Auto-detect</option>
+              <option value="en">English</option>
+              <option value="zh-CN">中文 (简体)</option>
+              <option value="zh-TW">中文 (繁體)</option>
+              <option value="ja">日本語</option>
+            </select>
+          </label>
+          <span style={{ fontSize: 16, color: 'var(--fg-muted)', alignSelf: 'flex-end', paddingBottom: 6 }}>→</span>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Target (parsed output)
+            </span>
+            <select
+              value={targetLang}
+              onChange={(e) => setTargetLang(e.target.value as typeof targetLang)}
+              style={{ padding: '6px 8px', fontSize: 12.5, minWidth: 180 }}
+            >
+              <option value="en">English</option>
+              <option value="zh-CN">中文 (简体)</option>
+              <option value="zh-TW">中文 (繁體)</option>
+              <option value="ja">日本語</option>
+            </select>
+          </label>
+        </div>
+      </Section>
+
+      {/* Step 3: launch */}
+      <Section number={3} title="Send the prompt to your AI of choice">
         <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginBottom: 8, lineHeight: 1.5 }}>
           We'll copy the prompt to your clipboard and open the AI in a new tab.
           Upload your PDF there. Paste the AI's JSON reply back here when ready.
@@ -318,7 +370,7 @@ function UploadFlow({
       </Section>
 
       {/* Step 3: paste */}
-      <Section number={3} title="Paste the AI's JSON reply">
+      <Section number={4} title="Paste the AI's JSON reply">
         <textarea
           value={rawResponse}
           onChange={(e) => onPaste(e.target.value)}
