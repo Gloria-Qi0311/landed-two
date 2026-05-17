@@ -14,7 +14,8 @@
     "./validators": "./src/validators.js",
     "./value-match": "./src/value-match.js",
     "./portal-parsers": "./src/portal-parsers/index.js",
-    "./portal-parsers/greenhouse": "./src/portal-parsers/greenhouse.js"
+    "./portal-parsers/greenhouse": "./src/portal-parsers/greenhouse.js",
+    "./portal-parsers/lever": "./src/portal-parsers/lever.js"
   },
   "scripts": {
     "test": "vitest run",

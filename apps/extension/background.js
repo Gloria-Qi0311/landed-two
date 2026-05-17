@@ -42,6 +42,10 @@ const PORTAL_HOSTS = {
     '*://job-boards.eu.greenhouse.io/*',
     '*://my.greenhouse.io/*',
   ],
+  lever: [
+    '*://jobs.lever.co/*',
+    '*://jobs.eu.lever.co/*',
+  ],
 }
 
 // ── Side panel (preserved from earlier behaviour) ────────────────────────

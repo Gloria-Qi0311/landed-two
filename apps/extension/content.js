@@ -629,7 +629,10 @@ function detectPortalEventForCurrentPage() {
     if (ns.greenhouse && ns.greenhouse.isGreenhouseUrl(url)) {
       return ns.greenhouse.parseGreenhousePage(document, url);
     }
-    // Future portals (Lever / Workday / Ashby) extend the if-chain here.
+    if (ns.lever && ns.lever.isLeverUrl(url)) {
+      return ns.lever.parseLeverPage(document, url);
+    }
+    // Future portals (Workday / Ashby) extend the if-chain here.
     return null;
   } catch {
     return null;
@@ -643,9 +646,10 @@ setTimeout(() => {
     const event = detectPortalEventForCurrentPage();
     if (!event) return;
     let portal = null;
-    if (event.app_url && window.LandedPortalParsers && window.LandedPortalParsers.greenhouse
-        && window.LandedPortalParsers.greenhouse.isGreenhouseUrl(event.app_url)) {
-      portal = 'greenhouse';
+    const ns = window.LandedPortalParsers;
+    if (event.app_url && ns) {
+      if (ns.greenhouse && ns.greenhouse.isGreenhouseUrl(event.app_url)) portal = 'greenhouse';
+      else if (ns.lever && ns.lever.isLeverUrl(event.app_url)) portal = 'lever';
     }
     if (!portal) return;
     chrome.runtime.sendMessage({ action: 'portal-event', portal, event }, () => {
