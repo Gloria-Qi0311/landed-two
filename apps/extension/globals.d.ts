@@ -61,6 +61,28 @@ declare global {
       function query(query: any): Promise<any[]>
       function sendMessage<T = any>(tabId: number, message: any, callback?: (response: T) => void): void
     }
+    namespace action {
+      // The slice background.js uses for the toolbar badge (#36.1).
+      // `tabId` overload omitted — we always set globally, not per-tab.
+      function setBadgeText(details: { text: string }): Promise<void>
+      function setBadgeBackgroundColor(details: {
+        color: string | [number, number, number, number]
+      }): Promise<void>
+      const onClicked: {
+        addListener(listener: (tab: { id?: number; windowId?: number }) => void): void
+      }
+    }
+    namespace sidePanel {
+      function open(options: { windowId: number }): Promise<void>
+    }
+    namespace alarms {
+      interface Alarm { name: string; scheduledTime: number; periodInMinutes?: number }
+      function create(name: string, alarmInfo: { periodInMinutes?: number; when?: number }): Promise<void>
+      function get(name: string, callback: (alarm: Alarm | undefined) => void): void
+      const onAlarm: {
+        addListener(listener: (alarm: Alarm) => void): void
+      }
+    }
   }
 
   // ── window.ResumeFiller* — set by lib/*.js IIFEs ──

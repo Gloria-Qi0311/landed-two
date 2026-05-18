@@ -4,6 +4,12 @@
 (function () {
   'use strict'
 
+  function _log(label, data) {
+    if (globalThis.LANDED_PARSER_DEBUG) {
+      console.log('[landed/workday]', label, data || '')
+    }
+  }
+
   const WORKDAY_HOST_RE = /\.(myworkdayjobs|myworkdaysite|myworkday)\.com$/i
 
   function isWorkdayUrl(url) {
@@ -148,7 +154,7 @@
     if (!detected_via) return null
 
     const { company, role } = extractCompanyAndRole(root, url)
-    return {
+    const event = {
       kind: 'applied',
       company,
       role,
@@ -156,6 +162,8 @@
       app_url: url || '',
       detected_via,
     }
+    _log('parseSubmitConfirmation matched', event)
+    return event
   }
 
   function parseAppliedBadge(root, url) {
@@ -172,12 +180,14 @@
       const text = textOf(el)
       if (el.getAttribute && /withdraw/i.test(el.getAttribute('data-automation-id') || '') && !text) continue
       const { company, role } = extractCompanyAndRole(root, url)
-      return {
+      const event = {
         kind: 'already_applied',
         company,
         role,
         app_url: url || '',
       }
+      _log('parseAppliedBadge matched', { selector: sel, ...event })
+      return event
     }
     return null
   }

@@ -4,6 +4,12 @@
 (function () {
   'use strict'
 
+  function _log(label, data) {
+    if (globalThis.LANDED_PARSER_DEBUG) {
+      console.log('[landed/ashby]', label, data || '')
+    }
+  }
+
   const ASHBY_HOST_RE = /\.ashbyhq\.com$|^ashbyhq\.com$/i
 
   function isAshbyUrl(url) {
@@ -132,7 +138,7 @@
     if (!detected_via) return null
 
     const { company, role } = extractCompanyAndRole(root)
-    return {
+    const event = {
       kind: 'applied',
       company,
       role,
@@ -140,6 +146,8 @@
       app_url: url || '',
       detected_via,
     }
+    _log('parseSubmitConfirmation matched', event)
+    return event
   }
 
   function parseAppliedBadge(root, url) {
@@ -163,12 +171,14 @@
       const text = textOf(el)
       if (!text || !APPLIED_SIGNALS.some((rx) => rx.test(text))) continue
       const { company, role } = extractCompanyAndRole(root)
-      return {
+      const event = {
         kind: 'already_applied',
         company,
         role,
         app_url: url || '',
       }
+      _log('parseAppliedBadge matched', { selector: sel, ...event })
+      return event
     }
     return null
   }

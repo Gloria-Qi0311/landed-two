@@ -6,6 +6,13 @@
 (function () {
   'use strict'
 
+  // Diagnostic mode (#33.x.calibration). See greenhouse.js header.
+  function _log(label, data) {
+    if (globalThis.LANDED_PARSER_DEBUG) {
+      console.log('[landed/lever]', label, data || '')
+    }
+  }
+
   const LEVER_HOSTS = [
     'jobs.lever.co',
     'jobs.eu.lever.co',
@@ -127,7 +134,7 @@
     if (!detected_via) return null
 
     const { company, role } = extractCompanyAndRole(root)
-    return {
+    const event = {
       kind: 'applied',
       company,
       role,
@@ -135,6 +142,8 @@
       app_url: url || '',
       detected_via,
     }
+    _log('parseSubmitConfirmation matched', event)
+    return event
   }
 
   function parseAppliedBadge(_root, _url) {

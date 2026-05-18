@@ -12,6 +12,16 @@
 (function () {
   'use strict'
 
+  // Diagnostic mode (#33.x.calibration helper). Set
+  // `globalThis.LANDED_PARSER_DEBUG = true` in DevTools console, reload
+  // the page, and parses log which signals fired. Useful for verifying
+  // selectors against real production DOM without per-portal toggles.
+  function _log(label, data) {
+    if (globalThis.LANDED_PARSER_DEBUG) {
+      console.log('[landed/greenhouse]', label, data || '')
+    }
+  }
+
   const GREENHOUSE_HOSTS = [
     'boards.greenhouse.io',
     'boards.eu.greenhouse.io',
@@ -133,7 +143,7 @@
     if (!detected_via) return null
 
     const { company, role } = extractCompanyAndRole(root)
-    return {
+    const event = {
       kind: 'applied',
       company,
       role,
@@ -141,6 +151,8 @@
       app_url: url || '',
       detected_via,
     }
+    _log('parseSubmitConfirmation matched', event)
+    return event
   }
 
   const APPLIED_BADGE_SIGNALS = [
@@ -167,12 +179,14 @@
       const text = textOf(el)
       if (text && APPLIED_BADGE_SIGNALS.some((rx) => rx.test(text))) {
         const { company, role } = extractCompanyAndRole(root)
-        return {
+        const event = {
           kind: 'already_applied',
           company,
           role,
           app_url: url || '',
         }
+        _log('parseAppliedBadge matched', { selector: sel, ...event })
+        return event
       }
     }
     return null
