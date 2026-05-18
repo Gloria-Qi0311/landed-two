@@ -4,7 +4,7 @@
 //     5xx retryable, 4xx fatal, network error retryable)
 //   - service_role guard refuses to push
 import { describe, test, expect, vi } from 'vitest'
-import { mapEventToRow, pushEvents, nextBackoffMs } from '../src/portal-events-push.js'
+import { mapEventToRow, pushEvents, nextBackoffMs, sanitizeAppUrl } from '../src/portal-events-push.js'
 
 const USER = 'user-uuid-1234'
 const ANON = 'eyJhbGciOiJIUzI1NiIs.fake-anon-payload.signature'
@@ -181,6 +181,86 @@ describe('pushEvents', () => {
     const fetch_ = fakeFetch(201)
     await pushEvents(fetch_, 'https://abc.supabase.co/', ANON, TOKEN, [mapEventToRow(applied(), USER)])
     expect(fetch_.mock.calls[0][0]).toBe('https://abc.supabase.co/rest/v1/portal_events')
+  })
+})
+
+describe('sanitizeAppUrl', () => {
+  test('strips email-shaped query params', () => {
+    expect(sanitizeAppUrl('https://boards.greenhouse.io/acme/jobs/1?email=u@e.com&gh_jid=123'))
+      .toBe('https://boards.greenhouse.io/acme/jobs/1?gh_jid=123')
+    expect(sanitizeAppUrl('https://x/y?candidate_email=u@e.com&gh_src=ref'))
+      .toBe('https://x/y?gh_src=ref')
+  })
+
+  test('strips token/session params', () => {
+    expect(sanitizeAppUrl('https://x/y?token=eyJhbGc&keep=ok'))
+      .toBe('https://x/y?keep=ok')
+    expect(sanitizeAppUrl('https://x/y?session_id=abc&access_token=xyz&job_id=42'))
+      .toBe('https://x/y?job_id=42')
+  })
+
+  test('strips OAuth code/state params', () => {
+    expect(sanitizeAppUrl('https://x/cb?code=abc&state=xyz&listing=42'))
+      .toBe('https://x/cb?listing=42')
+  })
+
+  test('strips candidate-identity IDs (sub-agent flagged real gap)', () => {
+    expect(sanitizeAppUrl('https://x/y?candidate_id=abc-123&gh_jid=42'))
+      .toBe('https://x/y?gh_jid=42')
+    expect(sanitizeAppUrl('https://x/y?applicant_id=u-99&job=z'))
+      .toBe('https://x/y?job=z')
+    expect(sanitizeAppUrl('https://x/y?user_id=42&keep=ok'))
+      .toBe('https://x/y?keep=ok')
+  })
+
+  test('strips redirect/return params (often carry PII)', () => {
+    expect(sanitizeAppUrl('https://x/y?returnTo=u@e.com&job=42'))
+      .toBe('https://x/y?job=42')
+    expect(sanitizeAppUrl('https://x/y?continue=https://x/profile?email=u@e.com'))
+      .toBe('https://x/y')
+  })
+
+  test('strips URL fragment (SPAs use it for session-restore state)', () => {
+    expect(sanitizeAppUrl('https://x/y?keep=ok#sessionId=abc'))
+      .toBe('https://x/y?keep=ok')
+    expect(sanitizeAppUrl('https://workday.com/job#thread=12345&token=abc'))
+      .toBe('https://workday.com/job')
+  })
+
+  test('preserves URLs with no PII params unchanged', () => {
+    expect(sanitizeAppUrl('https://boards.greenhouse.io/acme/jobs/123'))
+      .toBe('https://boards.greenhouse.io/acme/jobs/123')
+    expect(sanitizeAppUrl('https://boards.greenhouse.io/acme/jobs/123?gh_jid=999&gh_src=tw'))
+      .toBe('https://boards.greenhouse.io/acme/jobs/123?gh_jid=999&gh_src=tw')
+  })
+
+  test('preserves listing-identifying params (gh_jid, gh_src, lever-source, etc.)', () => {
+    expect(sanitizeAppUrl('https://x/y?gh_jid=99&gh_src=lkin&utm_source=mailout'))
+      .toBe('https://x/y?gh_jid=99&gh_src=lkin&utm_source=mailout')
+  })
+
+  test('preserves the URL on parse failure (rather than emit empty)', () => {
+    // Dedup in snapshot-store keys on app_url; emitting null/empty would
+    // break dedup. Better to ship a slightly-leaky URL than no URL.
+    expect(sanitizeAppUrl('not a url')).toBe('not a url')
+    expect(sanitizeAppUrl('')).toBe('')
+  })
+
+  test('null / undefined / non-string passthrough', () => {
+    expect(sanitizeAppUrl(null)).toBe(null)
+    expect(sanitizeAppUrl(undefined)).toBe(undefined)
+    expect(sanitizeAppUrl(42)).toBe(42)
+  })
+
+  test('mapEventToRow uses sanitizeAppUrl on app_url', () => {
+    const event = {
+      kind: 'applied',
+      company: 'Acme', role: 'Eng',
+      applied_at: '2026-05-17T12:00:00.000Z',
+      app_url: 'https://boards.greenhouse.io/acme/jobs/1?candidate_email=u@e.com',
+    }
+    const row = mapEventToRow(event, 'user-1')
+    expect(row.payload_json.app_url).toBe('https://boards.greenhouse.io/acme/jobs/1')
   })
 })
 

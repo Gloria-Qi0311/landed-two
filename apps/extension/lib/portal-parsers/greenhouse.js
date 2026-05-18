@@ -138,7 +138,7 @@
       company,
       role,
       applied_at: now.toISOString(),
-      app_url: url || '',  // TODO(#34.2): strip PII query params (?candidate_email=, ?token=) before staging
+      app_url: url || '',
       detected_via,
     }
   }

@@ -70,6 +70,66 @@ export function nextBackoffMs(consecutiveFailures) {
   return BACKOFF_SCHEDULE_MS[idx]
 }
 
+// ── PII sanitization for app_url (#34.2) ────────────────────────────────
+//
+// Portal application URLs occasionally surface PII via query params:
+// candidate emails on Greenhouse referral links, signed access tokens
+// on Lever guest-apply flows, session ids on Workday SAML callbacks.
+// Those land in `payload_json.app_url` and ride through PostgREST into
+// Supabase storage where they're visible to any sub with RLS access to
+// the user's rows. Strip the well-known offenders before writing.
+//
+// Conservative allow-removal list — only params we KNOW carry PII. We
+// don't strip unknown params (some are load-bearing for the URL: gh_jid,
+// gh_src, lever-source — they identify the listing, not the candidate).
+
+const PII_QUERY_PARAMS = new Set([
+  // Email-shaped
+  'email', 'candidate_email', 'applicant_email', 'user_email', 'contact_email',
+  // Token-shaped — bearer credentials in URLs are always a bad sign
+  'token', 'access_token', 'auth_token', 'session_token', 'session_id',
+  'sessionId', 'sessionid', 'oauth_token', 'id_token',
+  // OAuth code/state — short-lived but still credentials in URLs.
+  // Also: `continue=...` carries Google SSO redirect-back URLs, often
+  // with the user email — strip even though it occasionally smashes a
+  // portal's post-apply redirect target (acceptable trade for PII).
+  'code', 'state',
+  // Candidate-identity IDs — these are PII (the user IS the candidate);
+  // a back-end with one can correlate across listings.
+  'candidate_id', 'applicant_id', 'user_id',
+  // Tracking params that often carry an email
+  'continue', 'redirect', 'return_to', 'returnto', 'returnTo',
+  // Phone-shaped
+  'phone', 'phone_number',
+])
+
+/** Strip known PII query params from a URL while preserving everything
+ *  else (path, host, listing-identifying params). Returns the cleaned
+ *  URL string. On parse failure, returns the input unchanged — we'd
+ *  rather emit a slightly-leaky `app_url` than no `app_url` at all,
+ *  since the latter breaks dedup in snapshot-store.
+ *
+ *  @param {string} url
+ *  @returns {string}
+ */
+export function sanitizeAppUrl(url) {
+  if (!url || typeof url !== 'string') return url
+  let parsed
+  try { parsed = new URL(url) }
+  catch { return url }
+  // URL.searchParams is mutable; build a clean copy so we don't mangle
+  // the order of preserved params.
+  const stripped = []
+  for (const [key] of parsed.searchParams) {
+    if (PII_QUERY_PARAMS.has(key)) stripped.push(key)
+  }
+  for (const key of stripped) parsed.searchParams.delete(key)
+  // Also strip URL fragments — those routinely carry session-restore
+  // state in SPAs (Workday in particular).
+  parsed.hash = ''
+  return parsed.toString()
+}
+
 const TYPE_FOR_KIND = {
   applied: 'status-change',
   already_applied: 'status-change',
@@ -92,7 +152,7 @@ export function mapEventToRow(event, userId) {
     source: 'greenhouse',  // hard-coded for now; #33.1+ adds Lever / etc.
     company: event.company || '',
     role: event.role || '',
-    app_url: event.app_url || '',
+    app_url: sanitizeAppUrl(event.app_url || ''),
     detected_via: event.detected_via || 'unknown',
     raw_kind: event.kind,
   }

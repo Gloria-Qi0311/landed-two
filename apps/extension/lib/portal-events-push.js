@@ -7,6 +7,29 @@
 (function () {
   'use strict'
 
+  const PII_QUERY_PARAMS = new Set([
+    'email', 'candidate_email', 'applicant_email', 'user_email', 'contact_email',
+    'token', 'access_token', 'auth_token', 'session_token', 'session_id',
+    'sessionId', 'sessionid', 'oauth_token', 'id_token',
+    'code', 'state',
+    'candidate_id', 'applicant_id', 'user_id',
+    'continue', 'redirect', 'return_to', 'returnto', 'returnTo',
+    'phone', 'phone_number',
+  ])
+
+  function sanitizeAppUrl(url) {
+    if (!url || typeof url !== 'string') return url
+    let parsed
+    try { parsed = new URL(url) } catch { return url }
+    const stripped = []
+    for (const [key] of parsed.searchParams) {
+      if (PII_QUERY_PARAMS.has(key)) stripped.push(key)
+    }
+    for (const key of stripped) parsed.searchParams.delete(key)
+    parsed.hash = ''
+    return parsed.toString()
+  }
+
   const BACKOFF_SCHEDULE_MS = [60_000, 120_000, 300_000, 900_000, 3_600_000]
 
   function nextBackoffMs(consecutiveFailures) {
@@ -29,7 +52,7 @@
       source: 'greenhouse',
       company: event.company || '',
       role: event.role || '',
-      app_url: event.app_url || '',
+      app_url: sanitizeAppUrl(event.app_url || ''),
       detected_via: event.detected_via || 'unknown',
       raw_kind: event.kind,
     }
@@ -81,7 +104,7 @@
     return { ok: false, fatal: true, error: 'http ' + response.status + ': ' + body.slice(0, 200) }
   }
 
-  const api = { mapEventToRow, pushEvents, nextBackoffMs }
+  const api = { mapEventToRow, pushEvents, nextBackoffMs, sanitizeAppUrl }
   if (typeof globalThis !== 'undefined') globalThis.LandedPortalEventsPush = api
   else if (typeof self !== 'undefined') self.LandedPortalEventsPush = api
 })()
