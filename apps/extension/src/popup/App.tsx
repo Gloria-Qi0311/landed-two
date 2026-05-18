@@ -13,7 +13,7 @@ import * as auth from '@lib/auth.js'
 // and avoids Vite's CJS-interop edge case for named imports out of UMD
 // modules. Sub-agent flagged the named form as fragile-but-working.
 import * as sentinels from '@lib/portal-sentinels.js'
-const { NEEDS_AUTH_KEY } = sentinels
+const { NEEDS_AUTH_KEY, FATAL_STATE_KEY } = sentinels
 
 // NEEDS_AUTH_KEY is the chrome.storage.local sentinel the SW sets on
 // 401/403 push failures and clears on the next successful push. The
@@ -26,45 +26,53 @@ type AuthState =
   | { kind: 'codeSent'; email: string }
   | { kind: 'signedIn'; email: string }
 
-/** Reads + subscribes to the SW-side "session expired" sentinel.
+/** Read + subscribe to a single chrome.storage.local key. Returns the
+ *  current value (or null if absent / chrome.* unavailable). Updates
+ *  live via chrome.storage.onChanged so the consumer unmounts content
+ *  within ms of the SW clearing the key.
  *
- *  Returns the ISO-timestamp string when the SW last detected a 401/403
- *  on push, or null if everything is fine. Updates live via
- *  chrome.storage.onChanged so the banner unmounts within ms of the SW
- *  clearing the flag (next successful push after re-auth). */
-function useNeedsAuth(): string | null {
-  const [stamp, setStamp] = useState<string | null>(null)
+ *  Race protection: listener is registered BEFORE the async get, AND
+ *  the post-await setter is gated on a "change already arrived" flag —
+ *  prevents a stale `get` result from clobbering a newer onChanged
+ *  update in the tight window between subscription and resolution.
+ *  (Both fixes were caught by the Run 4 sub-agent review of #73.)
+ */
+function useStorageSentinel<T = unknown>(key: string): T | null {
+  const [value, setValue] = useState<T | null>(null)
   useEffect(() => {
     let cancelled = false
-    // `gotChange` short-circuits a stale .get result from clobbering a
-    // newer onChanged update. Without it, if the SW clears the sentinel
-    // between listener registration and .get resolution, the listener
-    // sets null first, then .get resolves with the old value and resets
-    // the banner. Tiny window, but observable.
     let gotChange = false
-    // Register the listener FIRST (synchronously in the effect body) so
-    // no onChanged events can fire in the gap between mount and .get.
     const listener = (changes: any, areaName: string) => {
       if (areaName !== 'local') return
-      if (!changes || !(NEEDS_AUTH_KEY in changes)) return
+      if (!changes || !(key in changes)) return
       gotChange = true
-      // newValue is undefined when the key was removed (push succeeded).
-      setStamp(changes[NEEDS_AUTH_KEY].newValue ?? null)
+      setValue(changes[key].newValue ?? null)
     }
     try { chrome.storage.onChanged.addListener(listener) } catch { /* test env */ }
     ;(async () => {
       try {
-        const res = await chrome.storage.local.get(NEEDS_AUTH_KEY)
+        const res = await chrome.storage.local.get(key)
         if (cancelled || gotChange) return
-        setStamp(res?.[NEEDS_AUTH_KEY] ?? null)
+        setValue(res?.[key] ?? null)
       } catch { /* chrome.* unavailable in tests — leave as null */ }
     })()
     return () => {
       cancelled = true
       try { chrome.storage.onChanged.removeListener(listener) } catch { /* test env */ }
     }
-  }, [])
-  return stamp
+  }, [key])
+  return value
+}
+
+/** Returns the ISO timestamp the SW last set on a 401/403 push, or null. */
+function useNeedsAuth(): string | null {
+  return useStorageSentinel<string>(NEEDS_AUTH_KEY)
+}
+
+/** Returns the fatal-state record the SW set on a 4xx schema/RLS
+ *  rejection, or null. Shape: `{ error: string, at: ISO string }`. */
+function useFatalState(): { error: string; at: string } | null {
+  return useStorageSentinel<{ error: string; at: string }>(FATAL_STATE_KEY)
 }
 
 export function App() {
@@ -371,6 +379,7 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
   const [fillingId, setFillingId] = useState<string | null>(null)
   const [fillNotice, setFillNotice] = useState<string | null>(null)
   const needsAuthAt = useNeedsAuth()
+  const fatalState = useFatalState()
 
   useEffect(() => {
     ;(async () => {
@@ -420,6 +429,18 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{email}</div>
       </div>
 
+      {fatalState && (
+        <FatalBanner
+          error={fatalState.error}
+          at={fatalState.at}
+          onDismiss={async () => {
+            // User acknowledged — clear the sentinel. SW will set it
+            // again on the next fatal push, so dismissal isn't lossy:
+            // the banner reappears if the bug recurs.
+            try { await chrome.storage.local.remove(FATAL_STATE_KEY) } catch { /* ignore */ }
+          }}
+        />
+      )}
       {needsAuthAt && (
         <ReauthBanner
           detectedAt={needsAuthAt}
@@ -485,6 +506,68 @@ function ResumeRow({ resume, filling, onFill }: { resume: DbResume; filling: boo
       </div>
       <button className="btn-primary" onClick={onFill} disabled={filling} style={{ fontSize: 11.5, padding: '6px 11px' }}>
         {filling ? 'Filling…' : 'Use'}
+      </button>
+    </div>
+  )
+}
+
+// ── Fatal banner (SW push got a 4xx that isn't auth — schema/RLS) ─────────
+//
+// Triggered when pushEvents returns `fatal` (e.g. a Supabase migration
+// shipped a column rename that the extension hasn't caught up to). The
+// SW drops the queue + logs to console; this banner surfaces the same
+// info to the user so they know to check for an extension update
+// rather than silently wonder why nothing's syncing.
+//
+// More severe than the re-auth banner — rendered first when both are
+// active. Red palette, single Dismiss control (which clears the
+// sentinel; SW re-sets it on the next fatal push, so dismissal isn't
+// lossy — banner reappears if the bug persists).
+function FatalBanner({ error, at, onDismiss }: { error: string; at: string; onDismiss: () => void }) {
+  let when: string
+  try {
+    const d = new Date(at)
+    when = Number.isNaN(+d) ? 'recently' : d.toLocaleTimeString()
+  } catch { when = 'recently' }
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      style={{
+        padding: 12,
+        background: 'oklch(0.96 0.06 28)',
+        border: '0.5px solid oklch(0.82 0.10 28)',
+        borderRadius: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'oklch(0.40 0.18 28)' }}>
+        Sync is misconfigured
+      </div>
+      <div style={{ fontSize: 11.5, color: 'oklch(0.40 0.14 28)', lineHeight: 1.5 }}>
+        Your pending events couldn't sync (detected {when}) and were dropped
+        to keep the queue from growing without bound. The most likely cause
+        is an extension update — check the Web Store, or reach out if you
+        keep seeing this.
+      </div>
+      <details style={{ fontSize: 10.5, color: 'oklch(0.45 0.10 28)' }}>
+        <summary style={{ cursor: 'pointer' }}>Details</summary>
+        <code style={{
+          display: 'block', marginTop: 4, padding: 6,
+          background: 'oklch(0.98 0.02 28)', borderRadius: 4,
+          fontFamily: 'var(--font-mono)', fontSize: 10,
+          wordBreak: 'break-all',
+        }}>{error}</code>
+      </details>
+      <button
+        type="button"
+        className="btn-secondary"
+        onClick={onDismiss}
+        style={{ alignSelf: 'flex-start', fontSize: 11.5, padding: '6px 11px' }}
+      >
+        Dismiss
       </button>
     </div>
   )

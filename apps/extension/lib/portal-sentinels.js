@@ -38,8 +38,17 @@
   //     when next_retry_at > now; writes on retryable; clears on ok.
   // Shape: { consecutive_failures: number, next_retry_at: ISO string }.
   const BACKOFF_STATE_KEY = 'landed:portal-push-backoff-state'
+  // FATAL_STATE_KEY callers (#35.4):
+  //   - apps/extension/background.js (producer — set on pushEvents fatal:
+  //     schema mismatch / RLS rejection; cleared on next ok push)
+  //   - apps/extension/src/popup/App.tsx (consumer — useFatalState hook;
+  //     surfaces a "Sync is misconfigured" banner so the user knows to
+  //     check for an extension update rather than wonder why nothing's
+  //     syncing).
+  // Shape: { error: string, at: ISO string }.
+  const FATAL_STATE_KEY = 'landed:portal-push-fatal'
 
-  const api = { NEEDS_AUTH_KEY, PENDING_QUEUE_KEY, BACKOFF_STATE_KEY }
+  const api = { NEEDS_AUTH_KEY, PENDING_QUEUE_KEY, BACKOFF_STATE_KEY, FATAL_STATE_KEY }
 
   global.LandedPortalSentinels = api
   if (typeof module !== 'undefined' && module.exports) {

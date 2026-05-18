@@ -30,6 +30,7 @@ const PUSH_PERIOD_MIN = 1    // drain pending queue every minute when signed in
 // the popup banner hook, and #36.1's badge-counter).
 const NEEDS_AUTH_KEY = self.LandedPortalSentinels.NEEDS_AUTH_KEY
 const BACKOFF_STATE_KEY = self.LandedPortalSentinels.BACKOFF_STATE_KEY
+const FATAL_STATE_KEY = self.LandedPortalSentinels.FATAL_STATE_KEY
 
 // Hosts the polling sweep should touch. Mirrors GREENHOUSE_HOSTS in the
 // parser but framed as URL-match patterns chrome.tabs.query accepts.
@@ -323,8 +324,10 @@ async function drainPendingEvents() {
 
   if (result.ok) {
     await store.clearPending(storage)
-    // Clear any stale "needs auth" sentinel + backoff — push just succeeded.
-    chrome.storage.local.remove([NEEDS_AUTH_KEY, BACKOFF_STATE_KEY])
+    // Clear any stale sentinels — push just succeeded. Includes the
+    // fatal sentinel so a transient deploy-bug that healed doesn't
+    // leave the banner visible forever.
+    chrome.storage.local.remove([NEEDS_AUTH_KEY, BACKOFF_STATE_KEY, FATAL_STATE_KEY])
     refreshBadge()
     return
   }
@@ -339,10 +342,15 @@ async function drainPendingEvents() {
     // Schema mismatch / RLS rejection — code bug, not transient. Log
     // loudly + drop the queue (retrying the same payload would fail
     // forever and grow chrome.storage.local without bound). Also clear
-    // backoff state — no point holding it for a queue we just dropped.
+    // backoff state (queue gone) AND set the fatal sentinel so the
+    // popup surfaces a "Sync is misconfigured" banner (#35.4) —
+    // console.error alone is invisible to the user.
     console.error('[landed] portal-events push FATAL — dropping queue', result.error)
     await store.clearPending(storage)
     chrome.storage.local.remove(BACKOFF_STATE_KEY)
+    chrome.storage.local.set({
+      [FATAL_STATE_KEY]: { error: String(result.error || 'unknown'), at: new Date().toISOString() },
+    })
     refreshBadge()
     return
   }

@@ -14,6 +14,7 @@ describe('portal-sentinels', () => {
       NEEDS_AUTH_KEY: 'landed:portal-push-needs-auth',
       PENDING_QUEUE_KEY: 'landed:pending-portal-events',
       BACKOFF_STATE_KEY: 'landed:portal-push-backoff-state',
+      FATAL_STATE_KEY: 'landed:portal-push-fatal',
     })
   })
 
