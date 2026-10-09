@@ -21,7 +21,7 @@ import {
 } from '@landed/ai-roundtrip'
 import { PageHeader } from './shell'
 import { Icon, CompanyMark } from './primitives'
-import { supabase } from '../lib/supabase'
+import { insertAiRun } from '../lib/api'
 import { useCurrentResume } from '../hooks/resumes'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { Link } from 'react-router-dom'
@@ -112,7 +112,7 @@ export function ResumeMatchPage() {
     if (!parseResult.ok) {
       setProviders((p) => ({ ...p, [provider]: { status: 'failed', raw: text, error: parseResult.error } }))
       // Persist the failed run so retros can see what the AI returned
-      saveAiRun(supabase, {
+      saveAiRun(insertAiRun, {
         task: 'resume_match',
         provider,
         prompt,
@@ -128,7 +128,7 @@ export function ResumeMatchPage() {
       [provider]: { status: 'parsed', rankings, raw: text, format: parseResult.format },
     }))
     // Persist to ai_runs; ignore the returned id beyond logging.
-    const save = await saveAiRun(supabase, {
+    const save = await saveAiRun(insertAiRun, {
       task: 'resume_match',
       provider,
       prompt,

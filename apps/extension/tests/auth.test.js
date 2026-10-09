@@ -1,140 +1,166 @@
-// Tests for the extension's Supabase auth wrapper (lib/auth.js).
+// Tests for the extension's Landed API auth wrapper (lib/auth.js).
 //
-// Doesn't hit the network: we mock `@supabase/supabase-js` createClient
-// so each helper just verifies the right method gets called with the
-// right shape. End-to-end OTP flow is exercised manually in #29 when
-// the popup React UI lands.
+// Doesn't hit the network: globalThis.fetch is a jest.fn per test and
+// chrome.storage.local is an in-memory stub, so each helper is checked for
+// the request it makes and the session it stores / clears.
 
-// `mock`-prefixed name is the only way to reference a closure var from
-// inside jest.mock()'s factory (Jest hoists the factory; mock-prefixed
-// names are exempt from the "out-of-scope variable" guard).
-const mockStubClient = {
-  auth: {
-    getSession: jest.fn(async () => ({ data: { session: null } })),
-    getUser: jest.fn(async () => ({ data: { user: null } })),
-    signInWithOtp: jest.fn(async () => ({ data: {}, error: null })),
-    verifyOtp: jest.fn(async () => ({ data: {}, error: null })),
-    signOut: jest.fn(async () => ({ error: null })),
-    onAuthStateChange: jest.fn(() => ({
-      data: { subscription: { unsubscribe: jest.fn() } },
-    })),
-  },
-};
+const { API_URL, SESSION_STORAGE_KEY } = require('../lib/config.js');
 
-let mockedCreateClient;
+function jsonResponse(status, body) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() { return body; },
+  };
+}
 
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: jest.fn(() => mockStubClient),
-}));
+let store;
+let changeListeners;
 
 beforeEach(() => {
-  // chrome.storage.local stub — auth.js doesn't actively touch it but
-  // storage-adapter.js (transitively required via auth.js) reads from
-  // globalThis.chrome at call time.
+  store = new Map();
+  changeListeners = new Set();
   globalThis.chrome = {
-    storage: { local: { async get() { return {}; }, async set() {}, async remove() {} } },
+    storage: {
+      local: {
+        async get(key) { return store.has(key) ? { [key]: store.get(key) } : {}; },
+        async set(obj) {
+          for (const [k, v] of Object.entries(obj)) {
+            const oldValue = store.get(k);
+            store.set(k, v);
+            for (const l of changeListeners) l({ [k]: { oldValue, newValue: v } }, 'local');
+          }
+        },
+        async remove(key) {
+          const oldValue = store.get(key);
+          store.delete(key);
+          for (const l of changeListeners) l({ [key]: { oldValue, newValue: undefined } }, 'local');
+        },
+      },
+      onChanged: {
+        addListener: (l) => changeListeners.add(l),
+        removeListener: (l) => changeListeners.delete(l),
+      },
+    },
   };
+  globalThis.fetch = jest.fn();
   jest.resetModules();
-  jest.clearAllMocks();
-  mockedCreateClient = require('@supabase/supabase-js').createClient;
 });
 
 afterEach(() => {
   delete globalThis.chrome;
+  delete globalThis.fetch;
 });
 
-describe('getSupabase — singleton + correct init', () => {
-  test('returns the same instance on repeat calls', () => {
+const SESSION = { token: 'tok-123', user: { id: 'u1', email: 'a@b.co' } };
+
+describe('signIn', () => {
+  test('POSTs email + password in token mode and stores the session', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse(200, { token: SESSION.token, user: SESSION.user }));
     const auth = require('../lib/auth.js');
-    const a = auth.getSupabase();
-    const b = auth.getSupabase();
-    expect(a).toBe(b);
-    expect(mockedCreateClient).toHaveBeenCalledTimes(1);
+    const result = await auth.signIn('a@b.co', 'hunter2hunter2');
+
+    expect(result).toEqual({ data: { session: SESSION }, error: null });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe(API_URL + '/api/auth/login');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ email: 'a@b.co', password: 'hunter2hunter2', mode: 'token' });
+    expect(store.get(SESSION_STORAGE_KEY)).toEqual(SESSION);
   });
 
-  test('initializes with chromeStorageAdapter + persistSession + autoRefreshToken + detectSessionInUrl=false', () => {
+  test('surfaces the server error message and stores nothing', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse(401, { error: 'wrong email or password' }));
     const auth = require('../lib/auth.js');
-    auth.getSupabase();
-    const [url, key, options] = mockedCreateClient.mock.calls[0];
-    expect(url).toMatch(/^https:\/\/.+\.supabase\.co$/);
-    expect(typeof key).toBe('string');
-    expect(key.length).toBeGreaterThan(20); // anon key is a JWT
-    expect(options.auth.persistSession).toBe(true);
-    expect(options.auth.autoRefreshToken).toBe(true);
-    expect(options.auth.detectSessionInUrl).toBe(false); // popup has no URL
-    expect(typeof options.auth.storage.getItem).toBe('function');
-    expect(typeof options.auth.storage.setItem).toBe('function');
-    expect(typeof options.auth.storage.removeItem).toBe('function');
+    const result = await auth.signIn('a@b.co', 'nope');
+    expect(result).toEqual({ data: null, error: { message: 'wrong email or password' } });
+    expect(store.has(SESSION_STORAGE_KEY)).toBe(false);
   });
 
-  test('__resetForTests allows a fresh init', () => {
+  test('network failure → readable error', async () => {
+    fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     const auth = require('../lib/auth.js');
-    auth.getSupabase();
-    auth.__resetForTests();
-    auth.getSupabase();
-    expect(mockedCreateClient).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe('OTP flow helpers', () => {
-  test('signInWithOtp forwards the email', async () => {
-    const auth = require('../lib/auth.js');
-    await auth.signInWithOtp('user@example.com');
-    expect(mockStubClient.auth.signInWithOtp).toHaveBeenCalledWith({ email: 'user@example.com' });
-  });
-
-  test('verifyOtp passes email + token + type=email', async () => {
-    const auth = require('../lib/auth.js');
-    await auth.verifyOtp('user@example.com', '123456');
-    expect(mockStubClient.auth.verifyOtp).toHaveBeenCalledWith({
-      email: 'user@example.com',
-      token: '123456',
-      type: 'email',
-    });
+    const result = await auth.signIn('a@b.co', 'pw');
+    expect(result.error.message).toMatch(/Could not reach the Landed server/);
   });
 });
 
-describe('Session + user accessors', () => {
-  test('getSession unwraps the data.session shape', async () => {
-    mockStubClient.auth.getSession.mockResolvedValueOnce({
-      data: { session: { access_token: 'tok', user: { id: 'u1' } } },
-    });
+describe('session accessors', () => {
+  test('getSession / getUser read the stored session', async () => {
+    store.set(SESSION_STORAGE_KEY, SESSION);
     const auth = require('../lib/auth.js');
-    const session = await auth.getSession();
-    expect(session).toEqual({ access_token: 'tok', user: { id: 'u1' } });
+    expect(await auth.getSession()).toEqual(SESSION);
+    expect(await auth.getUser()).toEqual(SESSION.user);
   });
 
-  test('getSession returns null when no session', async () => {
+  test('null when signed out or the stored value is malformed', async () => {
     const auth = require('../lib/auth.js');
     expect(await auth.getSession()).toBe(null);
-  });
-
-  test('getUser unwraps the data.user shape', async () => {
-    mockStubClient.auth.getUser.mockResolvedValueOnce({
-      data: { user: { id: 'u1', email: 'a@b.co' } },
-    });
-    const auth = require('../lib/auth.js');
-    const user = await auth.getUser();
-    expect(user).toEqual({ id: 'u1', email: 'a@b.co' });
+    expect(await auth.getUser()).toBe(null);
+    store.set(SESSION_STORAGE_KEY, { access_token: 'old-supabase-shape' });
+    expect(await auth.getSession()).toBe(null);
   });
 });
 
-describe('signOut + onAuthChange', () => {
-  test('signOut delegates to supabase.auth.signOut', async () => {
+describe('signOut', () => {
+  test('clears the local session and revokes it server-side', async () => {
+    store.set(SESSION_STORAGE_KEY, SESSION);
+    fetch.mockResolvedValueOnce(jsonResponse(204, null));
     const auth = require('../lib/auth.js');
-    await auth.signOut();
-    expect(mockStubClient.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(await auth.signOut()).toEqual({ error: null });
+    expect(store.has(SESSION_STORAGE_KEY)).toBe(false);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe(API_URL + '/api/auth/logout');
+    expect(init.headers.Authorization).toBe('Bearer ' + SESSION.token);
   });
 
-  test('onAuthChange registers a callback + returns an unsubscribe fn', () => {
+  test('still signs out locally when the server is unreachable', async () => {
+    store.set(SESSION_STORAGE_KEY, SESSION);
+    fetch.mockRejectedValueOnce(new TypeError('offline'));
+    const auth = require('../lib/auth.js');
+    expect(await auth.signOut()).toEqual({ error: null });
+    expect(store.has(SESSION_STORAGE_KEY)).toBe(false);
+  });
+});
+
+describe('onAuthChange', () => {
+  test('fires SIGNED_IN / SIGNED_OUT on storage changes; unsubscribe stops it', async () => {
     const auth = require('../lib/auth.js');
     const callback = jest.fn();
     const unsubscribe = auth.onAuthChange(callback);
-    expect(mockStubClient.auth.onAuthStateChange).toHaveBeenCalledWith(callback);
-    expect(typeof unsubscribe).toBe('function');
-    // Calling unsubscribe should invoke the underlying subscription.unsubscribe
-    const sub = mockStubClient.auth.onAuthStateChange.mock.results[0].value.data.subscription;
+
+    await chrome.storage.local.set({ [SESSION_STORAGE_KEY]: SESSION });
+    await chrome.storage.local.set({ unrelated: 1 });
+    await chrome.storage.local.remove(SESSION_STORAGE_KEY);
+    expect(callback.mock.calls).toEqual([['SIGNED_IN', SESSION], ['SIGNED_OUT', null]]);
+
     unsubscribe();
-    expect(sub.unsubscribe).toHaveBeenCalled();
+    await chrome.storage.local.set({ [SESSION_STORAGE_KEY]: SESSION });
+    expect(callback).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('apiFetch', () => {
+  test('sends the Bearer token and returns parsed JSON', async () => {
+    store.set(SESSION_STORAGE_KEY, SESSION);
+    fetch.mockResolvedValueOnce(jsonResponse(200, [{ id: 'r1' }]));
+    const auth = require('../lib/auth.js');
+    expect(await auth.apiFetch('/resumes')).toEqual([{ id: 'r1' }]);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe(API_URL + '/api/resumes');
+    expect(init.headers.Authorization).toBe('Bearer ' + SESSION.token);
+  });
+
+  test('401 drops the local session so the UI flips to signed-out', async () => {
+    store.set(SESSION_STORAGE_KEY, SESSION);
+    fetch.mockResolvedValueOnce(jsonResponse(401, { error: 'session expired' }));
+    const auth = require('../lib/auth.js');
+    await expect(auth.apiFetch('/resumes')).rejects.toThrow(/sign in again/);
+    expect(store.has(SESSION_STORAGE_KEY)).toBe(false);
+  });
+
+  test('throws without a session and never calls the network', async () => {
+    const auth = require('../lib/auth.js');
+    await expect(auth.apiFetch('/resumes')).rejects.toThrow(/Not signed in/);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

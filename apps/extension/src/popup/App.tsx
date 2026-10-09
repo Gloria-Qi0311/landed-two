@@ -3,12 +3,13 @@
 // manifest.json's side_panel.default_path; clicking the toolbar icon opens
 // the panel via background.js's chrome.action.onClicked handler).
 //
-// SCOPE OF THIS REWRITE: visual + brand parity with apps/web's LoginScreen
-// (LandedMark + display heading + OAuth row + OR-WITH-EMAIL divider + dark
-// .btn-primary + accent "Already have a code" + DEV SHORTCUT yellow card).
+// Visual + brand parity with apps/web's LoginScreen (LandedMark + display
+// heading + email/password form + dark .btn-primary). Sign-in goes to the
+// Landed API server (lib/auth.js); account creation happens in the web app.
 // Resume picker + fill flow (the SignedIn surface) unchanged from PR #67.
 import React, { useEffect, useState } from 'react'
 import * as auth from '@lib/auth.js'
+import * as config from '@lib/config.js'
 // Namespace import (vs. named) matches the existing @lib/auth.js pattern
 // and avoids Vite's CJS-interop edge case for named imports out of UMD
 // modules. Sub-agent flagged the named form as fragile-but-working.
@@ -23,7 +24,6 @@ const { NEEDS_AUTH_KEY, FATAL_STATE_KEY } = sentinels
 type AuthState =
   | { kind: 'loading' }
   | { kind: 'signedOut' }
-  | { kind: 'codeSent'; email: string }
   | { kind: 'signedIn'; email: string }
 
 /** Read + subscribe to a single chrome.storage.local key. Returns the
@@ -91,9 +91,9 @@ export function App() {
         setError(toErr(e))
         setState({ kind: 'signedOut' })
       }
-      unsubscribe = auth.onAuthChange((_event: string, session: any) => {
+      unsubscribe = auth.onAuthChange((_event, session) => {
         if (session?.user?.email) setState({ kind: 'signedIn', email: session.user.email })
-        else setState((s) => (s.kind === 'codeSent' ? s : { kind: 'signedOut' }))
+        else setState({ kind: 'signedOut' })
       })
     })()
     return () => { unsubscribe?.() }
@@ -124,47 +124,21 @@ export function App() {
     )
   }
 
-  if (state.kind === 'codeSent') {
-    return (
-      <CodeForm
-        email={state.email}
-        busy={busy}
-        error={error}
-        onBack={() => { setState({ kind: 'signedOut' }); setError(null) }}
-        onVerify={async (token) => {
-          setBusy(true); setError(null)
-          try {
-            const result = await auth.verifyOtp(state.email, token)
-            if (result.error) setError(result.error.message || 'Invalid code')
-          } catch (e) {
-            setError(toErr(e))
-          } finally {
-            setBusy(false)
-          }
-        }}
-      />
-    )
-  }
-
   return (
-    <EmailForm
+    <LoginForm
       busy={busy}
       error={error}
-      onSubmit={async (email) => {
+      onSubmit={async (email, password) => {
         setBusy(true); setError(null)
         try {
-          const result = await auth.signInWithOtp(email)
-          if (result.error) setError(result.error.message || 'Failed to send code')
-          else setState({ kind: 'codeSent', email })
+          const result = await auth.signIn(email, password)
+          if (result.error) setError(result.error.message || 'Sign-in failed')
+          // On success: onAuthChange fires → signedIn
         } catch (e) {
           setError(toErr(e))
         } finally {
           setBusy(false)
         }
-      }}
-      onSkipToCode={(email) => {
-        setError(null)
-        setState({ kind: 'codeSent', email })
       }}
     />
   )
@@ -213,42 +187,28 @@ function ArrowRight({ size = 12 }: { size?: number }) {
   )
 }
 
-// ── Signed-out: email form (mirrors web LoginScreen) ──────────────────────
-function EmailForm({
-  busy, error, onSubmit, onSkipToCode,
+// ── Signed-out: email + password form (mirrors web LoginScreen) ──────────
+function LoginForm({
+  busy, error, onSubmit,
 }: {
   busy: boolean
   error: string | null
-  onSubmit: (e: string) => void
-  onSkipToCode: (e: string) => void
+  onSubmit: (email: string, password: string) => void
 }) {
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const ready = !!email.trim() && !!password
   return (
     <>
       <Header />
-      <DisplayHeading subtitle="Sign in to keep your application pipeline in sync. No password — we'll email you a 6-digit code." />
+      <DisplayHeading subtitle="Sign in with your Landed account to sync portals and fill applications." />
 
-      <form onSubmit={(e) => { e.preventDefault(); if (email.trim()) onSubmit(email.trim()) }} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* OAuth placeholders — visual parity with web. chrome.identity wiring
-            is a follow-up (needs Web Store publication + OAuth scope config).
-            Disabled with tooltip explaining. */}
-        <button type="button" className="btn-secondary" disabled title="OAuth in the extension needs chrome.identity setup — Sprint 4 follow-up" style={{ width: '100%', justifyContent: 'center' }}>
-          Continue with Google
-        </button>
-        <button type="button" className="btn-secondary" disabled title="OAuth in the extension needs chrome.identity setup — Sprint 4 follow-up" style={{ width: '100%', justifyContent: 'center' }}>
-          Continue with GitHub
-        </button>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
-          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-          <span style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>or with email</span>
-          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-        </div>
-
+      <form onSubmit={(e) => { e.preventDefault(); if (ready) onSubmit(email.trim(), password) }} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <label htmlFor="login-email" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Email</label>
         <input
           id="login-email"
           type="email"
+          autoComplete="email"
           required
           autoFocus
           placeholder="you@work.com"
@@ -257,109 +217,37 @@ function EmailForm({
           disabled={busy}
         />
 
+        <label htmlFor="login-password" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, marginTop: 4 }}>Password</label>
+        <input
+          id="login-password"
+          type="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={busy}
+        />
+
         {error && <ErrorBanner message={error} />}
 
-        <button type="submit" className="btn-primary" disabled={busy || !email.trim()} style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px' }}>
-          {busy ? 'Sending code…' : <>Send code <ArrowRight /></>}
+        <button type="submit" className="btn-primary" disabled={busy || !ready} style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px' }}>
+          {busy ? 'Signing in…' : <>Sign in <ArrowRight /></>}
         </button>
 
-        <button
-          type="button"
+        <a
+          href={config.API_URL}
+          target="_blank"
+          rel="noreferrer"
           className="link"
-          disabled={!email.trim()}
-          onClick={() => { if (email.trim()) onSkipToCode(email.trim()) }}
           style={{ alignSelf: 'flex-start', marginTop: 4, fontSize: 12 }}
         >
-          Already have a code? Enter it →
-        </button>
-
-        {/* DEV SHORTCUT — yellow card, matches web's treatment exactly.
-            Extension can't reach the web's /api/dev/login (no Vite server +
-            CORS would block). The realistic shortcut for an extension is
-            "skip the email send + paste the code from `pnpm dev:otp` running
-            in your terminal". Same outcome (signed in without email), one
-            extra terminal command. Vite strips this block from prod. */}
-        {import.meta.env.DEV && (
-          <div style={{
-            marginTop: 10, padding: 10,
-            background: 'oklch(0.96 0.04 90)',
-            border: '0.5px dashed oklch(0.78 0.1 90)',
-            borderRadius: 6,
-            display: 'flex', flexDirection: 'column', gap: 6,
-          }}>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'oklch(0.40 0.12 90)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Dev shortcut
-            </div>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={!email.trim()}
-              onClick={() => { if (email.trim()) onSkipToCode(email.trim()) }}
-              style={{ width: '100%', justifyContent: 'center' }}
-            >
-              Skip email — paste code from terminal
-            </button>
-            <div style={{ fontSize: 10.5, color: 'oklch(0.42 0.08 90)', lineHeight: 1.45 }}>
-              Run <span style={{ fontFamily: 'var(--font-mono)', background: 'oklch(1 0 0 / 0.5)', padding: '1px 4px', borderRadius: 3 }}>pnpm dev:otp {email || '<email>'}</span> in your terminal — uses service_role to print the code without sending email. Stripped from production builds.
-            </div>
-          </div>
-        )}
+          No account yet? Create one in the web app →
+        </a>
       </form>
 
       <div style={{ marginTop: 'auto', paddingTop: 24, fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
         By continuing you agree to the terms and privacy policy. Cookies from portals never leave your browser.
       </div>
-    </>
-  )
-}
-
-// ── Signed-out: code-entry form ───────────────────────────────────────────
-function CodeForm({ email, busy, error, onBack, onVerify }: { email: string; busy: boolean; error: string | null; onBack: () => void; onVerify: (t: string) => void }) {
-  const [code, setCode] = useState('')
-  return (
-    <>
-      <Header />
-      <DisplayHeading subtitle={`A 6-digit code is on its way to ${email}. Paste it below.`} />
-
-      <form onSubmit={(e) => { e.preventDefault(); if (code.trim()) onVerify(code.trim()) }} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ padding: 12, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 8 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fg)', marginBottom: 3 }}>Check your email</div>
-          <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-            Sent to <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>{email}</span>
-          </div>
-        </div>
-
-        <label htmlFor="login-code" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, marginTop: 4 }}>Code</label>
-        <input
-          id="login-code"
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          maxLength={8}
-          autoComplete="one-time-code"
-          autoFocus
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-          placeholder="123456"
-          required
-          disabled={busy}
-          style={{ padding: '10px 12px', fontSize: 16, fontFamily: 'var(--font-mono)', letterSpacing: '0.25em', textAlign: 'center' }}
-        />
-
-        {error && <ErrorBanner message={error} />}
-
-        <button type="submit" className="btn-primary" disabled={busy || code.length < 6} style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px' }}>
-          {busy ? 'Verifying…' : <>Sign in <ArrowRight /></>}
-        </button>
-
-        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.5, marginTop: 2 }}>
-          Tip: in dev, run <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>pnpm dev:otp {email}</span> in your terminal to print the code without waiting for email.
-        </div>
-
-        <button type="button" className="link" onClick={onBack} style={{ alignSelf: 'flex-start', marginTop: 4, fontSize: 12 }}>
-          Use a different email →
-        </button>
-      </form>
     </>
   )
 }
@@ -384,14 +272,9 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
   useEffect(() => {
     ;(async () => {
       try {
-        const client = auth.getSupabase()
-        const { data, error: e } = await client
-          .from('resumes')
-          .select('id, name, parsed_json, is_current, created_at')
-          .order('is_current', { ascending: false })
-          .order('created_at', { ascending: false })
-        if (e) throw new Error(e.message)
-        setResumes(data ?? [])
+        const data = await auth.apiFetch<DbResume[]>('/resumes')
+        // Current resume first, then newest first (API returns newest first).
+        setResumes([...data].sort((a, b) => Number(b.is_current) - Number(a.is_current)))
       } catch (e) {
         setLoadErr(toErr(e))
         setResumes([])
@@ -511,9 +394,9 @@ function ResumeRow({ resume, filling, onFill }: { resume: DbResume; filling: boo
   )
 }
 
-// ── Fatal banner (SW push got a 4xx that isn't auth — schema/RLS) ─────────
+// ── Fatal banner (SW push got a 4xx that isn't auth — schema mismatch) ──
 //
-// Triggered when pushEvents returns `fatal` (e.g. a Supabase migration
+// Triggered when pushEvents returns `fatal` (e.g. a server migration
 // shipped a column rename that the extension hasn't caught up to). The
 // SW drops the queue + logs to console; this banner surfaces the same
 // info to the user so they know to check for an extension update

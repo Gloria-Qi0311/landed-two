@@ -1,0 +1,23 @@
+{
+  "name": "@landed/server",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Landed API server (Hono + Postgres). Replaces Supabase: auth, REST, realtime SSE, portal-ingest.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch src/index.ts",
+    "start": "node --env-file-if-exists=.env src/index.ts",
+    "migrate": "node --env-file-if-exists=.env src/migrate.ts",
+    "test": "node --env-file-if-exists=.env --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.4",
+    "hono": "^4.13.13",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "typescript": "^6.0.3"
+  }
+}

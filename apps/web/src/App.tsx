@@ -2,9 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Routes, Route, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
-import type { Session } from '@supabase/supabase-js';
 
-import { supabase } from './lib/supabase';
+import { useAuth } from './lib/auth';
 import {
   useApplications,
   useCompanies,
@@ -47,16 +46,18 @@ export function App() {
   const [openApp, setOpenApp] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
 
-  // Auth state — Supabase manages session persistence under sb-<ref>-auth-token
-  // in localStorage; we mirror the session object here and gate render on it.
-  const [session, setSession] = useState<Session | null>(null);
-  const [authReady, setAuthReady] = useState(false);
-  const signedIn = !!session;
+  // Auth state — the session is an httpOnly cookie owned by the API server;
+  // lib/auth mirrors who is signed in and we gate render on it.
+  const user = useAuth((s) => s.user);
+  const authReady = useAuth((s) => s.ready);
+  const hydrateAuth = useAuth((s) => s.hydrate);
+  const signOut = useAuth((s) => s.signOut);
+  const signedIn = !!user;
   const [profileOpen, setProfileOpen] = useState(false);
   const [showTour, setShowTour] = useState(false);
 
-  // Data layer (TanStack Query → Supabase). enabled=signedIn so we don't
-  // fire RLS-rejected requests while the LoginScreen is showing.
+  // Data layer (TanStack Query → API). Query hooks are enabled only while
+  // signed in, so nothing fires while the LoginScreen is showing.
   const appsQuery = useApplications();
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();
@@ -76,47 +77,37 @@ export function App() {
     localStorage.setItem('landed:theme', theme);
   }, [theme]);
 
-  // Hydrate session on mount + subscribe to subsequent changes (sign-in /
-  // sign-out / token refresh / OAuth redirect-return). On SIGNED_IN /
-  // SIGNED_OUT we also clear the TanStack Query cache so user A's data
-  // never leaks into user B's session — RLS scopes the DB query, but the
-  // client-side cache survives sign-out otherwise.
+  // Hydrate the session on mount, then react to user changes (sign-in /
+  // sign-out / server-side expiry). On every change of user we clear the
+  // TanStack Query cache so user A's data never leaks into user B's session
+  // — the API scopes queries, but the client-side cache survives sign-out
+  // otherwise.
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  // Tracks the previous signed-in state so we can detect signed-out → signed-in
-  // transitions specifically (vs initial hydration / token refresh, which
-  // shouldn't navigate). Initialized after getSession() resolves.
-  const prevSignedInRef = useRef<boolean>(false);
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setAuthReady(true);
-      prevSignedInRef.current = !!data.session;
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
-      const wasSignedIn = prevSignedInRef.current;
-      const isSignedIn = !!sess;
-      setSession(sess);
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
-        queryClient.clear();
-      }
-      // Reset to /applications on a fresh sign-in (after a prior signed-out
-      // state) so a new account doesn't land on the previous user's last URL.
-      // Only fires for SIGNED_IN events, not INITIAL_SESSION / TOKEN_REFRESHED
-      // — bookmarks + reloads on an existing session stay on the current URL.
-      if (event === 'SIGNED_IN' && !wasSignedIn) {
-        navigate('/applications');
-      }
-      prevSignedInRef.current = isSignedIn;
-    });
-    return () => sub.subscription.unsubscribe();
-  }, [queryClient, navigate]);
+    hydrateAuth();
+  }, [hydrateAuth]);
+  // Previous user id, so we can tell a fresh sign-in (null → user, after
+  // hydration) from the initial hydration itself. Undefined until hydrated.
+  const prevUserIdRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!authReady) return;
+    const prev = prevUserIdRef.current;
+    const next = user?.id ?? null;
+    prevUserIdRef.current = next;
+    if (prev === undefined || prev === next) return;
+    queryClient.clear();
+    // Reset to /applications on a fresh sign-in so a new account doesn't
+    // land on the previous user's last URL. Bookmarks + reloads on an
+    // existing session (initial hydration) stay on the current URL.
+    if (prev === null && next) navigate('/applications');
+  }, [authReady, user, queryClient, navigate]);
 
-  // Onboarding flag — server-side per-user (public.users.onboarded_at). The
+  // Onboarding flag — server-side per-user (users.onboarded_at). The
   // earlier localStorage approach was destructive (cleared on sign-out, not
   // scoped by user_id) so users re-saw the tour every time they signed back
   // in and on every new account. Source of truth is now the DB; survives
-  // sign-out, scoped to auth.uid() via RLS.
+  // sign-out, scoped to the signed-in user by the API.
   const { data: onboardedAt, isLoading: profileLoading } = useOnboardedAt();
   const markOnboarded = useMarkOnboarded();
   const resetOnboarded = useResetOnboarded();
@@ -127,7 +118,7 @@ export function App() {
   }, [signedIn, profileLoading, onboardedAt]);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await signOut();
     setProfileOpen(false);
   };
   const handleTourClose = () => {

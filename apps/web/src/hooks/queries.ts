@@ -1,4 +1,4 @@
-// TanStack Query hooks for Supabase data. Components stay UI-only and read
+// TanStack Query hooks for the Landed API. Components stay UI-only and read
 // `useApplications()` / `useCompanies()` etc. instead of receiving the data
 // via props.
 //
@@ -10,7 +10,8 @@
 // shape. Eventually we'll refactor consumers to read DB-shape directly; for
 // now this keeps the diff small.
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { COMPANIES as COMPANY_CATALOG, APPLICATIONS as SEED_APPS, COMPANIES as SEED_COMPANIES } from '../data'
 
 // ─── shapes ────────────────────────────────────────────────────────────────
@@ -89,27 +90,20 @@ function toCompanyShape(row: DbCompany) {
 // ─── reads ─────────────────────────────────────────────────────────────────
 
 export function useApplications() {
+  const signedIn = useAuth((s) => !!s.user)
   return useQuery({
     queryKey: ['applications'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('applications')
-        .select('*')
-        .order('last_activity_at', { ascending: false })
-      if (error) throw error
-      return (data as DbApplication[]).map(toAppShape)
-    },
+    enabled: signedIn,
+    queryFn: async () => (await api.get<DbApplication[]>('/applications')).map(toAppShape),
   })
 }
 
 export function useCompanies() {
+  const signedIn = useAuth((s) => !!s.user)
   return useQuery({
     queryKey: ['companies'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('companies').select('*')
-      if (error) throw error
-      return (data as DbCompany[]).map(toCompanyShape)
-    },
+    enabled: signedIn,
+    queryFn: async () => (await api.get<DbCompany[]>('/companies')).map(toCompanyShape),
   })
 }
 
@@ -125,17 +119,9 @@ export function useUpdateApplication() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Record<string, any> }) => {
-      // Convert any legacy-shape keys (stage stays the same, but adapt camelCase if any sneak in).
+      // The server whitelists AppPatch columns and bumps last_activity_at.
       const dbPatch: AppPatch = { ...patch }
-      // Bump last_activity_at on every server-side update
-      const { data, error } = await supabase
-        .from('applications')
-        .update({ ...dbPatch, last_activity_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single()
-      if (error) throw error
-      return toAppShape(data as DbApplication)
+      return toAppShape(await api.patch<DbApplication>(`/applications/${id}`, dbPatch))
     },
     onMutate: async ({ id, patch }) => {
       await qc.cancelQueries({ queryKey: ['applications'] })
@@ -168,47 +154,20 @@ export function useAddApplication() {
       source?: string
       notes?: string
     }) => {
-      const sessRes = await supabase.auth.getUser()
-      const userId = sessRes.data.user?.id
-      if (!userId) throw new Error('not signed in')
-
-      // 1. Find or create company
-      const existing = await supabase
-        .from('companies')
-        .select('*')
-        .eq('name', input.companyName)
-        .maybeSingle()
-      if (existing.error) throw existing.error
-
-      let companyId: string
-      if (existing.data) {
-        companyId = (existing.data as DbCompany).id
-      } else {
-        // Look up the catalog entry to inherit hue + logo + sector + loc
-        const cat = COMPANY_CATALOG.find((c: any) => c.name === input.companyName)
-        const insertRes = await supabase
-          .from('companies')
-          .insert({
-            user_id: userId,
-            name: input.companyName,
-            hue: cat?.hue ?? null,
-            logo_chars: cat?.logo ?? input.companyName.slice(0, 2).toUpperCase(),
-            sector: cat?.sector ?? null,
-            loc: cat?.loc ?? input.location ?? null,
-          })
-          .select()
-          .single()
-        if (insertRes.error) throw insertRes.error
-        companyId = (insertRes.data as DbCompany).id
-      }
-
-      // 2. Insert application
+      // The server finds-or-creates the company by name in the same
+      // transaction. Catalog entry (if it's a known company) supplies the
+      // hue + logo + sector + loc for a newly-created company.
+      const cat = COMPANY_CATALOG.find((c: any) => c.name === input.companyName)
       const stage = input.stage ?? 'saved'
-      const { data, error } = await supabase
-        .from('applications')
-        .insert({
-          user_id: userId,
-          company_id: companyId,
+      const data = await api.post<DbApplication>('/applications', {
+        company: {
+          name: input.companyName,
+          hue: cat?.hue ?? null,
+          logo_chars: cat?.logo ?? input.companyName.slice(0, 2).toUpperCase(),
+          sector: cat?.sector ?? null,
+          loc: cat?.loc ?? input.location ?? null,
+        },
+        application: {
           role: input.role,
           team: input.team || null,
           stage,
@@ -219,11 +178,9 @@ export function useAddApplication() {
           next_step: stage === 'saved' ? 'Tailor resume' : 'Awaiting response',
           source: input.source || 'Manual',
           notes: input.notes || null,
-        })
-        .select()
-        .single()
-      if (error) throw error
-      return toAppShape(data as DbApplication)
+        },
+      })
+      return toAppShape(data)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['applications'] })
@@ -238,43 +195,32 @@ export function useImportDemoData() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      const sessRes = await supabase.auth.getUser()
-      const userId = sessRes.data.user?.id
-      if (!userId) throw new Error('not signed in')
-
-      // 1. Insert all companies referenced by the seed apps (only the ones we use)
+      // 1. Companies referenced by the seed apps (only the ones we use)
       const usedCompanyIds = new Set(SEED_APPS.map((a: any) => a.companyId))
-      const companyRows = SEED_COMPANIES
+      const companies = SEED_COMPANIES
         .filter((c: any) => usedCompanyIds.has(c.id))
         .map((c: any) => ({
-          user_id: userId,
           name: c.name,
           hue: c.hue,
           logo_chars: c.logo,
           sector: c.sector,
           loc: c.loc,
         }))
-      const compRes = await supabase.from('companies').insert(companyRows).select()
-      if (compRes.error) throw compRes.error
-      // Map seed company id -> new DB row id (by name, since seed IDs aren't UUIDs)
-      const nameToId = new Map<string, string>()
-      ;(compRes.data as DbCompany[]).forEach((c) => nameToId.set(c.name, c.id))
 
-      // 2. Insert applications, mapping company refs via name lookup
+      // 2. Applications reference their company by name (seed IDs aren't
+      // UUIDs); the server maps names to the new company rows.
       const seedCompanyById = new Map<string, any>()
       SEED_COMPANIES.forEach((c: any) => seedCompanyById.set(c.id, c))
 
-      const appRows = SEED_APPS.map((a: any) => {
+      const applications = SEED_APPS.map((a: any) => {
         const seedCo = seedCompanyById.get(a.companyId)
-        const dbCompanyId = seedCo ? nameToId.get(seedCo.name) : null
-        if (!dbCompanyId) return null
+        if (!seedCo) return null
         const appliedAt = a.appliedDays > 0
           ? new Date(Date.now() - a.appliedDays * 86400000).toISOString()
           : null
         const lastActivityAt = new Date(Date.now() - (a.lastActivity ?? 0) * 86400000).toISOString()
         return {
-          user_id: userId,
-          company_id: dbCompanyId,
+          company_name: seedCo.name,
           role: a.role,
           team: a.team || null,
           stage: a.stage,
@@ -290,11 +236,9 @@ export function useImportDemoData() {
           notes: a.notes || null,
           starred: !!a.starred,
         }
-      }).filter(Boolean) as any[]
+      }).filter(Boolean)
 
-      const appRes = await supabase.from('applications').insert(appRows).select()
-      if (appRes.error) throw appRes.error
-      return { companies: compRes.data?.length ?? 0, applications: appRes.data?.length ?? 0 }
+      return api.post<{ companies: number; applications: number }>('/import', { companies, applications })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['applications'] })

@@ -1,15 +1,15 @@
 // TanStack Query hooks for the portal-sync surface (Sync page).
 //
-// Backed by two tables (see supabase/migrations/20260516235333_initial_schema.sql):
+// Backed by two tables (see apps/server/migrations/0001_init.sql):
 //   - portal_connections — one row per (company, portal-vendor) login
 //   - portal_events       — append-only stream emitted by the extension
 //
-// The browser extension (Sprint 4, #34–#38) will eventually write to both
-// tables. Until then, the page is read-only with a DEV-gated demo seed so
-// the UI can be exercised without the extension being wired up.
+// The browser extension pushes events to the API; the page also has a
+// DEV-gated demo seed so the UI can be exercised without the extension.
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
+import { useAuth } from '../lib/auth'
 
 // ── DB types (mirror the Postgres enums + tables verbatim) ────────────────
 
@@ -47,16 +47,11 @@ export type DbPortalEvent = {
 // ── Reads ─────────────────────────────────────────────────────────────────
 
 export function usePortalConnections() {
+  const signedIn = useAuth((s) => !!s.user)
   return useQuery({
     queryKey: ['portal_connections'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('portal_connections')
-        .select('*')
-        .order('created_at', { ascending: false })
-      if (error) throw error
-      return (data ?? []) as DbPortalConnection[]
-    },
+    enabled: signedIn,
+    queryFn: () => api.get<DbPortalConnection[]>('/portal-connections'),
   })
 }
 
@@ -66,116 +61,66 @@ export function usePortalConnections() {
  * desc, leveraging portal_events_user_created_idx.
  */
 export function usePortalEvents(limit = 50) {
+  const signedIn = useAuth((s) => !!s.user)
   return useQuery({
     queryKey: ['portal_events', limit],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('portal_events')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(limit)
-      if (error) throw error
-      return (data ?? []) as DbPortalEvent[]
-    },
+    enabled: signedIn,
+    queryFn: () => api.get<DbPortalEvent[]>(`/portal-events?limit=${limit}`),
   })
 }
 
 // ── Writes ────────────────────────────────────────────────────────────────
 
 /**
- * Upsert a connection on (user_id, company_id, provider). Backed by the
- * unique constraint added in 20260517070000_portal_connections_unique.sql,
- * so this is a single atomic .upsert() — no SELECT-then-UPDATE-or-INSERT
- * race window.
+ * Upsert a connection on (user_id, company_id, provider). The server does a
+ * single INSERT ... ON CONFLICT against the unique constraint — no
+ * SELECT-then-UPDATE-or-INSERT race window.
  */
 export function useUpsertPortalConnection() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       company_id: string
       provider: PortalProvider
       portal_host?: string | null
       status?: PortalStatus
       last_sync_at?: string | null
       failure_reason?: string | null
-    }) => {
-      const userRes = await supabase.auth.getUser()
-      const userId = userRes.data.user?.id
-      if (!userId) throw new Error('not signed in')
-
-      const { data, error } = await supabase
-        .from('portal_connections')
-        .upsert(
-          {
-            user_id: userId,
-            company_id: input.company_id,
-            provider: input.provider,
-            portal_host: input.portal_host ?? null,
-            status: input.status ?? 'active',
-            last_sync_at: input.last_sync_at ?? null,
-            failure_reason: input.failure_reason ?? null,
-          },
-          { onConflict: 'user_id,company_id,provider' },
-        )
-        .select()
-        .single()
-      if (error) throw error
-      return data as DbPortalConnection
-    },
+    }) => api.put<DbPortalConnection>('/portal-connections', input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal_connections'] }),
   })
 }
 
 // ── Realtime: subscribe to portal_events INSERT (#38) ────────────────────
 //
-// The extension push pipeline (#35) inserts rows into portal_events via
-// PostgREST. This hook subscribes to Supabase Realtime so the Sync page
-// reflects new events without polling.
+// The extension push pipeline (#35) inserts rows into portal_events via the
+// API. This hook holds an EventSource on /api/portal-events/stream (SSE fed
+// by Postgres LISTEN/NOTIFY on the server) so the Sync page reflects new
+// events without polling. The server only streams the signed-in user's rows.
 //
-// Mechanics:
-//   - One per-mount channel ('portal-events:<random>'), with a unique
-//     suffix so two tabs / two mounts don't collide on the channel name
-//     (Supabase Realtime keys channels by name across the auth session).
-//   - postgres_changes filter on INSERT against public.portal_events. RLS
-//     is honored on the server side; subscribers only see their own rows.
-//   - On INSERT: invalidate the cached ['portal_events'] query so the
-//     activity list refreshes from the source of truth (avoids us trying
-//     to splice the incoming row into the cache and getting cache shape
-//     drift).
+//   - On each `portal_event` message: invalidate the cached ['portal_events']
+//     query so the activity list refreshes from the source of truth (avoids
+//     splicing the incoming row into the cache and getting shape drift).
 //   - Returns the most recent event for opt-in inline UX (toast/banner).
-//
-// Requires the migration 20260517072000_portal_events_realtime.sql which
-// adds public.portal_events to the supabase_realtime publication. Without
-// that, the subscription succeeds silently but never fires.
-//
-// Channel teardown on unmount via supabase.removeChannel — important
-// because subscriptions accumulate across navigation otherwise (Supabase
-// JS doesn't garbage-collect channels on its own).
+//   - EventSource reconnects on its own after network drops; closed on
+//     unmount so streams don't accumulate across navigation.
 export function usePortalEventsRealtime() {
   const qc = useQueryClient()
+  const signedIn = useAuth((s) => !!s.user)
   const [latest, setLatest] = useState<DbPortalEvent | null>(null)
   useEffect(() => {
-    // Unique channel name per mount so concurrent SyncPage instances
-    // (e.g. two browser tabs) don't collide.
-    const name = 'portal-events:' + Math.random().toString(36).slice(2)
-    const channel = supabase
-      .channel(name)
-      .on(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        'postgres_changes' as any,
-        { event: 'INSERT', schema: 'public', table: 'portal_events' },
-        (payload: { new: DbPortalEvent }) => {
-          if (payload && payload.new) setLatest(payload.new)
-          qc.invalidateQueries({ queryKey: ['portal_events'] })
-        },
-      )
-      .subscribe()
-    return () => {
-      // removeChannel both unsubscribes and removes from the client's
-      // tracked-channels list.
-      supabase.removeChannel(channel)
-    }
-  }, [qc])
+    if (!signedIn) return
+    const source = new EventSource('/api/portal-events/stream')
+    source.addEventListener('portal_event', (e) => {
+      try {
+        setLatest(JSON.parse((e as MessageEvent).data) as DbPortalEvent)
+      } catch {
+        // malformed frame — still refresh from the source of truth below
+      }
+      qc.invalidateQueries({ queryKey: ['portal_events'] })
+    })
+    return () => source.close()
+  }, [qc, signedIn])
   return latest
 }
 
@@ -188,23 +133,8 @@ export function useAddPortalEvent() {
       application_id?: string | null
       payload_json?: Record<string, unknown>
     }) => {
-      const userRes = await supabase.auth.getUser()
-      const userId = userRes.data.user?.id
-      if (!userId) throw new Error('not signed in')
-
-      const { data, error } = await supabase
-        .from('portal_events')
-        .insert({
-          user_id: userId,
-          type: input.type,
-          connection_id: input.connection_id ?? null,
-          application_id: input.application_id ?? null,
-          payload_json: input.payload_json ?? {},
-        })
-        .select()
-        .single()
-      if (error) throw error
-      return data as DbPortalEvent
+      const { rows } = await api.post<{ rows: DbPortalEvent[] }>('/portal-events', input)
+      return rows[0]
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal_events'] }),
   })

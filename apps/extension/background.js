@@ -7,7 +7,7 @@
 //      content script to parse + return any portal events it can detect,
 //      then run the result through the snapshot-store. New + changed
 //      events land in chrome.storage.local under the
-//      `landed:pending-portal-events` key for #35 to push to Supabase.
+//      `landed:pending-portal-events` key for #35 to push to the Landed API.
 //   3. Accept real-time `portal-event` messages from content.js (the
 //      auto-parse-on-page-load fast path) and ingest the same way.
 //
@@ -225,41 +225,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true
 })
 
-// ── Drain: push staged events to Supabase ────────────────────────────────
+// ── Drain: push staged events to the Landed API ──────────────────────────
 //
 // Runs every PUSH_PERIOD_MIN minutes AND immediately after each
-// real-time portal-event ingest. Reads the user's session out of
-// chrome.storage.local (where the supabase-js auth flow stashed it via
-// lib/storage-adapter.js — we don't instantiate supabase-js in the SW
-// because that would pull MB of bundle into the worker). On 401/403 we
-// mark NEEDS_AUTH_KEY so #36's popup re-auth flow can prompt the user.
-
-function deriveSessionStorageKey(supabaseUrl) {
-  // supabase-js stores sessions under `sb-<project-ref>-auth-token`.
-  // Derive ref from the supabase URL hostname's first subdomain.
-  try {
-    const ref = new URL(supabaseUrl).hostname.split('.')[0]
-    return 'sb-' + ref + '-auth-token'
-  } catch {
-    return null
-  }
-}
+// real-time portal-event ingest. Reads the user's session ({ token, user })
+// out of chrome.storage.local, where lib/auth.js stores it on sign-in. On
+// 401/403 we mark NEEDS_AUTH_KEY so #36's popup re-auth flow can prompt
+// the user — expiry is decided server-side, so there's no local check.
 
 async function readSession() {
   const cfg = self.LandedConfig
   const adapterMod = self.LandedStorageAdapter
   if (!cfg || !adapterMod) return null
-  const key = deriveSessionStorageKey(cfg.SUPABASE_URL)
-  if (!key) return null
-  const raw = await adapterMod.chromeStorageAdapter.getItem(key)
-  if (!raw) return null
-  let parsed
-  try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { return null }
-  if (!parsed || !parsed.access_token) return null
-  // Reject expired tokens up front rather than getting a 401 from PostgREST.
-  // `expires_at` is a Unix-seconds integer.
-  if (parsed.expires_at && parsed.expires_at * 1000 < Date.now()) return null
-  return parsed
+  const raw = await adapterMod.chromeStorageAdapter.getItem(cfg.SESSION_STORAGE_KEY)
+  if (!raw || typeof raw !== 'object' || typeof raw.token !== 'string') return null
+  return raw
 }
 
 async function drainPendingEvents() {
@@ -316,9 +296,8 @@ async function drainPendingEvents() {
 
   const result = await pushMod.pushEvents(
     fetch.bind(self),
-    cfg.SUPABASE_URL,
-    cfg.SUPABASE_ANON_KEY,
-    session.access_token,
+    cfg.API_URL,
+    session.token,
     rows,
   )
 

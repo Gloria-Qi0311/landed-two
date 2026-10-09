@@ -1,15 +1,14 @@
-// lib/storage-adapter.js — chrome.storage.local as a Supabase auth storage.
+// lib/storage-adapter.js — chrome.storage.local as a small async KV store.
 //
-// Supabase JS SDK's default storage is window.localStorage. In an MV3
-// service worker that doesn't exist — the SDK then falls back to in-memory,
-// which means sessions evaporate every time the worker is parked (≤30s of
-// idle). chrome.storage.local persists across worker restarts AND syncs
-// across popup / options / background contexts (they share the same area).
+// Used for the auth session (lib/auth.js). window.localStorage doesn't
+// exist in an MV3 service worker, and in-memory state evaporates every time
+// the worker is parked (≤30s of idle). chrome.storage.local persists across
+// worker restarts AND is shared by popup / options / background contexts.
 //
-// Implements Supabase's `SupportedStorage` interface:
-//   getItem(key)    → string | null   (Promise-OK)
-//   setItem(key,v)  → void            (Promise-OK)
-//   removeItem(key) → void            (Promise-OK)
+// Interface:
+//   getItem(key)    → value | null    (Promise)
+//   setItem(key,v)  → void            (Promise)
+//   removeItem(key) → void            (Promise)
 //
 // In tests, callers stub `chrome.storage.local` on globalThis before
 // requiring this module. The defensive `typeof chrome` check makes the

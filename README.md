@@ -1,5 +1,7 @@
 # Handoff: Landed — Job Hunt Operations Tool
 
+> **Running it:** `pnpm install && pnpm dev` (needs a local Postgres). The backend is self-hosted, not Supabase. See [`apps/server/README.md`](apps/server/README.md) for setup, configuration, and deployment. The design handoff below predates that switch: read "Supabase" as `apps/server` + Postgres.
+
 ## Overview
 
 **Landed** is a job-hunt operations tool for active job seekers. It solves three pain points:
@@ -20,7 +22,7 @@ Your task is to **recreate this design in a real production codebase** using you
 - Vite + React + TypeScript
 - Zustand for client state, TanStack Query for server state
 - Tailwind CSS — port the OKLCH tokens from `design-system.html` into the Tailwind config
-- Supabase (Postgres + Auth + Row-Level Security + Realtime)
+- ~~Supabase~~ → self-hosted `apps/server` (Hono + Postgres; auth, REST, SSE realtime)
 - Vercel for deployment
 
 ## Fidelity
@@ -178,7 +180,7 @@ Out of scope for sprint 1, but designed for sprint 3:
 2. Content script reads DOM, finds applications
 3. Service worker schedules 6-hour periodic alarm
 4. Each cycle: open hidden tab, scrape, diff against last snapshot
-5. Emit portal_events for deltas; push to web app via Supabase Realtime
+5. Emit portal_events for deltas; push to web app via Postgres NOTIFY → SSE
 6. Cookie expired → emit expired event → web app surfaces re-auth UI
 ```
 
@@ -196,7 +198,7 @@ Full walkthrough in `how-it-works.html`. Per-vendor scraping mapping in `spec.md
 ## State Management
 
 Read `spec.md` section 3 for the full data model. Key tables:
-- `users` (Supabase Auth + `current_resume_id`, `onboarded_at`)
+- `users` (email + password hash, `current_resume_id`, `onboarded_at`)
 - `companies` (per-user; auto-generated `hue` + `logo_chars`)
 - `applications` (the core entity — stage, dates, notes, portal links)
 - `portal_connections` (one per portal-vendor login)

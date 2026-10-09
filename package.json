@@ -2,23 +2,20 @@
   "name": "landed",
   "private": true,
   "version": "0.0.0",
-  "description": "Job-hunt operations tool — Landed web app + ApplyMint extension (merged).",
+  "description": "Job-hunt operations tool \u2014 Landed web app + ApplyMint extension (merged).",
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @landed/web dev",
+    "dev": "pnpm --parallel --filter @landed/server --filter @landed/web dev",
     "build": "pnpm -r build",
+    "start": "pnpm --filter @landed/server start",
+    "migrate": "pnpm --filter @landed/server migrate",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "screens": "pnpm --filter @landed/web run screens",
-    "dev:otp": "node scripts/dev-otp.js"
+    "screens": "pnpm --filter @landed/web run screens"
   },
   "packageManager": "pnpm@10.33.2",
   "engines": {
     "node": ">=20.0.0"
-  },
-  "devDependencies": {
-    "@supabase/supabase-js": "^2.105.4",
-    "supabase": "^2.98.2"
   }
 }

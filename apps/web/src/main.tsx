@@ -11,10 +11,11 @@ const queryClient = new QueryClient({
       // Applications change rarely between sessions; 30s stale window is a
       // gentle balance between "live enough" + "no flicker on every nav".
       staleTime: 30 * 1000,
-      // RLS errors aren't transient — don't burn retries on them.
+      // 4xx (signed out, validation, not found) isn't transient — don't
+      // burn retries on it.
       retry: (failureCount, error: any) => {
-        const code = error?.code || error?.status;
-        if (code === '42501' || code === 401 || code === 403) return false;
+        const status = error?.status;
+        if (typeof status === 'number' && status >= 400 && status < 500) return false;
         return failureCount < 2;
       },
     },

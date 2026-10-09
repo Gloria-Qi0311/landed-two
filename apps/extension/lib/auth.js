@@ -1,102 +1,115 @@
-// lib/auth.js — Supabase auth surface for the Landed extension.
+// lib/auth.js — Landed API auth surface for the extension.
 //
-// Exposes a thin singleton client + the same OTP flow the web app uses
-// (signInWithOtp(email) → email arrives via Resend → verifyOtp(email, code)
-// → session). The session persists via lib/storage-adapter.js to
-// chrome.storage.local so it survives MV3 service-worker restarts.
+// Email + password sign-in against apps/server (`mode: 'token'`), which
+// returns an opaque session token. The session { token, user } persists in
+// chrome.storage.local via lib/storage-adapter.js, so it survives MV3
+// service-worker restarts and is shared by popup / options / background.
+// The server slides the token's expiry on use; there is nothing to refresh
+// client-side. A 401 from any call means the session is gone — we drop it
+// locally so every surface flips to signed-out.
 //
-// Consumed by the bundled popup (#29) + options (#30) + portal-sync
-// background worker (#34–#38). Not loaded by manifest.json yet — bundler
-// in #29 will pull it in via ES import. For now lib/auth.js is exercised
-// only by Jest tests + the existing CommonJS require() path.
+// Public surface:
+//   getSession()                 → Promise<{ token, user } | null>
+//   getUser()                    → Promise<{ id, email } | null>
+//   signIn(email, password)      → Promise<{ data, error }>
+//   signOut()                    → Promise<{ error }>
+//   onAuthChange(callback)       → unsubscribe()
+//   apiFetch(path, init?)        → Promise<parsed JSON>  (throws on !ok)
 //
-// Public surface (mirrors the web app's apps/web/src/lib/supabase.ts +
-// the OTP helpers in apps/web/src/components/auth.jsx):
-//   getSupabase()                     → singleton SupabaseClient
-//   getSession()                      → Promise<Session | null>
-//   getUser()                         → Promise<User | null>
-//   signInWithOtp(email)              → Promise<{ error: AuthError | null }>
-//   verifyOtp(email, token)           → Promise<{ data, error }>
-//   signOut()                         → Promise<{ error: AuthError | null }>
-//   onAuthChange(callback)            → unsubscribe()
-//
-// Tests mock chrome.storage.local on globalThis + stub fetch on the
-// Supabase client's internal http layer.
-//
-// No manifest.json host_permissions change needed: cross-origin fetch()
-// from extension contexts (popup / options / service worker) is governed
-// by the target server's CORS headers, not by host_permissions. Supabase's
-// public Auth + REST endpoints return permissive CORS for the anon role,
-// so signInWithOtp / verifyOtp / from-table queries all "just work" from
-// the extension without manifest changes. host_permissions would only be
-// needed if we ever start using chrome.cookies / chrome.webRequest against
-// the Supabase domain — not the case today.
+// No manifest host_permissions needed: the server answers extension
+// origins with permissive CORS and auth is the Bearer header, not cookies.
 
 (function (global) {
-  const { createClient } = require('@supabase/supabase-js');
-  const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('./config.js');
+  const { API_URL, SESSION_STORAGE_KEY } = require('./config.js');
   const { chromeStorageAdapter } = require('./storage-adapter.js');
 
-  let _client = null;
-  function getSupabase() {
-    if (_client) return _client;
-    _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        // chrome.storage.local — survives service-worker eviction
-        storage: chromeStorageAdapter,
-        persistSession: true,
-        // TODO(#29): autoRefreshToken uses setTimeout under the hood, which
-        // does NOT survive MV3 service-worker eviction. When the worker is
-        // parked and the scheduled refresh fires later, no one runs the
-        // timer; the next API call hits a stale-token 401. Fix in #29 by
-        // scheduling a chrome.alarms.create('sb-refresh', { when: expires_at - 60s })
-        // that wakes the worker + calls supabase.auth.refreshSession().
-        autoRefreshToken: true,
-        // Extension popup/options have no URL to parse callbacks from
-        detectSessionInUrl: false,
-      },
-    });
-    return _client;
+  function isSession(v) {
+    return !!(v && typeof v === 'object' && typeof v.token === 'string' && v.user && v.user.id);
   }
 
   async function getSession() {
-    const { data: { session } } = await getSupabase().auth.getSession();
-    return session;
+    const raw = await chromeStorageAdapter.getItem(SESSION_STORAGE_KEY);
+    return isSession(raw) ? raw : null;
   }
 
   async function getUser() {
-    const { data: { user } } = await getSupabase().auth.getUser();
-    return user;
+    const session = await getSession();
+    return session ? session.user : null;
   }
 
-  async function signInWithOtp(email) {
-    // shouldCreateUser defaults to true — same as web flow; new emails get
-    // a public.users row via the on_auth_user_created trigger.
-    return getSupabase().auth.signInWithOtp({ email });
+  async function readError(res, fallback) {
+    try {
+      const body = await res.json();
+      if (body && typeof body.error === 'string') return body.error;
+    } catch { /* non-JSON body */ }
+    return fallback + ' (' + res.status + ')';
   }
 
-  async function verifyOtp(email, token) {
-    return getSupabase().auth.verifyOtp({ email, token, type: 'email' });
+  async function signIn(email, password) {
+    let res;
+    try {
+      res = await fetch(API_URL + '/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, mode: 'token' }),
+      });
+    } catch {
+      return { data: null, error: { message: 'Could not reach the Landed server at ' + API_URL } };
+    }
+    if (!res.ok) return { data: null, error: { message: await readError(res, 'Sign-in failed') } };
+    const body = await res.json();
+    const session = { token: body.token, user: body.user };
+    await chromeStorageAdapter.setItem(SESSION_STORAGE_KEY, session);
+    return { data: { session }, error: null };
   }
 
   async function signOut() {
-    return getSupabase().auth.signOut();
+    const session = await getSession();
+    await chromeStorageAdapter.removeItem(SESSION_STORAGE_KEY);
+    if (session) {
+      // Best-effort server-side revoke; the local session is already gone.
+      try {
+        await fetch(API_URL + '/api/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + session.token },
+        });
+      } catch { /* offline — token expires on its own */ }
+    }
+    return { error: null };
   }
 
   function onAuthChange(callback) {
-    const { data } = getSupabase().auth.onAuthStateChange(callback);
-    return () => data.subscription.unsubscribe();
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.onChanged) return () => {};
+    const listener = (changes, area) => {
+      if (area !== 'local' || !(SESSION_STORAGE_KEY in changes)) return;
+      const next = changes[SESSION_STORAGE_KEY].newValue;
+      callback(isSession(next) ? 'SIGNED_IN' : 'SIGNED_OUT', isSession(next) ? next : null);
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
   }
 
-  // Test-only: drop the cached client. Lets a test exercise a fresh init.
-  function __resetForTests() {
-    _client = null;
+  async function apiFetch(path, init) {
+    const session = await getSession();
+    if (!session) throw new Error('Not signed in');
+    const opts = init || {};
+    const res = await fetch(API_URL + '/api' + path, {
+      ...opts,
+      headers: {
+        ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(opts.headers || {}),
+        Authorization: 'Bearer ' + session.token,
+      },
+    });
+    if (res.status === 401) {
+      await chromeStorageAdapter.removeItem(SESSION_STORAGE_KEY);
+      throw new Error('Session expired — sign in again');
+    }
+    if (!res.ok) throw new Error(await readError(res, 'Request failed'));
+    return res.status === 204 ? null : res.json();
   }
 
-  global.LandedAuth = {
-    getSupabase, getSession, getUser, signInWithOtp, verifyOtp, signOut,
-    onAuthChange, __resetForTests,
-  };
+  global.LandedAuth = { getSession, getUser, signIn, signOut, onAuthChange, apiFetch };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.LandedAuth;
   }

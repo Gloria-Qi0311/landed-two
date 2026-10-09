@@ -2,14 +2,12 @@
 //   - mapEventToRow shape correctness across kinds
 //   - pushEvents response classification (200/204 ok, 401 needsAuth,
 //     5xx retryable, 4xx fatal, network error retryable)
-//   - service_role guard refuses to push
+//   - URL + Bearer header shape for the Landed API
 import { describe, test, expect, vi } from 'vitest'
 import { mapEventToRow, pushEvents, nextBackoffMs, sanitizeAppUrl } from '../src/portal-events-push.js'
 
 const USER = 'user-uuid-1234'
-const ANON = 'eyJhbGciOiJIUzI1NiIs.fake-anon-payload.signature'
-const SR   = 'eyJhbGciOiJIUzI1NiIs.role-is-service_role-here.x'
-const URL_ = 'https://abc.supabase.co'
+const URL_ = 'https://landed.example.com'
 const TOKEN = 'access-token-xyz'
 
 function applied(extra = {}) {
@@ -92,61 +90,59 @@ describe('pushEvents', () => {
   test('returns ok:true on 201', async () => {
     const fetch_ = fakeFetch(201)
     const rows = [mapEventToRow(applied(), USER)]
-    const res = await pushEvents(fetch_, URL_, ANON, TOKEN, rows)
+    const res = await pushEvents(fetch_, URL_, TOKEN, rows)
     expect(res).toEqual({ ok: true, inserted: 1 })
     expect(fetch_).toHaveBeenCalledOnce()
     const [calledUrl, init] = fetch_.mock.calls[0]
-    expect(calledUrl).toBe('https://abc.supabase.co/rest/v1/portal_events')
+    expect(calledUrl).toBe('https://landed.example.com/api/portal-events')
     expect(init.method).toBe('POST')
-    expect(init.headers.apikey).toBe(ANON)
     expect(init.headers.Authorization).toBe('Bearer ' + TOKEN)
-    expect(init.headers.Prefer).toBe('return=minimal')
     expect(JSON.parse(init.body)).toHaveLength(1)
   })
 
   test('returns ok:true on 204', async () => {
-    const res = await pushEvents(fakeFetch(204), URL_, ANON, TOKEN, [mapEventToRow(applied(), USER)])
+    const res = await pushEvents(fakeFetch(204), URL_, TOKEN, [mapEventToRow(applied(), USER)])
     expect(res.ok).toBe(true)
   })
 
   test('empty batch is a no-op success', async () => {
     const fetch_ = vi.fn()
-    const res = await pushEvents(fetch_, URL_, ANON, TOKEN, [])
+    const res = await pushEvents(fetch_, URL_, TOKEN, [])
     expect(res).toEqual({ ok: true, inserted: 0 })
     expect(fetch_).not.toHaveBeenCalled()
   })
 
   test('returns needsAuth on 401 (queue stays for retry)', async () => {
-    const res = await pushEvents(fakeFetch(401), URL_, ANON, TOKEN, [mapEventToRow(applied(), USER)])
+    const res = await pushEvents(fakeFetch(401), URL_, TOKEN, [mapEventToRow(applied(), USER)])
     expect(res).toEqual({ ok: false, needsAuth: true })
   })
 
   test('returns needsAuth on 403', async () => {
-    const res = await pushEvents(fakeFetch(403), URL_, ANON, TOKEN, [mapEventToRow(applied(), USER)])
+    const res = await pushEvents(fakeFetch(403), URL_, TOKEN, [mapEventToRow(applied(), USER)])
     expect(res).toEqual({ ok: false, needsAuth: true })
   })
 
   test('returns needsAuth (without a token) — does not fetch', async () => {
     const fetch_ = vi.fn()
-    const res = await pushEvents(fetch_, URL_, ANON, '', [mapEventToRow(applied(), USER)])
+    const res = await pushEvents(fetch_, URL_, '', [mapEventToRow(applied(), USER)])
     expect(res).toEqual({ ok: false, needsAuth: true })
     expect(fetch_).not.toHaveBeenCalled()
   })
 
   test('returns retryable on 500', async () => {
-    const res = await pushEvents(fakeFetch(500), URL_, ANON, TOKEN, [mapEventToRow(applied(), USER)])
+    const res = await pushEvents(fakeFetch(500), URL_, TOKEN, [mapEventToRow(applied(), USER)])
     expect(res.ok).toBe(false)
     expect(res.retryable).toBe(true)
   })
 
   test('returns retryable on 503', async () => {
-    const res = await pushEvents(fakeFetch(503), URL_, ANON, TOKEN, [mapEventToRow(applied(), USER)])
+    const res = await pushEvents(fakeFetch(503), URL_, TOKEN, [mapEventToRow(applied(), USER)])
     expect(res.retryable).toBe(true)
   })
 
   test('returns retryable on network throw', async () => {
     const fetch_ = vi.fn(async () => { throw new Error('connection reset') })
-    const res = await pushEvents(fetch_, URL_, ANON, TOKEN, [mapEventToRow(applied(), USER)])
+    const res = await pushEvents(fetch_, URL_, TOKEN, [mapEventToRow(applied(), USER)])
     expect(res.ok).toBe(false)
     expect(res.retryable).toBe(true)
     expect(res.error).toMatch(/connection reset/)
@@ -155,7 +151,7 @@ describe('pushEvents', () => {
   test('returns fatal on 400 (schema mismatch — do not silently retry)', async () => {
     const res = await pushEvents(
       fakeFetch(400, '{"message":"column foo does not exist"}'),
-      URL_, ANON, TOKEN, [mapEventToRow(applied(), USER)],
+      URL_, TOKEN, [mapEventToRow(applied(), USER)],
     )
     expect(res.ok).toBe(false)
     expect(res.fatal).toBe(true)
@@ -163,24 +159,14 @@ describe('pushEvents', () => {
   })
 
   test('returns fatal on 422', async () => {
-    const res = await pushEvents(fakeFetch(422, ''), URL_, ANON, TOKEN, [mapEventToRow(applied(), USER)])
+    const res = await pushEvents(fakeFetch(422, ''), URL_, TOKEN, [mapEventToRow(applied(), USER)])
     expect(res.fatal).toBe(true)
   })
 
-  test('REFUSES to push when given a service_role-shaped key', async () => {
-    // Defense in depth: even if the caller accidentally passed a
-    // service_role JWT, we hard-fail before the network. CLAUDE.md +
-    // extension threat model: anon-only ever.
-    const fetch_ = vi.fn()
-    const res = await pushEvents(fetch_, URL_, SR, TOKEN, [mapEventToRow(applied(), USER)])
-    expect(res).toEqual({ ok: false, fatal: true, error: 'service_role refused; anon-key only' })
-    expect(fetch_).not.toHaveBeenCalled()
-  })
-
-  test('handles trailing slash on supabaseUrl', async () => {
+  test('handles trailing slash on apiUrl', async () => {
     const fetch_ = fakeFetch(201)
-    await pushEvents(fetch_, 'https://abc.supabase.co/', ANON, TOKEN, [mapEventToRow(applied(), USER)])
-    expect(fetch_.mock.calls[0][0]).toBe('https://abc.supabase.co/rest/v1/portal_events')
+    await pushEvents(fetch_, 'https://landed.example.com/', TOKEN, [mapEventToRow(applied(), USER)])
+    expect(fetch_.mock.calls[0][0]).toBe('https://landed.example.com/api/portal-events')
   })
 })
 

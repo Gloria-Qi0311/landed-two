@@ -11,10 +11,10 @@
 //   2. Diffs new events against the stored snapshot → tags each as
 //      `new` / `changed` / `unchanged`.
 //   3. Stages `new` + `changed` events in a per-extension pending queue
-//      that #35 will drain to Supabase `portal_events`.
+//      that #35 will drain to the API's `portal_events`.
 //
 // Pure logic — no `chrome.*` reads or writes. Callers pass the storage
-// adapter (the same async getItem/setItem shape Supabase auth uses) so
+// adapter (the same async getItem/setItem shape lib/auth.js uses) so
 // the module is vitest-testable in jsdom.
 //
 // Event shape (from packages/extension-core/src/portal-parsers/greenhouse.js):
@@ -95,7 +95,7 @@ export function mergeSnapshot(snapshot, newEvents, now = new Date()) {
 // ── Storage adapter contract ──────────────────────────────────────────────
 //
 // All read/write helpers take a `storage` adapter matching the shape
-// Supabase auth uses (apps/extension/lib/storage-adapter.js):
+// lib/auth.js uses (apps/extension/lib/storage-adapter.js):
 //   getItem(key): Promise<string|null>
 //   setItem(key, value): Promise<void>
 //

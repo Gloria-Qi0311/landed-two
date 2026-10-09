@@ -1,4 +1,4 @@
-// Tests for the chrome.storage.local adapter that wraps Supabase auth
+// Tests for the chrome.storage.local adapter behind the extension's auth
 // session persistence (lib/storage-adapter.js).
 //
 // Tests stub `chrome.storage.local` on globalThis with an in-memory Map

@@ -38,9 +38,6 @@ Thumbs.db
 coverage/
 .nyc_output/
 
-# Supabase local dev
-.supabase/
-
 # TypeScript
 *.tsbuildinfo
 

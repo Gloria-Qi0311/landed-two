@@ -50,7 +50,7 @@ export function App() {
         <Header subtitle="Sign in to manage your Landed account" />
         <Card title="Sign in via the toolbar popup">
           <p style={{ color: 'var(--fg-muted)', lineHeight: 1.55 }}>
-            Open the Landed extension by clicking its toolbar icon → sign in with the OTP code that arrives in your email.
+            Open the Landed extension by clicking its toolbar icon → sign in with your Landed email and password.
             Once you're signed in, this Settings page will show your account details and (in #30.1 follow-ups) your resumes, LLM provider preferences, and label-mapping overrides.
           </p>
         </Card>

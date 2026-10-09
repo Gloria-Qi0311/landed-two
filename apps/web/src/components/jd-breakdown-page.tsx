@@ -25,7 +25,7 @@ import {
 import type { Resume } from '@landed/schema'
 import { PageHeader } from './shell'
 import { Icon } from './primitives'
-import { supabase } from '../lib/supabase'
+import { insertAiRun } from '../lib/api'
 import { useCurrentResume, useUpdateResume } from '../hooks/resumes'
 import { useApplications, useCompanies } from '../hooks/queries'
 
@@ -252,7 +252,7 @@ export function JDBreakdownPage() {
     const parsed = tryParseResponse(text, BreakdownResponseSchema)
     if (!parsed.ok) {
       setBreakdown((p) => ({ ...p, [provider]: { status: 'failed', raw: text, error: parsed.error } }))
-      saveAiRun(supabase, {
+      saveAiRun(insertAiRun, {
         task: 'jd_breakdown', provider, prompt: breakdownPrompt, response: text, parseFormat: 'failed',
       }).catch(() => {})
       return
@@ -262,7 +262,7 @@ export function JDBreakdownPage() {
       ...p,
       [provider]: { status: 'parsed', parsed: data, raw: text, format: parsed.format },
     }))
-    const save = await saveAiRun(supabase, {
+    const save = await saveAiRun(insertAiRun, {
       task: 'jd_breakdown', provider, prompt: breakdownPrompt, response: text,
       parsed: data, parseFormat: parsed.format,
     })
@@ -279,7 +279,7 @@ export function JDBreakdownPage() {
     const parsed = tryParseResponse(text, TailorResponseSchema)
     if (!parsed.ok) {
       setTailor((p) => ({ ...p, [provider]: { status: 'failed', raw: text, error: parsed.error } }))
-      saveAiRun(supabase, {
+      saveAiRun(insertAiRun, {
         task: 'resume_tailor', provider, prompt: tailorPrompt, response: text, parseFormat: 'failed',
       }).catch(() => {})
       return
@@ -298,7 +298,7 @@ export function JDBreakdownPage() {
       ...p,
       [provider]: { status: 'parsed', parsed: { bullets, accepted }, raw: text, format: parsed.format },
     }))
-    const save = await saveAiRun(supabase, {
+    const save = await saveAiRun(insertAiRun, {
       task: 'resume_tailor', provider, prompt: tailorPrompt, response: text,
       parsed: data, parseFormat: parsed.format,
     })

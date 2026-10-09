@@ -5,7 +5,7 @@
 //   2. launchAI(provider, prompt) → copies to clipboard + opens new tab
 //   3. user pastes the AI's reply into a textarea in our UI
 //   4. tryParseResponse(text, schema?) → 3-tier { ok, format, parsed | error }
-//   5. saveAiRun(client, { task, provider, prompt, response, parsed, parseFormat })
+//   5. saveAiRun(insert, { task, provider, prompt, response, parsed, parseFormat })
 //      writes to the ai_runs table (rls-scoped to the current user).
 //
 // Consumed by:
@@ -17,7 +17,6 @@
 //   - We don't auto-fill the AI's input box (browser automation we can't ship).
 //   - We don't store the AI conversation history — just the prompt we sent +
 //     the response the user pasted back.
-import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ZodType } from 'zod'
 
 // ─── providers ────────────────────────────────────────────────────────────
@@ -535,25 +534,30 @@ export type SaveAiRunResult =
   | { ok: true; id: string }
   | { ok: false; error: string }
 
+/** One ai_runs row as the API expects it (user_id comes from the session). */
+export type AiRunRow = {
+  task: AiTask
+  provider: Provider
+  prompt_text: string
+  response_text: string | null
+  parsed_json: unknown
+  parse_format: ParseFormat | null
+}
+
+/** Persists a row and resolves to its id — apps/web passes `insertAiRun`
+ *  (POST /api/ai-runs); the extension will pass its own once it lands. */
+export type AiRunInsert = (row: AiRunRow) => Promise<{ id: string }>
+
 /**
- * Persist a single round-trip to the ai_runs table. Caller supplies the
- * Supabase client (apps/web's anon client, apps/extension's once it lands).
- * user_id is derived from supabase.auth.getUser() — RLS enforces ownership.
+ * Persist a single round-trip to the ai_runs table. Never throws: failures
+ * come back as { ok: false, error } so callers can fire-and-forget.
  */
 export async function saveAiRun(
-  // SupabaseClient is generic over Database; we don't import Database types
-  // here to keep the package decoupled from any one project's generated types.
-  client: SupabaseClient,
+  insert: AiRunInsert,
   run: SaveAiRunInput,
 ): Promise<SaveAiRunResult> {
-  const userRes = await client.auth.getUser()
-  const userId = userRes.data.user?.id
-  if (!userId) return { ok: false, error: 'Not signed in.' }
-
-  const { data, error } = await client
-    .from('ai_runs')
-    .insert({
-      user_id: userId,
+  try {
+    const { id } = await insert({
       task: run.task,
       provider: run.provider,
       prompt_text: run.prompt,
@@ -561,8 +565,8 @@ export async function saveAiRun(
       parsed_json: run.parsed ?? null,
       parse_format: run.parseFormat ?? null,
     })
-    .select('id')
-    .single()
-  if (error) return { ok: false, error: error.message }
-  return { ok: true, id: data.id as string }
+    return { ok: true, id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
 }

@@ -15,10 +15,11 @@
   },
   "jest": {
     "testEnvironment": "jsdom",
-    "testMatch": ["<rootDir>/tests/**/*.test.js"]
+    "testMatch": [
+      "<rootDir>/tests/**/*.test.js"
+    ]
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.105.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

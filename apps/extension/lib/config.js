@@ -1,23 +1,19 @@
-// lib/config.js — public Supabase project config for the Landed extension.
+// lib/config.js — Landed API server config for the extension.
 //
-// These values are baked into the extension bundle and accessible to anyone
-// with the extension installed — that's fine, they are meant to be public.
-// The anon key has no special powers; ALL security gates are at the
-// Postgres RLS layer (auth.uid() = user_id). Same values are inlined into
-// every web-app build at apps/web/.env.local → Vite → bundle.
+// API_URL is the public origin of apps/server (in production, the
+// Cloudflare Tunnel hostname). It is not a secret — the per-user session
+// token from lib/auth.js is what authenticates every call.
 //
-// To point this extension at a different Supabase project, edit these
-// constants and reinstall.
+// To point this extension at a different server, edit API_URL and rebuild.
 //
-// Not loaded by manifest.json yet — consumed by lib/auth.js, which the
-// bundled popup (#29) and options (#30) will import once the build pipeline
-// lands.
+// Loaded by background.js via importScripts and by lib/auth.js via require().
 
 (function (global) {
-  const SUPABASE_URL = 'https://pkwhsgdvosghdjsacomj.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrd2hzZ2R2b3NnaGRqc2Fjb21qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5NzE2MTIsImV4cCI6MjA5NDU0NzYxMn0.hzFmqeVzIUuR1okoUDMszvpaOLKpB6nEcvddISMECG4';
+  const API_URL = 'http://localhost:8787';
+  // chrome.storage.local key holding { token, user: { id, email } }.
+  const SESSION_STORAGE_KEY = 'landed:session';
 
-  global.LandedConfig = { SUPABASE_URL, SUPABASE_ANON_KEY };
+  global.LandedConfig = { API_URL, SESSION_STORAGE_KEY };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.LandedConfig;
   }

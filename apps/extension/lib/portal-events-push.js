@@ -68,22 +68,17 @@
     }
   }
 
-  async function pushEvents(httpAdapter, supabaseUrl, anonKey, accessToken, rows) {
+  async function pushEvents(httpAdapter, apiUrl, accessToken, rows) {
     if (!rows || rows.length === 0) return { ok: true, inserted: 0 }
     if (!accessToken) return { ok: false, needsAuth: true }
-    if (!anonKey || /service_role/i.test(anonKey)) {
-      return { ok: false, fatal: true, error: 'service_role refused; anon-key only' }
-    }
-    const url = supabaseUrl.replace(/\/+$/, '') + '/rest/v1/portal_events'
+    const url = apiUrl.replace(/\/+$/, '') + '/api/portal-events'
     let response
     try {
       response = await httpAdapter(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          apikey: anonKey,
           Authorization: 'Bearer ' + accessToken,
-          Prefer: 'return=minimal',
         },
         body: JSON.stringify(rows),
       })

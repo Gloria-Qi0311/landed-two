@@ -1,4 +1,4 @@
-// Push staged portal events to Supabase.
+// Push staged portal events to the Landed API.
 //
 // Drains the pending-event queue (see snapshot-store.js) by POSTing each
 // event as a `portal_events` row via PostgREST. Pure logic — takes a
@@ -75,9 +75,8 @@ export function nextBackoffMs(consecutiveFailures) {
 // Portal application URLs occasionally surface PII via query params:
 // candidate emails on Greenhouse referral links, signed access tokens
 // on Lever guest-apply flows, session ids on Workday SAML callbacks.
-// Those land in `payload_json.app_url` and ride through PostgREST into
-// Supabase storage where they're visible to any sub with RLS access to
-// the user's rows. Strip the well-known offenders before writing.
+// Those land in `payload_json.app_url` and are stored server-side in the
+// user's portal_events rows. Strip the well-known offenders before writing.
 //
 // Conservative allow-removal list — only params we KNOW carry PII. We
 // don't strip unknown params (some are load-bearing for the URL: gh_jid,
@@ -143,7 +142,7 @@ const TYPE_FOR_KIND = {
  *
  *  @param {object} event   shape per snapshot-store.js
  *  @param {string} userId  auth.uid() — required by NOT NULL constraint
- *  @returns {object}       a row ready to POST to /rest/v1/portal_events
+ *  @returns {object}       a row ready to POST to /api/portal-events
  */
 export function mapEventToRow(event, userId) {
   if (!event || !userId) return null
@@ -168,7 +167,7 @@ export function mapEventToRow(event, userId) {
   }
 }
 
-/** POST a batch of events to /rest/v1/portal_events.
+/** POST a batch of events to the Landed API (/api/portal-events).
  *
  *  Outcomes:
  *    - `{ ok: true,  inserted: N }`          — all rows landed; caller drops queue
@@ -181,29 +180,21 @@ export function mapEventToRow(event, userId) {
  *  Caller decides whether to clear the pending queue based on `ok`.
  *
  *  @param {Function} httpAdapter  fetch-shaped function (url, init) → Response
- *  @param {string}   supabaseUrl  e.g. https://abc.supabase.co
- *  @param {string}   anonKey      apikey header (public anon key only — NEVER service_role)
- *  @param {string}   accessToken  the user's JWT from auth.getSession()
+ *  @param {string}   apiUrl       Landed API origin, e.g. https://landed.example.com
+ *  @param {string}   accessToken  the user's session token from lib/auth.js
  *  @param {object[]} rows         already mapped via mapEventToRow
  */
-export async function pushEvents(httpAdapter, supabaseUrl, anonKey, accessToken, rows) {
+export async function pushEvents(httpAdapter, apiUrl, accessToken, rows) {
   if (!rows || rows.length === 0) return { ok: true, inserted: 0 }
   if (!accessToken) return { ok: false, needsAuth: true }
-  if (!anonKey || /service_role/i.test(anonKey)) {
-    // Defense-in-depth: refuse to push if the caller fumbled in a
-    // service_role JWT. Anon-only is enforced at CLAUDE.md.
-    return { ok: false, fatal: true, error: 'service_role refused; anon-key only' }
-  }
-  const url = supabaseUrl.replace(/\/+$/, '') + '/rest/v1/portal_events'
+  const url = apiUrl.replace(/\/+$/, '') + '/api/portal-events'
   let response
   try {
     response = await httpAdapter(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        apikey: anonKey,
         Authorization: 'Bearer ' + accessToken,
-        Prefer: 'return=minimal',  // we don't need the inserted rows back
       },
       body: JSON.stringify(rows),
     })
@@ -220,7 +211,7 @@ export async function pushEvents(httpAdapter, supabaseUrl, anonKey, accessToken,
   if (response.status >= 500) {
     return { ok: false, retryable: true, error: `http ${response.status}` }
   }
-  // 4xx that isn't auth — schema mismatch, RLS rejection, etc. Don't
+  // 4xx that isn't auth — schema mismatch, ownership rejection, etc. Don't
   // retry blindly (the next push would fail the same way + grow the
   // queue forever).
   let body = ''

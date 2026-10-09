@@ -3,7 +3,7 @@ import React, { useState as authState, useEffect as authEffect, useRef as authRe
 import { useNavigate } from 'react-router-dom';
 import { Icon, LandedMark, StageBadge, CompanyMark } from './primitives';
 import { COMPANIES } from '../data';
-import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth';
 
 // ---------- Profile menu (dropdown from sidebar avatar) ----------
 const THEMES = [
@@ -104,90 +104,36 @@ export function ProfileMenu({ open, onClose, onSignOut, onShowTour, theme, setTh
 }
 
 // ---------- Login screen ----------
-// Passwordless email OTP code + OAuth (Google / GitHub).
-//
-// Why OTP code instead of magic-link click: corporate / .edu email security
-// scanners (Outlook ATP, Mimecast, UW's filter, etc.) auto-fetch URLs in
-// emails to scan them — this CONSUMES the magic-link token before the user
-// can click it. The 6-digit OTP code in the same email is a separately
-// verifiable token that scanners can't touch.
-//
-// For best results, the project's email template should remove
-// {{ .ConfirmationURL }} entirely and keep only {{ .Token }} — see
-// Supabase dashboard → Authentication → Email Templates → Magic Link.
-//
-// OAuth buttons only work once you've registered the providers in Supabase
-// dashboard → Auth → Providers; until then they surface a "Unsupported
-// provider" error inline.
+// Email + password against the Landed API server (apps/server). Sign-in and
+// create-account share one form; the server sets an httpOnly session cookie
+// and lib/auth flips the app to signed-in, which unmounts this screen.
 export function LoginScreen() {
-  const [email, setEmail] = authState(() => localStorage.getItem('landed:dev-last-email') || '');
-  const [code, setCode] = authState('');
+  const signIn = useAuth((s) => s.signIn);
+  const signUp = useAuth((s) => s.signUp);
+  const [mode, setMode] = authState('signin'); // 'signin' | 'signup'
+  const [email, setEmail] = authState(() => localStorage.getItem('landed:last-email') || '');
+  const [password, setPassword] = authState('');
   const [loading, setLoading] = authState(false);
-  const [verifying, setVerifying] = authState(false);
-  const [sentTo, setSentTo] = authState(null); // email address after OTP requested
   const [error, setError] = authState(null);
+  const isSignup = mode === 'signup';
 
-  const sendCode = async (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
     const trimmed = email.trim();
-    const { error: err } = await supabase.auth.signInWithOtp({
-      email: trimmed,
-      options: { shouldCreateUser: true },
-    });
-    setLoading(false);
-    if (err) setError(err.message);
-    else setSentTo(trimmed);
-  };
-
-  const verifyCode = async (e) => {
-    e.preventDefault();
-    setError(null);
-    setVerifying(true);
-    const { error: err } = await supabase.auth.verifyOtp({
-      email: sentTo,
-      token: code.trim(),
-      type: 'email',
-    });
-    setVerifying(false);
-    if (err) setError(err.message);
-    // On success: onAuthStateChange in App.tsx fires → session set → dashboard renders.
-  };
-
-  // Dev-only: hits the Vite middleware in vite.config.ts which uses
-  // service_role to mint a session for any email — no email round-trip,
-  // no rate-limit. Available ONLY under `vite dev`.
-  const devLogin = async () => {
-    setError(null);
-    const trimmed = email.trim();
-    if (!trimmed) { setError('Enter an email first.'); return; }
-    setLoading(true);
     try {
-      const res = await fetch('/api/dev/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: trimmed }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || `dev login failed (${res.status})`);
-      await supabase.auth.setSession(body.session);
-      localStorage.setItem('landed:dev-last-email', trimmed);
-      // onAuthStateChange in App.tsx fires next; dashboard appears.
-    } catch (e) {
-      setError(e.message);
-    } finally {
+      await (isSignup ? signUp : signIn)(trimmed, password);
+      localStorage.setItem('landed:last-email', trimmed);
+    } catch (err) {
+      setError(err.message);
       setLoading(false);
     }
   };
 
-  const oauth = async (provider) => {
+  const switchMode = () => {
+    setMode(isSignup ? 'signin' : 'signup');
     setError(null);
-    const { error: err } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: window.location.origin },
-    });
-    if (err) setError(`${provider}: ${err.message}`);
   };
 
   return (
@@ -210,147 +156,65 @@ export function LoginScreen() {
 
         <div style={{ marginTop: 40, marginBottom: 24 }}>
           <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.025em', lineHeight: 1.15, fontFamily: 'var(--font-display)', marginBottom: 6 }}>
-            Land your next role.
+            {isSignup ? 'Create your account.' : 'Land your next role.'}
           </div>
           <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.55 }}>
-            Sign in to keep your application pipeline in sync. No password — we'll email you a 6-digit code.
+            {isSignup
+              ? 'One account for the web app and the browser extension.'
+              : 'Sign in to keep your application pipeline in sync.'}
           </div>
         </div>
 
-        {sentTo ? (
-          <form onSubmit={verifyCode} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ padding: 14, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', marginBottom: 4 }}>Check your email</div>
-              <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-                A 6-digit code is on its way to <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>{sentTo}</span>. Paste it below.
-              </div>
-            </div>
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <label htmlFor="login-email" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Email</label>
+          <input
+            id="login-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="you@work.com"
+            required
+            autoFocus={!email}
+            style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
+          />
 
-            <label htmlFor="login-code" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, marginTop: 4 }}>Code</label>
-            <input
-              id="login-code"
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={8}
-              autoComplete="one-time-code"
-              autoFocus
-              value={code}
-              onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-              placeholder="123456"
-              required
-              style={{ padding: '8px 10px', fontSize: 15, fontFamily: 'var(--font-mono)', letterSpacing: '0.2em', textAlign: 'center' }}
-            />
+          <label htmlFor="login-password" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, marginTop: 4 }}>Password</label>
+          <input
+            id="login-password"
+            type="password"
+            autoComplete={isSignup ? 'new-password' : 'current-password'}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder={isSignup ? 'At least 8 characters' : ''}
+            minLength={isSignup ? 8 : undefined}
+            required
+            autoFocus={!!email}
+            style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
+          />
 
-            {error && (
-              <div style={{
-                fontSize: 11.5, color: 'oklch(0.45 0.15 30)',
-                padding: '6px 10px', background: 'oklch(0.97 0.03 30)',
-                border: '0.5px solid oklch(0.88 0.06 30)', borderRadius: 6,
-              }}>{error}</div>
-            )}
+          {error && (
+            <div style={{
+              fontSize: 11.5, color: 'oklch(0.45 0.15 30)',
+              padding: '6px 10px', background: 'oklch(0.97 0.03 30)',
+              border: '0.5px solid oklch(0.88 0.06 30)', borderRadius: 6,
+            }}>{error}</div>
+          )}
 
-            <button type="submit" disabled={verifying || code.length < 6} className="btn-primary"
-              style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px', fontSize: 12.5, opacity: (verifying || code.length < 6) ? 0.6 : 1 }}>
-              {verifying ? 'Verifying…' : 'Sign in'}
-              {!verifying && <Icon name="arrowRight" size={12} />}
-            </button>
+          <button type="submit" disabled={loading || !email || !password} className="btn-primary"
+            style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px', fontSize: 12.5, opacity: (loading || !email || !password) ? 0.6 : 1 }}>
+            {loading ? (isSignup ? 'Creating account…' : 'Signing in…') : (isSignup ? 'Create account' : 'Sign in')}
+            {!loading && <Icon name="arrowRight" size={12} />}
+          </button>
 
-            <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.5, marginTop: 2 }}>
-              Tip: in dev, run <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>pnpm dev:otp {sentTo}</span> to print the code directly to your terminal — bypasses email entirely.
-            </div>
-
-            <button type="button" onClick={() => { setSentTo(null); setCode(''); setError(null); }} style={{
-              alignSelf: 'flex-start', marginTop: 4,
-              background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-              color: 'var(--accent)', fontSize: 12, fontFamily: 'inherit', fontWeight: 500,
-            }}>
-              Use a different email →
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={sendCode} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button type="button" onClick={() => oauth('google')} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', padding: '8px 12px', fontSize: 12.5 }}>
-              <Icon name="external" size={13} /> Continue with Google
-            </button>
-            <button type="button" onClick={() => oauth('github')} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', padding: '8px 12px', fontSize: 12.5 }}>
-              <Icon name="external" size={13} /> Continue with GitHub
-            </button>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
-              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-              <span style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>or with email</span>
-              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-            </div>
-
-            <label htmlFor="login-email" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Email</label>
-            <input
-              id="login-email"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@work.com"
-              required
-              autoFocus
-              style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
-            />
-
-            {error && (
-              <div style={{
-                fontSize: 11.5, color: 'oklch(0.45 0.15 30)',
-                padding: '6px 10px', background: 'oklch(0.97 0.03 30)',
-                border: '0.5px solid oklch(0.88 0.06 30)', borderRadius: 6,
-              }}>{error}</div>
-            )}
-
-            <button type="submit" disabled={loading || !email} className="btn-primary"
-              style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px', fontSize: 12.5, opacity: (loading || !email) ? 0.6 : 1 }}>
-              {loading ? 'Sending code…' : 'Send code'}
-              {!loading && <Icon name="arrowRight" size={12} />}
-            </button>
-
-            <button
-              type="button"
-              disabled={!email.trim()}
-              onClick={() => { setSentTo(email.trim()); setError(null); }}
-              style={{
-                alignSelf: 'flex-start', marginTop: 6,
-                background: 'transparent', border: 'none', padding: 0,
-                cursor: email.trim() ? 'pointer' : 'not-allowed',
-                color: email.trim() ? 'var(--accent)' : 'var(--fg-muted)',
-                fontSize: 12, fontFamily: 'inherit', fontWeight: 500,
-              }}
-            >
-              Already have a code? Enter it →
-            </button>
-
-            {import.meta.env.DEV && (
-              <div style={{
-                marginTop: 10, padding: 10,
-                background: 'oklch(0.96 0.04 90)',
-                border: '0.5px dashed oklch(0.78 0.1 90)',
-                borderRadius: 6,
-                display: 'flex', flexDirection: 'column', gap: 6,
-              }}>
-                <div style={{ fontSize: 10.5, fontWeight: 600, color: 'oklch(0.40 0.12 90)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Dev shortcut
-                </div>
-                <button
-                  type="button"
-                  disabled={loading || !email.trim()}
-                  onClick={devLogin}
-                  className="btn-secondary"
-                  style={{ width: '100%', justifyContent: 'center', padding: '7px 12px', fontSize: 12, opacity: (loading || !email.trim()) ? 0.6 : 1 }}
-                >
-                  Skip email — sign in now
-                </button>
-                <div style={{ fontSize: 10.5, color: 'oklch(0.42 0.08 90)', lineHeight: 1.45 }}>
-                  Stripped from production builds. Uses service_role server-side via /api/dev/login.
-                </div>
-              </div>
-            )}
-          </form>
-        )}
+          <button type="button" onClick={switchMode} style={{
+            alignSelf: 'flex-start', marginTop: 6,
+            background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+            color: 'var(--accent)', fontSize: 12, fontFamily: 'inherit', fontWeight: 500,
+          }}>
+            {isSignup ? 'Already have an account? Sign in →' : 'New here? Create an account →'}
+          </button>
+        </form>
 
         <div style={{ marginTop: 'auto', paddingTop: 24, fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
           By continuing you agree to the <a href="#" style={{ color: 'var(--fg-muted)' }}>terms</a> and <a href="#" style={{ color: 'var(--fg-muted)' }}>privacy policy</a>. Cookies from portals never leave your browser.

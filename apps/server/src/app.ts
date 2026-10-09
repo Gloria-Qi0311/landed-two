@@ -1,0 +1,54 @@
+// Hono app wiring. Kept separate from index.ts so tests can build an app
+// against a throwaway database without binding a port.
+import { existsSync } from 'node:fs'
+import { serveStatic } from '@hono/node-server/serve-static'
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+import { HTTPException } from 'hono/http-exception'
+import { authRoutes, requireUser, type AppEnv } from './auth.ts'
+import type { Config } from './config.ts'
+import type { Sql } from './db.ts'
+import { pgErrorStatus } from './http.ts'
+import type { PortalEventsHub } from './realtime.ts'
+import { dataRoutes } from './routes/data.ts'
+import { portalRoutes } from './routes/portal.ts'
+
+export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
+  const app = new Hono<AppEnv>()
+
+  // The extension calls the API from chrome-extension://<id> with a Bearer
+  // token. Wildcard origin without credentials: browsers never attach the
+  // session cookie to cross-origin calls, so the cookie stays same-origin.
+  app.use('/api/*', cors({
+    origin: '*',
+    allowHeaders: ['Authorization', 'Content-Type'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    maxAge: 86400,
+  }))
+
+  app.get('/api/health', (c) => c.json({ ok: true }))
+  app.route('/api/auth', authRoutes(sql, config))
+
+  const api = new Hono<AppEnv>()
+  api.use('*', requireUser(sql))
+  api.route('/', dataRoutes(sql, config))
+  api.route('/', portalRoutes(sql, hub))
+  app.route('/api', api)
+  app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))
+
+  // Built web app + SPA fallback (react-router owns every non-/api path).
+  if (config.webDist && existsSync(config.webDist)) {
+    app.use('*', serveStatic({ root: config.webDist }))
+    app.get('*', serveStatic({ root: config.webDist, path: 'index.html' }))
+  }
+
+  app.onError((err, c) => {
+    if (err instanceof HTTPException) return err.getResponse()
+    const status = pgErrorStatus(err)
+    if (status) return c.json({ error: (err as Error).message }, status)
+    console.error(`[api] ${c.req.method} ${c.req.path}`, err)
+    return c.json({ error: 'internal server error' }, 500)
+  })
+
+  return app
+}
