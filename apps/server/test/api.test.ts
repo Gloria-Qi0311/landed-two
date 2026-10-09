@@ -309,3 +309,108 @@ describe('portal sync', () => {
     await reader.cancel().catch(() => {})
   })
 })
+
+describe('sync: local device <-> Landed Cloud', () => {
+  const uuid = () => crypto.randomUUID()
+  const now = new Date().toISOString()
+
+  // A snapshot as the web app's local store produces it (client-side ids).
+  function deviceSnapshot() {
+    const stripe = uuid(), figma = uuid(), app1 = uuid(), app2 = uuid(), conn = uuid()
+    return {
+      format: 'landed-backup', version: 1, exported_at: now,
+      profile: { onboarded_at: now },
+      companies: [
+        { id: stripe, name: 'Stripe', hue: 250, logo_chars: 'St', created_at: now },
+        { id: figma, name: 'Figma', created_at: now },
+      ],
+      applications: [
+        { id: app1, company_id: stripe, role: 'PM', stage: 'onsite', starred: true, last_activity_at: now, created_at: now },
+        { id: app2, company_id: figma, role: 'Designer', created_at: now },
+        { id: uuid(), company_id: uuid(), role: 'orphan' },
+      ],
+      portal_connections: [{ id: conn, company_id: stripe, provider: 'greenhouse', status: 'active', created_at: now }],
+      portal_events: [
+        { id: uuid(), connection_id: conn, application_id: app1, type: 'status-change', payload_json: { to: 'onsite' }, created_at: now },
+        { id: uuid(), connection_id: uuid(), application_id: uuid(), type: 'sync', payload_json: {}, created_at: now },
+      ],
+      resumes: [{ id: uuid(), name: 'Local CV', parsed_json: { basic: { name: 'Erin' } }, is_current: true, created_at: now }],
+      ai_runs: [{ id: uuid(), task: 'jd_breakdown', provider: 'claude', prompt_text: 'p', parsed_json: [1], parse_format: 'json', created_at: now }],
+    }
+  }
+
+  test('upload into an empty account, then export round-trips it', async () => {
+    const erin = await signup('erin@example.com')
+    const snap = deviceSnapshot()
+    const up = await call('POST', '/api/sync/upload', { token: erin, body: snap })
+    assert.equal(up.status, 201, JSON.stringify(up.body))
+    assert.deepEqual(up.body, {
+      companies: 2, companies_merged: 0, applications: 2, portal_connections: 1,
+      portal_events: 2, resumes: 1, ai_runs: 1,
+    })
+
+    const exp = await call('GET', '/api/export', { token: erin })
+    assert.equal(exp.body.format, 'landed-backup')
+    assert.equal(exp.body.profile.onboarded_at, now)
+    assert.deepEqual(exp.body.applications.map((a: any) => a.id).sort(), [snap.applications[0].id, snap.applications[1].id].sort())
+    const pm = exp.body.applications.find((a: any) => a.role === 'PM')
+    assert.equal(pm.stage, 'onsite')
+    assert.equal(pm.starred, true)
+    assert.equal(exp.body.resumes[0].is_current, true)
+    assert.deepEqual(exp.body.ai_runs[0].parsed_json, [1])
+    // dangling references from the device become null instead of failing
+    const dangling = exp.body.portal_events.find((e: any) => e.type === 'sync')
+    assert.equal(dangling.connection_id, null)
+    assert.equal(dangling.application_id, null)
+    assert.equal(exp.body.applications[0].user_id, undefined, 'export carries no user ids')
+
+    // retrying the same upload is a no-op
+    const again = await call('POST', '/api/sync/upload', { token: erin, body: snap })
+    assert.equal(again.body.applications, 0)
+    assert.equal(again.body.companies_merged, 2)
+    assert.equal((await call('GET', '/api/applications', { token: erin })).body.length, 2)
+  })
+
+  test('a second device merges into existing cloud data', async () => {
+    const fay = await signup('fay@example.com')
+    await call('POST', '/api/resumes', { token: fay, body: { name: 'Cloud CV', set_current: true } })
+    const existing = await call('POST', '/api/applications', {
+      token: fay, body: { company: { name: 'Stripe' }, application: { role: 'Cloud role' } },
+    })
+    const up = await call('POST', '/api/sync/upload', { token: fay, body: deviceSnapshot() })
+    assert.equal(up.body.companies_merged, 1, 'Stripe merged by name')
+    assert.equal(up.body.companies, 1, 'Figma is new')
+
+    const apps = (await call('GET', '/api/applications', { token: fay })).body
+    assert.equal(apps.length, 3)
+    assert.equal(apps.filter((a: any) => a.company_id === existing.body.company_id).length, 2)
+    const resumes = (await call('GET', '/api/resumes', { token: fay })).body
+    assert.deepEqual(resumes.filter((r: any) => r.is_current).map((r: any) => r.name), ['Cloud CV'])
+  })
+
+  test('bad snapshots are rejected atomically', async () => {
+    const gus = await signup('gus@example.com')
+    assert.equal((await call('POST', '/api/sync/upload', { token: gus, body: { format: 'nope' } })).status, 400)
+    const snap = deviceSnapshot()
+    snap.applications[1].stage = 'not-a-stage'
+    assert.equal((await call('POST', '/api/sync/upload', { token: gus, body: snap })).status, 400)
+    assert.deepEqual((await call('GET', '/api/companies', { token: gus })).body, [], 'nothing half-written')
+  })
+
+  test('delete account needs the password and removes everything', async () => {
+    const hal = await signup('hal@example.com', 'hal-password-1')
+    await call('POST', '/api/sync/upload', { token: hal, body: deviceSnapshot() })
+    assert.equal((await call('DELETE', '/api/me', { token: hal, body: { password: 'wrong' } })).status, 403)
+    assert.equal((await call('DELETE', '/api/me', { token: hal, body: { password: 'hal-password-1' } })).status, 204)
+    assert.equal((await call('GET', '/api/me', { token: hal })).status, 401)
+    const [{ n }] = await sql`select count(*)::int as n from users where email = 'hal@example.com'`
+    assert.equal(n, 0)
+    assert.equal((await call('POST', '/api/auth/login', { body: { email: 'hal@example.com', password: 'hal-password-1' } })).status, 401)
+  })
+
+  test('oversized bodies get 413', async () => {
+    const ivy = await signup('ivy@example.com')
+    const big = 'x'.repeat(3 * 1024 * 1024)
+    assert.equal((await call('POST', '/api/ai-runs', { token: ivy, body: { task: 'jd_breakdown', provider: 'claude', prompt_text: big } })).status, 413)
+  })
+})

@@ -1,4 +1,5 @@
-// Thin client for the Landed API server (apps/server). Replaces supabase-js.
+// Thin client for the Landed API server (apps/server), used only in Landed
+// Cloud mode (lib/store/cloud.ts) and for auth (lib/auth.ts, lib/cloud.ts).
 //
 // Same-origin: in dev Vite proxies /api to the server (vite.config.ts); in
 // production the server serves this bundle itself. Auth rides on the
@@ -46,8 +47,5 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
   put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
   patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),
-  del: <T = void>(path: string) => request<T>('DELETE', path),
+  del: <T = void>(path: string, body?: unknown) => request<T>('DELETE', path, body),
 }
-
-/** Sink for @landed/ai-roundtrip's saveAiRun — persists one ai_runs row. */
-export const insertAiRun = (row: Record<string, unknown>) => api.post<{ id: string }>('/ai-runs', row)

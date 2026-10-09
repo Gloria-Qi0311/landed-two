@@ -1,0 +1,171 @@
+// Tests for the Landed web ↔ extension bridge:
+//   - lib/bridge-handler.js (service-worker side): origin gate, take-events
+//     drains the queue exactly once, sync-resumes sanitizes + stores
+//   - createQueueLock serializes overlapping sections
+//   - lib/web-bridge.js (content script): relays page messages both ways
+
+const { createBridgeHandler, createQueueLock } = require('../lib/bridge-handler.js')
+// The SW edition registers itself on globalThis instead of exporting.
+require('../lib/portal-events-push.js')
+const pushMod = globalThis.LandedPortalEventsPush
+
+const cfg = {
+  WEB_ORIGINS: ['http://localhost:5173'],
+  LOCAL_RESUMES_KEY: 'landed:local-resumes',
+}
+const FROM_WEB = { origin: 'http://localhost:5173' }
+
+function memoryQueue(events) {
+  let queue = { events, last_updated: null }
+  return {
+    snapshotStore: {
+      async loadPending() { return queue },
+      async clearPending() { queue = { events: [], last_updated: 'now' } },
+    },
+    get queue() { return queue },
+  }
+}
+
+function makeHandler(events = []) {
+  const q = memoryQueue(events)
+  const saved = {}
+  const onQueueChanged = jest.fn()
+  const handle = createBridgeHandler({
+    cfg,
+    snapshotStore: q.snapshotStore,
+    pushMod,
+    storage: {},
+    chromeLocal: { async set(obj) { Object.assign(saved, obj) } },
+    withLock: createQueueLock(),
+    onQueueChanged,
+    version: '2.2',
+  })
+  return { handle, q, saved, onQueueChanged }
+}
+
+const applied = (company) => ({
+  kind: 'applied', company, role: 'PM',
+  app_url: 'https://boards.greenhouse.io/x/jobs/1?email=me@x.com&gh_jid=1',
+})
+
+describe('bridge handler', () => {
+  test('rejects requests from other origins', async () => {
+    const { handle, q } = makeHandler([applied('Acme')])
+    expect(await handle({ type: 'take-events' }, { origin: 'https://evil.example' }))
+      .toEqual({ ok: false, error: 'origin not allowed' })
+    expect(await handle({ type: 'take-events' }, {})).toMatchObject({ ok: false })
+    expect(q.queue.events).toHaveLength(1)
+  })
+
+  test('falls back to sender.url when origin is absent', async () => {
+    const { handle } = makeHandler()
+    expect(await handle({ type: 'hello' }, { url: 'http://localhost:5173/sync' }))
+      .toEqual({ ok: true, data: { version: '2.2' } })
+  })
+
+  test('take-events returns mapped rows once and clears the queue', async () => {
+    const { handle, q, onQueueChanged } = makeHandler([applied('Acme'), applied('Beta')])
+    const first = await handle({ type: 'take-events' }, FROM_WEB)
+    expect(first.ok).toBe(true)
+    expect(first.data.rows).toHaveLength(2)
+    const row = first.data.rows[0]
+    expect(row).not.toHaveProperty('user_id')
+    expect(row.type).toBe('status-change')
+    expect(row.payload_json.company).toBe('Acme')
+    expect(row.payload_json.app_url).not.toMatch(/email=/)
+    expect(q.queue.events).toEqual([])
+    expect(onQueueChanged).toHaveBeenCalledTimes(1)
+
+    const second = await handle({ type: 'take-events' }, FROM_WEB)
+    expect(second.data.rows).toEqual([])
+    expect(onQueueChanged).toHaveBeenCalledTimes(1)
+  })
+
+  test('concurrent takes never deliver the same event twice', async () => {
+    const { handle } = makeHandler([applied('Acme'), applied('Beta'), applied('Gamma')])
+    const [a, b] = await Promise.all([
+      handle({ type: 'take-events' }, FROM_WEB),
+      handle({ type: 'take-events' }, FROM_WEB),
+    ])
+    expect(a.data.rows.length + b.data.rows.length).toBe(3)
+  })
+
+  test('sync-resumes stores a sanitized copy', async () => {
+    const { handle, saved } = makeHandler()
+    const res = await handle({
+      type: 'sync-resumes',
+      payload: {
+        resumes: [
+          { id: 'r1', name: 'CV', parsed_json: { basic: {} }, is_current: true, created_at: '2026-10-09', user_id: 'x', extra: 1 },
+          { id: 2, name: 'bad id' },
+          null,
+        ],
+      },
+    }, FROM_WEB)
+    expect(res).toEqual({ ok: true, data: { count: 1 } })
+    expect(saved['landed:local-resumes'].resumes).toEqual([
+      { id: 'r1', name: 'CV', parsed_json: { basic: {} }, is_current: true, created_at: '2026-10-09' },
+    ])
+    expect(await handle({ type: 'sync-resumes', payload: {} }, FROM_WEB)).toMatchObject({ ok: false })
+  })
+
+  test('unknown request types are rejected', async () => {
+    const { handle } = makeHandler()
+    expect(await handle({ type: 'drop-tables' }, FROM_WEB)).toEqual({ ok: false, error: 'unknown bridge request' })
+  })
+})
+
+describe('createQueueLock', () => {
+  test('runs sections one at a time, in order, even when one throws', async () => {
+    const lock = createQueueLock()
+    const log = []
+    const section = (name, ms, fail) => lock(async () => {
+      log.push(`start ${name}`)
+      await new Promise((r) => setTimeout(r, ms))
+      log.push(`end ${name}`)
+      if (fail) throw new Error(name)
+    })
+    const results = await Promise.allSettled([section('a', 15), section('b', 1, true), section('c', 1)])
+    expect(log).toEqual(['start a', 'end a', 'start b', 'end b', 'start c', 'end c'])
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected', 'fulfilled'])
+  })
+})
+
+describe('web-bridge content script', () => {
+  let sendMessage
+  let posted
+
+  beforeEach(() => {
+    jest.resetModules()
+    posted = []
+    sendMessage = jest.fn((msg, cb) => cb({ ok: true, data: { echoed: msg.type } }))
+    globalThis.chrome = {
+      runtime: { sendMessage, lastError: undefined, getManifest: () => ({ version: '2.2' }) },
+    }
+    jest.spyOn(window, 'postMessage').mockImplementation((data) => posted.push(data))
+    require('../lib/web-bridge.js')
+  })
+
+  afterEach(() => {
+    window.postMessage.mockRestore()
+    delete globalThis.chrome
+  })
+
+  const fromPage = (data) => window.dispatchEvent(new MessageEvent('message', { data, source: window }))
+
+  test('announces itself on load', () => {
+    expect(posted[0]).toEqual({ source: 'landed-extension', type: 'ready', version: '2.2' })
+  })
+
+  test('relays page requests and posts the reply with the same id', () => {
+    fromPage({ source: 'landed-web', id: 'req-1', type: 'take-events' })
+    expect(sendMessage).toHaveBeenCalledWith({ action: 'landed-bridge', type: 'take-events', payload: undefined }, expect.any(Function))
+    expect(posted[1]).toEqual({ source: 'landed-extension', id: 'req-1', ok: true, data: { echoed: 'take-events' }, error: undefined })
+  })
+
+  test('ignores messages that are not from the Landed page', () => {
+    fromPage({ source: 'something-else', id: 'x', type: 'take-events' })
+    window.dispatchEvent(new MessageEvent('message', { data: { source: 'landed-web', id: 'y', type: 'hello' }, source: null }))
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+})

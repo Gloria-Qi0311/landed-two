@@ -1,4 +1,5 @@
-// TanStack Query hooks for the Landed API. Components stay UI-only and read
+// TanStack Query hooks over the active data store (this device, or Landed
+// Cloud when signed in — see lib/store). Components stay UI-only and read
 // `useApplications()` / `useCompanies()` etc. instead of receiving the data
 // via props.
 //
@@ -10,45 +11,10 @@
 // shape. Eventually we'll refactor consumers to read DB-shape directly; for
 // now this keeps the diff small.
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/api'
-import { useAuth } from '../lib/auth'
+import { useStore, type ApplicationPatch, type DbApplication, type DbCompany } from '../lib/store'
 import { COMPANIES as COMPANY_CATALOG, APPLICATIONS as SEED_APPS, COMPANIES as SEED_COMPANIES } from '../data'
 
 // ─── shapes ────────────────────────────────────────────────────────────────
-
-type DbApplication = {
-  id: string
-  user_id: string
-  company_id: string
-  role: string
-  team: string | null
-  stage: string
-  salary: string | null
-  location: string | null
-  remote: string | null
-  applied_at: string | null
-  next_step: string | null
-  referral: boolean
-  source: string | null
-  job_id: string | null
-  portal_application_url: string | null
-  notes: string | null
-  starred: boolean
-  last_activity_at: string
-  created_at: string
-}
-
-type DbCompany = {
-  id: string
-  user_id: string
-  name: string
-  hue: number | null
-  logo_chars: string | null
-  sector: string | null
-  loc: string | null
-  portal_url: string | null
-  created_at: string
-}
 
 const daysSince = (iso: string | null) =>
   iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : 0
@@ -90,49 +56,43 @@ function toCompanyShape(row: DbCompany) {
 // ─── reads ─────────────────────────────────────────────────────────────────
 
 export function useApplications() {
-  const signedIn = useAuth((s) => !!s.user)
+  const { store, ready } = useStore()
   return useQuery({
-    queryKey: ['applications'],
-    enabled: signedIn,
-    queryFn: async () => (await api.get<DbApplication[]>('/applications')).map(toAppShape),
+    queryKey: ['applications', store.kind],
+    enabled: ready,
+    queryFn: async () => (await store.listApplications()).map(toAppShape),
   })
 }
 
 export function useCompanies() {
-  const signedIn = useAuth((s) => !!s.user)
+  const { store, ready } = useStore()
   return useQuery({
-    queryKey: ['companies'],
-    enabled: signedIn,
-    queryFn: async () => (await api.get<DbCompany[]>('/companies')).map(toCompanyShape),
+    queryKey: ['companies', store.kind],
+    enabled: ready,
+    queryFn: async () => (await store.listCompanies()).map(toCompanyShape),
   })
 }
 
 // ─── writes ────────────────────────────────────────────────────────────────
 
-type AppPatch = Partial<Pick<
-  DbApplication,
-  'stage' | 'role' | 'team' | 'salary' | 'location' | 'remote' | 'applied_at' |
-  'next_step' | 'referral' | 'source' | 'notes' | 'starred'
->>
-
 export function useUpdateApplication() {
   const qc = useQueryClient()
+  const { store } = useStore()
+  const key = ['applications', store.kind]
   return useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Record<string, any> }) => {
-      // The server whitelists AppPatch columns and bumps last_activity_at.
-      const dbPatch: AppPatch = { ...patch }
-      return toAppShape(await api.patch<DbApplication>(`/applications/${id}`, dbPatch))
-    },
+    mutationFn: async ({ id, patch }: { id: string; patch: ApplicationPatch }) =>
+      // The store whitelists ApplicationPatch fields and bumps last_activity_at.
+      toAppShape(await store.updateApplication(id, patch)),
     onMutate: async ({ id, patch }) => {
-      await qc.cancelQueries({ queryKey: ['applications'] })
-      const previous = qc.getQueryData<any[]>(['applications'])
-      qc.setQueryData<any[]>(['applications'], (old) =>
+      await qc.cancelQueries({ queryKey: key })
+      const previous = qc.getQueryData<any[]>(key)
+      qc.setQueryData<any[]>(key, (old) =>
         (old ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a)),
       )
       return { previous }
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.previous) qc.setQueryData(['applications'], ctx.previous)
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous)
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['applications'] }),
   })
@@ -143,6 +103,7 @@ export function useUpdateApplication() {
 // known company so we inherit hue + logo).
 export function useAddApplication() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
     mutationFn: async (input: {
       companyName: string
@@ -154,20 +115,20 @@ export function useAddApplication() {
       source?: string
       notes?: string
     }) => {
-      // The server finds-or-creates the company by name in the same
+      // The store finds-or-creates the company by name in the same
       // transaction. Catalog entry (if it's a known company) supplies the
       // hue + logo + sector + loc for a newly-created company.
       const cat = COMPANY_CATALOG.find((c: any) => c.name === input.companyName)
       const stage = input.stage ?? 'saved'
-      const data = await api.post<DbApplication>('/applications', {
-        company: {
+      const data = await store.addApplication(
+        {
           name: input.companyName,
           hue: cat?.hue ?? null,
           logo_chars: cat?.logo ?? input.companyName.slice(0, 2).toUpperCase(),
           sector: cat?.sector ?? null,
           loc: cat?.loc ?? input.location ?? null,
         },
-        application: {
+        {
           role: input.role,
           team: input.team || null,
           stage,
@@ -179,7 +140,7 @@ export function useAddApplication() {
           source: input.source || 'Manual',
           notes: input.notes || null,
         },
-      })
+      )
       return toAppShape(data)
     },
     onSuccess: () => {
@@ -193,6 +154,7 @@ export function useAddApplication() {
 // Called from the empty state when a brand-new user clicks "Try with demo data".
 export function useImportDemoData() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
     mutationFn: async () => {
       // 1. Companies referenced by the seed apps (only the ones we use)
@@ -208,7 +170,7 @@ export function useImportDemoData() {
         }))
 
       // 2. Applications reference their company by name (seed IDs aren't
-      // UUIDs); the server maps names to the new company rows.
+      // UUIDs); the store maps names to the new company rows.
       const seedCompanyById = new Map<string, any>()
       SEED_COMPANIES.forEach((c: any) => seedCompanyById.set(c.id, c))
 
@@ -236,9 +198,9 @@ export function useImportDemoData() {
           notes: a.notes || null,
           starred: !!a.starred,
         }
-      }).filter(Boolean)
+      }).filter((a): a is NonNullable<typeof a> => a !== null)
 
-      return api.post<{ companies: number; applications: number }>('/import', { companies, applications })
+      return store.importDemo({ companies, applications })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['applications'] })

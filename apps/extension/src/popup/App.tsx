@@ -3,10 +3,11 @@
 // manifest.json's side_panel.default_path; clicking the toolbar icon opens
 // the panel via background.js's chrome.action.onClicked handler).
 //
-// Visual + brand parity with apps/web's LoginScreen (LandedMark + display
-// heading + email/password form + dark .btn-primary). Sign-in goes to the
-// Landed API server (lib/auth.js); account creation happens in the web app.
-// Resume picker + fill flow (the SignedIn surface) unchanged from PR #67.
+// Landed is local-first, so the panel works without an account: in local
+// mode it autofills from the resumes the open Landed tab hands over through
+// the page bridge (lib/bridge-handler.js). Signing in to Landed Cloud is
+// optional — it adds background portal push straight to the server.
+// Resume picker + fill flow (the Workspace surface) unchanged from PR #67.
 import React, { useEffect, useState } from 'react'
 import * as auth from '@lib/auth.js'
 import * as config from '@lib/config.js'
@@ -23,7 +24,8 @@ const { NEEDS_AUTH_KEY, FATAL_STATE_KEY } = sentinels
 
 type AuthState =
   | { kind: 'loading' }
-  | { kind: 'signedOut' }
+  | { kind: 'local' }
+  | { kind: 'signingIn' }
   | { kind: 'signedIn'; email: string }
 
 /** Read + subscribe to a single chrome.storage.local key. Returns the
@@ -86,14 +88,14 @@ export function App() {
       try {
         const session = await auth.getSession()
         if (session?.user?.email) setState({ kind: 'signedIn', email: session.user.email })
-        else setState({ kind: 'signedOut' })
+        else setState({ kind: 'local' })
       } catch (e) {
         setError(toErr(e))
-        setState({ kind: 'signedOut' })
+        setState({ kind: 'local' })
       }
       unsubscribe = auth.onAuthChange((_event, session) => {
         if (session?.user?.email) setState({ kind: 'signedIn', email: session.user.email })
-        else setState({ kind: 'signedOut' })
+        else setState((s) => (s.kind === 'signingIn' ? s : { kind: 'local' }))
       })
     })()
     return () => { unsubscribe?.() }
@@ -108,13 +110,35 @@ export function App() {
     )
   }
 
+  if (state.kind === 'signingIn') {
+    return (
+      <LoginForm
+        busy={busy}
+        error={error}
+        onBack={() => { setError(null); setState({ kind: 'local' }) }}
+        onSubmit={async (email, password) => {
+          setBusy(true); setError(null)
+          try {
+            const result = await auth.signIn(email, password)
+            if (result.error) setError(result.error.message || 'Sign-in failed')
+            // On success: onAuthChange fires → signedIn
+          } catch (e) {
+            setError(toErr(e))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      />
+    )
+  }
+
   if (state.kind === 'signedIn') {
     return (
-      <SignedIn
+      <Workspace
         email={state.email}
         onSignOut={async () => {
           setBusy(true); setError(null)
-          try { await auth.signOut(); setState({ kind: 'signedOut' }) }
+          try { await auth.signOut(); setState({ kind: 'local' }) }
           catch (e) { setError(toErr(e)) }
           finally { setBusy(false) }
         }}
@@ -124,24 +148,7 @@ export function App() {
     )
   }
 
-  return (
-    <LoginForm
-      busy={busy}
-      error={error}
-      onSubmit={async (email, password) => {
-        setBusy(true); setError(null)
-        try {
-          const result = await auth.signIn(email, password)
-          if (result.error) setError(result.error.message || 'Sign-in failed')
-          // On success: onAuthChange fires → signedIn
-        } catch (e) {
-          setError(toErr(e))
-        } finally {
-          setBusy(false)
-        }
-      }}
-    />
-  )
+  return <Workspace email={null} onSignIn={() => setState({ kind: 'signingIn' })} busy={busy} error={error} />
 }
 
 // ── Brand mark — verbatim from apps/web LandedMark ────────────────────────
@@ -187,13 +194,14 @@ function ArrowRight({ size = 12 }: { size?: number }) {
   )
 }
 
-// ── Signed-out: email + password form (mirrors web LoginScreen) ──────────
+// ── Landed Cloud sign-in (optional; mirrors the web's Cloud dialog) ──────
 function LoginForm({
-  busy, error, onSubmit,
+  busy, error, onSubmit, onBack,
 }: {
   busy: boolean
   error: string | null
   onSubmit: (email: string, password: string) => void
+  onBack: () => void
 }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -201,7 +209,7 @@ function LoginForm({
   return (
     <>
       <Header />
-      <DisplayHeading subtitle="Sign in with your Landed account to sync portals and fill applications." />
+      <DisplayHeading subtitle="Sign in to Landed Cloud so portal updates sync in the background, even when no Landed tab is open." />
 
       <form onSubmit={(e) => { e.preventDefault(); if (ready) onSubmit(email.trim(), password) }} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <label htmlFor="login-email" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Email</label>
@@ -241,8 +249,11 @@ function LoginForm({
           className="link"
           style={{ alignSelf: 'flex-start', marginTop: 4, fontSize: 12 }}
         >
-          No account yet? Create one in the web app →
+          No Cloud account? Turn it on in the web app →
         </a>
+        <button type="button" className="link" onClick={onBack} style={{ alignSelf: 'flex-start', fontSize: 12 }}>
+          ← Keep using this device only
+        </button>
       </form>
 
       <div style={{ marginTop: 'auto', paddingTop: 24, fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
@@ -261,26 +272,41 @@ type DbResume = {
   created_at: string
 }
 
-function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut: () => void; busy: boolean; error: string | null }) {
-  const [resumes, setResumes] = useState<DbResume[] | null>(null)
+// Current resume first, then newest first.
+const byCurrentThenNewest = (list: DbResume[]) =>
+  [...list].sort((a, b) => Number(b.is_current) - Number(a.is_current) || b.created_at.localeCompare(a.created_at))
+
+/** Resume picker + fill. `email` set = signed in to Landed Cloud (resumes from
+ *  the API); null = local mode (resumes handed over by the open Landed tab). */
+function Workspace({ email, onSignOut, onSignIn, busy, error }: {
+  email: string | null
+  onSignOut?: () => void
+  onSignIn?: () => void
+  busy: boolean
+  error: string | null
+}) {
+  const inCloud = email !== null
+  const [cloudResumes, setCloudResumes] = useState<DbResume[] | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [fillingId, setFillingId] = useState<string | null>(null)
   const [fillNotice, setFillNotice] = useState<string | null>(null)
   const needsAuthAt = useNeedsAuth()
   const fatalState = useFatalState()
+  const handedOver = useStorageSentinel<{ resumes: DbResume[]; synced_at: string }>(config.LOCAL_RESUMES_KEY)
 
   useEffect(() => {
+    if (!inCloud) return
     ;(async () => {
       try {
-        const data = await auth.apiFetch<DbResume[]>('/resumes')
-        // Current resume first, then newest first (API returns newest first).
-        setResumes([...data].sort((a, b) => Number(b.is_current) - Number(a.is_current)))
+        setCloudResumes(byCurrentThenNewest(await auth.apiFetch<DbResume[]>('/resumes')))
       } catch (e) {
         setLoadErr(toErr(e))
-        setResumes([])
+        setCloudResumes([])
       }
     })()
-  }, [])
+  }, [inCloud])
+
+  const resumes = inCloud ? cloudResumes : byCurrentThenNewest(handedOver?.resumes ?? [])
 
   async function fillWith(resume: DbResume) {
     setFillingId(resume.id); setFillNotice(null)
@@ -308,11 +334,17 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
       <Header />
 
       <div style={{ padding: 12, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 8 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Signed in</div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{email}</div>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+          {inCloud ? 'Landed Cloud' : 'This device'}
+        </div>
+        {inCloud
+          ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{email}</div>
+          : <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+              Local mode — nothing leaves this browser. Portal updates reach Landed whenever a Landed tab is open.
+            </div>}
       </div>
 
-      {fatalState && (
+      {inCloud && fatalState && (
         <FatalBanner
           error={fatalState.error}
           at={fatalState.at}
@@ -324,17 +356,17 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
           }}
         />
       )}
-      {needsAuthAt && (
+      {inCloud && needsAuthAt && (
         <ReauthBanner
           detectedAt={needsAuthAt}
           onReauth={async () => {
             // Clear the sentinel optimistically before signing out. Without
             // this, the banner re-appears the instant the user signs back
-            // in (SignedIn remounts → useNeedsAuth reads → sentinel still
+            // in (Workspace remounts → useNeedsAuth reads → sentinel still
             // there, SW hasn't had a chance to attempt a fresh push yet)
             // — looks broken even though a push is seconds away.
             try { await chrome.storage.local.remove(NEEDS_AUTH_KEY) } catch { /* ignore */ }
-            onSignOut()
+            onSignOut?.()
           }}
         />
       )}
@@ -346,7 +378,9 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
         {resumes === null && <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>Loading…</div>}
         {resumes && resumes.length === 0 && (
           <div style={{ padding: 12, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 }}>
-            No resumes yet. Open Landed → Resumes to add one, then come back.
+            {inCloud
+              ? 'No resumes yet. Open Landed → Resumes to add one, then come back.'
+              : <>No resumes here yet. Open <a href={config.API_URL} target="_blank" rel="noreferrer" className="link">Landed</a> and add one under Resumes — it shows up here automatically.</>}
           </div>
         )}
         {resumes && resumes.length > 0 && (
@@ -365,9 +399,15 @@ function SignedIn({ email, onSignOut, busy, error }: { email: string; onSignOut:
       )}
       {loadErr && <ErrorBanner message={loadErr} />}
 
-      <button onClick={onSignOut} disabled={busy} className="btn-secondary" style={{ marginTop: 'auto', justifyContent: 'center' }}>
-        {busy ? 'Signing out…' : 'Sign out'}
-      </button>
+      {inCloud ? (
+        <button onClick={onSignOut} disabled={busy} className="btn-secondary" style={{ marginTop: 'auto', justifyContent: 'center' }}>
+          {busy ? 'Signing out…' : 'Sign out of Cloud'}
+        </button>
+      ) : (
+        <button onClick={onSignIn} className="btn-secondary" style={{ marginTop: 'auto', justifyContent: 'center' }}>
+          Sign in to Landed Cloud (optional)
+        </button>
+      )}
       {error && <ErrorBanner message={error} />}
     </>
   )

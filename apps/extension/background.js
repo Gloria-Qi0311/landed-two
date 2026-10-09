@@ -17,7 +17,12 @@
 // chrome.runtime.onStartup re-arms on browser restart in case the
 // onInstalled handler never ran.
 
-importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js')
+importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js', 'lib/bridge-handler.js')
+
+// Every read-modify-write of the pending-event queue (ingest, Cloud push,
+// web-bridge take) runs under this lock so none of them clobbers another —
+// e.g. an event ingested mid-push no longer gets cleared unsent.
+const withQueueLock = self.LandedBridge.createQueueLock()
 
 const ALARM_NAME = 'landed-portal-poll'
 const POLL_PERIOD_MIN = 360  // 6 hours
@@ -197,7 +202,7 @@ async function pollAllPortals() {
     const results = await Promise.all(tabs.map((t) => askTabToParse(t.id)))
     const events = results.filter((r) => r && r.app_url)
     if (events.length === 0) continue
-    await store.ingest(storage, portal, events)
+    await withQueueLock(() => store.ingest(storage, portal, events))
   }
 }
 
@@ -211,7 +216,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true
   }
   const storage = store.chromeStorageAdapter(chrome.storage.local)
-  store.ingest(storage, msg.portal, [msg.event])
+  withQueueLock(() => store.ingest(storage, msg.portal, [msg.event]))
     .then((result) => {
       // Real-time fast path: don't wait for the 1-min alarm. Fire-and-
       // forget — if push fails, the alarm catches the leftover queue.
@@ -222,6 +227,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse({ ok: true, result })
     })
     .catch((err) => sendResponse({ ok: false, error: String(err) }))
+  return true
+})
+
+// ── Web bridge: the open Landed tab pulls events / pushes resumes ────────
+//
+// See lib/bridge-handler.js. Works with or without a Cloud account; in local
+// mode it's the only way portal events reach the user's data.
+
+const handleBridge = self.LandedBridge.createBridgeHandler({
+  cfg: self.LandedConfig,
+  snapshotStore: self.LandedSnapshotStore,
+  pushMod: self.LandedPortalEventsPush,
+  storage: self.LandedSnapshotStore.chromeStorageAdapter(chrome.storage.local),
+  chromeLocal: chrome.storage.local,
+  withLock: withQueueLock,
+  onQueueChanged: () => refreshBadge(),
+  version: chrome.runtime.getManifest().version,
+})
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.action !== 'landed-bridge') return
+  handleBridge(msg, sender).then(sendResponse, (err) => sendResponse({ ok: false, error: String(err) }))
   return true
 })
 
@@ -242,7 +269,12 @@ async function readSession() {
   return raw
 }
 
-async function drainPendingEvents() {
+function drainPendingEvents() {
+  return withQueueLock(drainPendingEventsLocked)
+}
+
+// Only call via drainPendingEvents() — assumes the queue lock is held.
+async function drainPendingEventsLocked() {
   const store = self.LandedSnapshotStore
   const pushMod = self.LandedPortalEventsPush
   const cfg = self.LandedConfig

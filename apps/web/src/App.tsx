@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Routes, Route, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
+import { useExtensionBridge } from './hooks/extension-bridge';
 
 import { useAuth } from './lib/auth';
 import {
@@ -12,7 +13,10 @@ import {
   useImportDemoData,
 } from './hooks/queries';
 import { Sidebar, PageHeader, StatsBanner } from './components/shell';
-import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
+import { OnboardingTour, ProfileMenu } from './components/auth';
+import { CloudNotice, LeaveCloudDialog, RestoreBackupDialog, TurnOnCloudDialog } from './components/cloud';
+import { downloadBackup, readBackupFile, signOutOfCloud } from './lib/cloud';
+import { currentStore, type Snapshot } from './lib/store';
 import { Icon } from './components/primitives';
 import { KanbanView } from './components/kanban';
 import { TableView } from './components/table';
@@ -46,19 +50,23 @@ export function App() {
   const [openApp, setOpenApp] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
 
-  // Auth state — the session is an httpOnly cookie owned by the API server;
-  // lib/auth mirrors who is signed in and we gate render on it.
+  // Landed is local-first: no login gate. `user` is set only while this
+  // browser is signed in to Landed Cloud, which switches the data store
+  // (lib/store) from this device to the API server.
   const user = useAuth((s) => s.user);
   const authReady = useAuth((s) => s.ready);
   const hydrateAuth = useAuth((s) => s.hydrate);
-  const signOut = useAuth((s) => s.signOut);
-  const signedIn = !!user;
+  const account = user ? { mode: 'cloud' as const, email: user.email } : { mode: 'local' as const };
+  const [dialog, setDialog] = useState<null | 'turn-on' | 'sign-in' | 'leave' | { restore: Snapshot }>(null);
+  const backupInput = useRef<HTMLInputElement>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [showTour, setShowTour] = useState(false);
 
-  // Data layer (TanStack Query → API). Query hooks are enabled only while
-  // signed in, so nothing fires while the LoginScreen is showing.
+  // Data layer (TanStack Query → active store: this device or Landed Cloud).
+  // Query hooks wait for the Cloud session probe before firing.
   const appsQuery = useApplications();
+  useExtensionBridge();
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();
   const addApp = useAddApplication();
@@ -77,11 +85,10 @@ export function App() {
     localStorage.setItem('landed:theme', theme);
   }, [theme]);
 
-  // Hydrate the session on mount, then react to user changes (sign-in /
-  // sign-out / server-side expiry). On every change of user we clear the
-  // TanStack Query cache so user A's data never leaks into user B's session
-  // — the API scopes queries, but the client-side cache survives sign-out
-  // otherwise.
+  // Hydrate the Cloud session on mount, then react to user changes (turning
+  // Cloud on/off, sign-out, server-side expiry). On every change we clear
+  // the TanStack Query cache so one account's rows (or this device's) never
+  // show up under another.
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   useEffect(() => {
@@ -97,10 +104,10 @@ export function App() {
     prevUserIdRef.current = next;
     if (prev === undefined || prev === next) return;
     queryClient.clear();
-    // Reset to /applications on a fresh sign-in so a new account doesn't
-    // land on the previous user's last URL. Bookmarks + reloads on an
-    // existing session (initial hydration) stay on the current URL.
-    if (prev === null && next) navigate('/applications');
+    // Reset to /applications when switching data sources so nobody lands on
+    // a URL that only made sense for the other one. Bookmarks + reloads
+    // (initial hydration) stay on the current URL.
+    navigate('/applications');
   }, [authReady, user, queryClient, navigate]);
 
   // Onboarding flag — server-side per-user (users.onboarded_at). The
@@ -112,14 +119,31 @@ export function App() {
   const markOnboarded = useMarkOnboarded();
   const resetOnboarded = useResetOnboarded();
   useEffect(() => {
-    if (signedIn && !profileLoading && !onboardedAt) {
+    if (authReady && !profileLoading && !onboardedAt) {
       setShowTour(true);
     }
-  }, [signedIn, profileLoading, onboardedAt]);
+  }, [authReady, profileLoading, onboardedAt]);
 
   const handleSignOut = async () => {
-    await signOut();
     setProfileOpen(false);
+    await signOutOfCloud();
+  };
+  const handleExport = async () => {
+    setAccountError(null);
+    try {
+      downloadBackup(await currentStore().exportSnapshot());
+    } catch (e) {
+      setAccountError(`Export failed: ${(e as Error).message}`);
+    }
+  };
+  const handleBackupFile = async (file: File | undefined) => {
+    if (!file) return;
+    setAccountError(null);
+    try {
+      setDialog({ restore: await readBackupFile(file) });
+    } catch (e) {
+      setAccountError((e as Error).message);
+    }
   };
   const handleTourClose = () => {
     setShowTour(false);
@@ -131,30 +155,61 @@ export function App() {
     setProfileOpen(false);
   };
 
-  // While the session hydrates on mount, render nothing — avoids a flash of
-  // the LoginScreen for users with a valid token.
+  // While the Cloud session probe runs, render nothing — avoids flashing
+  // this device's (possibly empty) local data at a Cloud user.
   if (!authReady) {
     return <div style={{ height: '100vh', width: '100vw', background: 'var(--bg)' }} />;
   }
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)' }}>
-      {!signedIn && <LoginScreen />}
-
-      <Sidebar apps={apps} onProfileClick={() => setProfileOpen((o) => !o)} />
+      <Sidebar apps={apps} account={account} onProfileClick={() => setProfileOpen((o) => !o)} />
 
       <ProfileMenu
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
-        onSignOut={handleSignOut}
+        account={account}
         onShowTour={handleShowTour}
         theme={theme}
         setTheme={setTheme}
+        onTurnOnCloud={() => setDialog('turn-on')}
+        onLeaveCloud={() => setDialog('leave')}
+        onSignOut={handleSignOut}
+        onExport={handleExport}
+        onImport={() => backupInput.current?.click()}
+      />
+      <input
+        ref={backupInput}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          handleBackupFile(e.target.files?.[0]);
+          e.target.value = '';
+        }}
       />
 
-      {showTour && signedIn && <OnboardingTour onClose={handleTourClose} />}
+      {showTour && <OnboardingTour onClose={handleTourClose} />}
+      {(dialog === 'turn-on' || dialog === 'sign-in') && (
+        <TurnOnCloudDialog signIn={dialog === 'sign-in'} onClose={() => setDialog(null)} />
+      )}
+      {dialog === 'leave' && <LeaveCloudDialog onClose={() => setDialog(null)} />}
+      {dialog && typeof dialog === 'object' && (
+        <RestoreBackupDialog
+          snapshot={dialog.restore}
+          onClose={() => setDialog(null)}
+          onRestored={() => queryClient.invalidateQueries()}
+        />
+      )}
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
+        <CloudNotice onSignIn={() => setDialog('sign-in')} />
+        {accountError && (
+          <div role="alert" style={{ margin: '10px 28px 0', padding: '8px 12px', borderRadius: 8, fontSize: 12, background: 'oklch(0.97 0.03 30)', border: '0.5px solid oklch(0.88 0.06 30)', color: 'oklch(0.45 0.15 30)', display: 'flex', gap: 10 }}>
+            <span style={{ flex: 1 }}>{accountError}</span>
+            <button type="button" className="btn-secondary" onClick={() => setAccountError(null)}>Dismiss</button>
+          </div>
+        )}
         <Routes>
           <Route path="/" element={<Navigate to="/applications" replace />} />
           <Route

@@ -29,5 +29,7 @@ declare module '@lib/storage-adapter.js' {
 
 declare module '@lib/config.js' {
   export const API_URL: string
+  export const WEB_ORIGINS: string[]
   export const SESSION_STORAGE_KEY: string
+  export const LOCAL_RESUMES_KEY: string
 }

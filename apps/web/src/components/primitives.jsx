@@ -114,6 +114,10 @@ export function Icon({ name, size = 16, stroke = 1.5 }) {
     settings: <><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></>,
     arrowRight: <><path d="M5 12h14M13 6l6 6-6 6"/></>,
     logo: <><path d="M4 18l6-12 4 7 3-4 3 9"/></>,
+    cloud: <><path d="M7 18h10.5a4 4 0 00.6-7.95A6 6 0 006.4 9.2 4.5 4.5 0 007 18z"/></>,
+    device: <><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></>,
+    download: <><path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 19h14"/></>,
+    upload: <><path d="M12 15V4M7 9l5-5 5 5"/><path d="M5 19h14"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round">

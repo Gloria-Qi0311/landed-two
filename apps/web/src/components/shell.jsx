@@ -3,8 +3,9 @@ import React, { useMemo } from 'react';
 import { NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import { LandedMark, Icon, stageColors } from './primitives';
 import { STAGES, PORTAL_STATUS } from '../data';
+import { AccountAvatar } from './auth';
 
-export const Sidebar = ({ apps, onProfileClick }) => {
+export const Sidebar = ({ apps, account, onProfileClick }) => {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const filter = searchParams.get('filter') || 'all';
@@ -161,10 +162,14 @@ export const Sidebar = ({ apps, onProfileClick }) => {
             display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0,
             fontFamily: 'inherit', textAlign: 'left',
           }}>
-          <div style={{ width: 24, height: 24, borderRadius: 12, background: 'oklch(0.85 0.06 220)', color: 'oklch(0.35 0.15 220)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>Y</div>
+          <AccountAvatar account={account} size={24} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--fg)' }}>Your Name</div>
-            <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>Pro plan</div>
+            <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {account.mode === 'cloud' ? account.email : 'This device'}
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>
+              {account.mode === 'cloud' ? 'Landed Cloud' : 'Local only'}
+            </div>
           </div>
           <Icon name="chevronRight" size={12} stroke={2} />
         </button>

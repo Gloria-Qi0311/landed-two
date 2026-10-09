@@ -1,31 +1,28 @@
-// Profile hooks — reads / writes the signed-in user's row in users.
-//
-// Currently exposes only the onboarding flag (users.onboarded_at). Other
-// profile fields (display_name, avatar_url, etc.) land here when the app
-// needs them.
+// Profile hooks — the onboarding flag (onboarded_at), over the active data
+// store: this device's local profile, or users.onboarded_at in Landed Cloud.
+// Other profile fields (display_name, avatar_url, etc.) land here when the
+// app needs them.
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/api'
-import { useAuth } from '../lib/auth'
+import { useStore } from '../lib/store'
 
 const KEY = ['profile', 'onboarded_at'] as const
 
-type Me = { onboarded_at: string | null }
-
 export function useOnboardedAt() {
-  const signedIn = useAuth((s) => !!s.user)
+  const { store, ready } = useStore()
   return useQuery({
-    queryKey: KEY,
-    enabled: signedIn,
-    queryFn: async () => (await api.get<Me>('/me')).onboarded_at ?? null,
+    queryKey: [...KEY, store.kind],
+    enabled: ready,
+    queryFn: async () => (await store.getProfile()).onboarded_at ?? null,
   })
 }
 
 export function useMarkOnboarded() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
     mutationFn: async () => {
       const at = new Date().toISOString()
-      await api.patch<Me>('/me', { onboarded_at: at })
+      await store.updateProfile({ onboarded_at: at })
       return at
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
@@ -34,9 +31,10 @@ export function useMarkOnboarded() {
 
 export function useResetOnboarded() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
     mutationFn: async () => {
-      await api.patch<Me>('/me', { onboarded_at: null })
+      await store.updateProfile({ onboarded_at: null })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   })

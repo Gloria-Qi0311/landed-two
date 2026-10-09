@@ -1,57 +1,32 @@
-// TanStack Query hooks for the portal-sync surface (Sync page).
+// TanStack Query hooks for the portal-sync surface (Sync page), over the
+// active data store (this device or Landed Cloud — see lib/store).
 //
-// Backed by two tables (see apps/server/migrations/0001_init.sql):
+// Two tables:
 //   - portal_connections — one row per (company, portal-vendor) login
 //   - portal_events       — append-only stream emitted by the extension
 //
-// The browser extension pushes events to the API; the page also has a
-// DEV-gated demo seed so the UI can be exercised without the extension.
+// The browser extension hands events to this page (lib/extension-bridge) or,
+// when signed in to Cloud, pushes them to the API itself. The page also has
+// a DEV-gated demo seed so the UI can be exercised without the extension.
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/api'
-import { useAuth } from '../lib/auth'
+import {
+  useStore,
+  type ConnectionInput, type DbPortalConnection, type DbPortalEvent, type PortalEventInput,
+} from '../lib/store'
 
-// ── DB types (mirror the Postgres enums + tables verbatim) ────────────────
-
-export type PortalProvider =
-  | 'greenhouse' | 'lever' | 'workday' | 'ashby' | 'bamboohr'
-  | 'boss' | 'smartrecruiters' | 'other'
-
-export type PortalStatus = 'active' | 'syncing' | 'expired' | 'disconnected'
-
-export type PortalEventType = 'status-change' | 'new-event' | 'expired' | 'sync' | 'rejection'
-
-export type DbPortalConnection = {
-  id: string
-  user_id: string
-  company_id: string
-  provider: PortalProvider
-  portal_host: string | null
-  status: PortalStatus
-  last_sync_at: string | null
-  last_seen_login_at: string | null
-  failure_reason: string | null
-  created_at: string
-}
-
-export type DbPortalEvent = {
-  id: string
-  user_id: string
-  connection_id: string | null
-  application_id: string | null
-  type: PortalEventType
-  payload_json: Record<string, unknown>
-  created_at: string
-}
+export type {
+  DbPortalConnection, DbPortalEvent, PortalEventType, PortalProvider, PortalStatus,
+} from '../lib/store'
 
 // ── Reads ─────────────────────────────────────────────────────────────────
 
 export function usePortalConnections() {
-  const signedIn = useAuth((s) => !!s.user)
+  const { store, ready } = useStore()
   return useQuery({
-    queryKey: ['portal_connections'],
-    enabled: signedIn,
-    queryFn: () => api.get<DbPortalConnection[]>('/portal-connections'),
+    queryKey: ['portal_connections', store.kind],
+    enabled: ready,
+    queryFn: (): Promise<DbPortalConnection[]> => store.listPortalConnections(),
   })
 }
 
@@ -61,81 +36,59 @@ export function usePortalConnections() {
  * desc, leveraging portal_events_user_created_idx.
  */
 export function usePortalEvents(limit = 50) {
-  const signedIn = useAuth((s) => !!s.user)
+  const { store, ready } = useStore()
   return useQuery({
-    queryKey: ['portal_events', limit],
-    enabled: signedIn,
-    queryFn: () => api.get<DbPortalEvent[]>(`/portal-events?limit=${limit}`),
+    queryKey: ['portal_events', store.kind, limit],
+    enabled: ready,
+    queryFn: (): Promise<DbPortalEvent[]> => store.listPortalEvents(limit),
   })
 }
 
 // ── Writes ────────────────────────────────────────────────────────────────
 
 /**
- * Upsert a connection on (user_id, company_id, provider). The server does a
- * single INSERT ... ON CONFLICT against the unique constraint — no
- * SELECT-then-UPDATE-or-INSERT race window.
+ * Upsert a connection on (company_id, provider) — a single atomic upsert in
+ * both stores, never SELECT-then-UPDATE-or-INSERT (see CLAUDE.md).
  */
 export function useUpsertPortalConnection() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
-    mutationFn: (input: {
-      company_id: string
-      provider: PortalProvider
-      portal_host?: string | null
-      status?: PortalStatus
-      last_sync_at?: string | null
-      failure_reason?: string | null
-    }) => api.put<DbPortalConnection>('/portal-connections', input),
+    mutationFn: (input: ConnectionInput) => store.upsertPortalConnection(input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal_connections'] }),
   })
 }
 
 // ── Realtime: subscribe to portal_events INSERT (#38) ────────────────────
 //
-// The extension push pipeline (#35) inserts rows into portal_events via the
-// API. This hook holds an EventSource on /api/portal-events/stream (SSE fed
-// by Postgres LISTEN/NOTIFY on the server) so the Sync page reflects new
-// events without polling. The server only streams the signed-in user's rows.
+// New events arrive from the extension (via the bridge, or pushed straight to
+// Cloud), from other tabs, or from this tab. The active store's subscription
+// covers all of them: local mode uses an in-page emitter + BroadcastChannel,
+// Cloud mode an EventSource on /api/portal-events/stream.
 //
-//   - On each `portal_event` message: invalidate the cached ['portal_events']
-//     query so the activity list refreshes from the source of truth (avoids
-//     splicing the incoming row into the cache and getting shape drift).
+//   - On each insert: invalidate the cached ['portal_events'] query so the
+//     activity list refreshes from the source of truth (avoids splicing the
+//     incoming row into the cache and getting shape drift).
 //   - Returns the most recent event for opt-in inline UX (toast/banner).
-//   - EventSource reconnects on its own after network drops; closed on
-//     unmount so streams don't accumulate across navigation.
 export function usePortalEventsRealtime() {
   const qc = useQueryClient()
-  const signedIn = useAuth((s) => !!s.user)
+  const { store, ready } = useStore()
   const [latest, setLatest] = useState<DbPortalEvent | null>(null)
   useEffect(() => {
-    if (!signedIn) return
-    const source = new EventSource('/api/portal-events/stream')
-    source.addEventListener('portal_event', (e) => {
-      try {
-        setLatest(JSON.parse((e as MessageEvent).data) as DbPortalEvent)
-      } catch {
-        // malformed frame — still refresh from the source of truth below
-      }
+    if (!ready) return
+    return store.subscribePortalEvents((row) => {
+      setLatest(row)
       qc.invalidateQueries({ queryKey: ['portal_events'] })
     })
-    return () => source.close()
-  }, [qc, signedIn])
+  }, [qc, store, ready])
   return latest
 }
 
 export function useAddPortalEvent() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
-    mutationFn: async (input: {
-      type: PortalEventType
-      connection_id?: string | null
-      application_id?: string | null
-      payload_json?: Record<string, unknown>
-    }) => {
-      const { rows } = await api.post<{ rows: DbPortalEvent[] }>('/portal-events', input)
-      return rows[0]
-    },
+    mutationFn: async (input: PortalEventInput) => (await store.addPortalEvents([input]))[0],
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal_events'] }),
   })
 }

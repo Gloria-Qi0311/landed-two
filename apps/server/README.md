@@ -1,6 +1,6 @@
 # @landed/server
 
-The Landed backend: a Hono API on Node + PostgreSQL. It replaced Supabase and owns:
+**Landed Cloud**, the optional backend: a Hono API on Node + PostgreSQL. Landed is local-first, so the web app keeps data in the browser by default and only uses this server once a user turns on Landed Cloud. It replaced Supabase and owns:
 
 - **Auth**: email + password (scrypt) with opaque session tokens. The web app gets an httpOnly cookie and the extension gets a Bearer token.
 - **Data**: REST endpoints for every table. Each query is scoped to the signed-in user.
@@ -54,6 +54,8 @@ All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` 
 | `GET/POST /portal-events`, `GET /portal-events/stream` | Feed, batch insert (extension), SSE |
 | `POST /portal-ingest` | One event plus an optional connection upsert |
 | `POST /ai-runs` | Persist an AI round-trip |
+| `GET /export`, `POST /sync/upload` | Whole-account snapshot (`landed-backup` v1) for download, and idempotent upload from a device (merges companies by name) |
+| `DELETE /me` | `{ password }`: delete the account and all its rows |
 | `GET /ai-keys`, `PUT /ai-keys/:provider`, `DELETE /ai-keys/:id` | Write-only provider keys |
 
 ## Production (Mac mini)

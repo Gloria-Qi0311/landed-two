@@ -517,7 +517,7 @@ function OverviewTab({
           <span style={{ flexShrink: 0, marginTop: 2 }}><Icon name="check" size={12} /></span>
           <div style={{ fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
             <strong style={{ color: 'var(--fg)', fontWeight: 600 }}>Everything stays local.</strong>
-            {' '}No portal cookies leave your browser. Status data syncs through your Landed account only.
+            {' '}No portal cookies leave your browser. Status data stays in this browser unless you turn on Landed Cloud.
           </div>
         </div>
       </div>

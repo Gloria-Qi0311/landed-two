@@ -21,7 +21,7 @@ import {
 } from '@landed/ai-roundtrip'
 import { PageHeader } from './shell'
 import { Icon, CompanyMark } from './primitives'
-import { insertAiRun } from '../lib/api'
+import { insertAiRun } from '../lib/store'
 import { useCurrentResume } from '../hooks/resumes'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { Link } from 'react-router-dom'

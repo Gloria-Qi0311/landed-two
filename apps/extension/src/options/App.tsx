@@ -47,11 +47,12 @@ export function App() {
   if (phase.kind === 'signedOut') {
     return (
       <>
-        <Header subtitle="Sign in to manage your Landed account" />
-        <Card title="Sign in via the toolbar popup">
+        <Header subtitle="Local mode — no account needed" />
+        <Card title="Your data stays in this browser">
           <p style={{ color: 'var(--fg-muted)', lineHeight: 1.55 }}>
-            Open the Landed extension by clicking its toolbar icon → sign in with your Landed email and password.
-            Once you're signed in, this Settings page will show your account details and (in #30.1 follow-ups) your resumes, LLM provider preferences, and label-mapping overrides.
+            The extension hands portal updates to your open Landed tab and autofills from the resumes it shares —
+            nothing is sent to a server. To sync in the background across devices, open the side panel (toolbar icon)
+            and sign in to Landed Cloud.
           </p>
         </Card>
         {err && <ErrorBanner message={err} />}

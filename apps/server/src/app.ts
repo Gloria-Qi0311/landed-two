@@ -2,7 +2,8 @@
 // against a throwaway database without binding a port.
 import { existsSync } from 'node:fs'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { authRoutes, requireUser, type AppEnv } from './auth.ts'
@@ -12,6 +13,12 @@ import { pgErrorStatus } from './http.ts'
 import type { PortalEventsHub } from './realtime.ts'
 import { dataRoutes } from './routes/data.ts'
 import { portalRoutes } from './routes/portal.ts'
+import { syncRoutes } from './routes/sync.ts'
+
+const tooLarge = (c: Context) => c.json({ error: 'request body too large' }, 413)
+const smallBody = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooLarge })
+// A whole-device snapshot (resumes + AI run transcripts) can be big.
+const uploadBody = bodyLimit({ maxSize: 50 * 1024 * 1024, onError: tooLarge })
 
 export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
   const app = new Hono<AppEnv>()
@@ -26,6 +33,8 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
     maxAge: 86400,
   }))
 
+  app.use('/api/*', (c, next) => (c.req.path === '/api/sync/upload' ? uploadBody : smallBody)(c, next))
+
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.route('/api/auth', authRoutes(sql, config))
 
@@ -33,6 +42,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
   api.use('*', requireUser(sql))
   api.route('/', dataRoutes(sql, config))
   api.route('/', portalRoutes(sql, hub))
+  api.route('/', syncRoutes(sql))
   app.route('/api', api)
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))
 

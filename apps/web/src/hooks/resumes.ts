@@ -1,30 +1,19 @@
-// TanStack Query hooks for the resumes table. Same pattern as
-// hooks/queries.ts (applications + companies). Each user has 0..N resumes;
-// at most ONE row has is_current = true (partial unique index on the table
-// enforces this, and the server demotes + promotes in one transaction).
+// TanStack Query hooks for resumes, over the active data store (this device
+// or Landed Cloud — see lib/store). Same pattern as hooks/queries.ts. Each
+// user has 0..N resumes; at most ONE has is_current = true, and both stores
+// demote + promote atomically.
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/api'
-import { useAuth } from '../lib/auth'
+import { useStore, type DbResume } from '../lib/store'
 import type { Resume } from '@landed/schema'
-
-type DbResume = {
-  id: string
-  user_id: string
-  name: string
-  file_path: string | null
-  parsed_json: Resume | null
-  is_current: boolean
-  created_at: string
-}
 
 export type ResumeRow = DbResume
 
 export function useResumes() {
-  const signedIn = useAuth((s) => !!s.user)
+  const { store, ready } = useStore()
   return useQuery({
-    queryKey: ['resumes'],
-    enabled: signedIn,
-    queryFn: () => api.get<DbResume[]>('/resumes'),
+    queryKey: ['resumes', store.kind],
+    enabled: ready,
+    queryFn: () => store.listResumes(),
   })
 }
 
@@ -36,13 +25,10 @@ export function useCurrentResume() {
 
 export function useAddResume() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
     mutationFn: (input: { name: string; parsed: Resume; setCurrent?: boolean }) =>
-      api.post<DbResume>('/resumes', {
-        name: input.name,
-        parsed_json: input.parsed,
-        set_current: !!input.setCurrent,
-      }),
+      store.addResume({ name: input.name, parsed_json: input.parsed, set_current: !!input.setCurrent }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['resumes'] })
     },
@@ -51,9 +37,10 @@ export function useAddResume() {
 
 export function useUpdateResume() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<DbResume, 'name' | 'parsed_json'>> }) =>
-      api.patch<DbResume>(`/resumes/${id}`, patch),
+      store.updateResume(id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['resumes'] })
     },
@@ -62,9 +49,10 @@ export function useUpdateResume() {
 
 export function useDeleteResume() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.del(`/resumes/${id}`)
+      await store.deleteResume(id)
       return id
     },
     onSuccess: () => {
@@ -73,13 +61,14 @@ export function useDeleteResume() {
   })
 }
 
-/** Mark a resume as the user's current resume (server demotes the previous
- *  one in the same transaction). */
+/** Mark a resume as the user's current resume (the store demotes the
+ *  previous one in the same transaction). */
 export function useSetCurrentResume() {
   const qc = useQueryClient()
+  const { store } = useStore()
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.post(`/resumes/${id}/current`)
+      await store.setCurrentResume(id)
       return id
     },
     onSuccess: () => {

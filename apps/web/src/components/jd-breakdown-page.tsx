@@ -25,7 +25,7 @@ import {
 import type { Resume } from '@landed/schema'
 import { PageHeader } from './shell'
 import { Icon } from './primitives'
-import { insertAiRun } from '../lib/api'
+import { insertAiRun } from '../lib/store'
 import { useCurrentResume, useUpdateResume } from '../hooks/resumes'
 import { useApplications, useCompanies } from '../hooks/queries'
 
