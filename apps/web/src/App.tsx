@@ -19,7 +19,7 @@ import {
 } from './hooks/queries';
 import { Sidebar, PageHeader, StatsBanner } from './components/shell';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
-import { OfflineNotice, RestoreBackupDialog, TurnOffCloudDialog, TurnOnCloudDialog } from './components/cloud';
+import { EmptyDeviceNotice, OfflineNotice, RestoreBackupDialog, TurnOffCloudDialog, TurnOnCloudDialog } from './components/cloud';
 import { downloadBackup, readBackupFile, signOut } from './lib/cloud';
 import { currentStore, type Snapshot } from './lib/store';
 import { Icon } from './components/primitives';
@@ -224,6 +224,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
         <OfflineNotice />
+        <EmptyDeviceNotice onRestore={() => backupInput.current?.click()} />
         {accountError && (
           <div role="alert" style={{ margin: '10px 28px 0', padding: '8px 12px', borderRadius: 8, fontSize: 12, background: 'oklch(0.97 0.03 30)', border: '0.5px solid oklch(0.88 0.06 30)', color: 'oklch(0.45 0.15 30)', display: 'flex', gap: 10 }}>
             <span style={{ flex: 1 }}>{accountError}</span>

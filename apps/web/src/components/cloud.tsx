@@ -1,9 +1,13 @@
 // Account surfaces for local-first Landed: turning Landed Cloud sync on/off,
 // restoring backups, and the notices shown when the server can't be reached.
-// The flows themselves live in lib/cloud.ts; these are the dialogs.
+// The flows themselves live in lib/cloud.ts; these are the dialogs and notices.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Icon } from './primitives'
 import { useAuth } from '../lib/auth'
+import { dismissEmptyDeviceHint, isEmptyDeviceHintDismissed, shouldShowEmptyDeviceHint } from '../lib/device-hint'
+import { useAccountPrefs } from '../hooks/inbox'
+import { useApplications } from '../hooks/queries'
 import { restoreBackup, summarize, turnOffCloudSync, turnOnCloudSync } from '../lib/cloud'
 import { localStoreFor, type Snapshot } from '../lib/store'
 
@@ -254,6 +258,42 @@ export function OfflineNotice() {
           : "Working offline — Landed's server can't be reached, but your data is all on this device."}
       </span>
       <button type="button" className="btn-secondary" onClick={() => hydrate()}>Retry</button>
+    </div>
+  )
+}
+
+// ── Explaining an empty browser to a sync-off account ────────────────────
+
+export function EmptyDeviceNotice({ onRestore }: { onRestore: () => void }) {
+  const user = useAuth((s) => s.user)!
+  const me = useAccountPrefs().data
+  const apps = useApplications().data
+  const [dismissed, setDismissed] = useState(() => isEmptyDeviceHintDismissed(user.id))
+  const deviceEmpty = useQuery({
+    queryKey: ['device-empty', user.id, apps?.length ?? -1],
+    enabled: !user.cloud_sync,
+    queryFn: () => localStoreFor(user.id).isEmpty(),
+  }).data
+  const show = shouldShowEmptyDeviceHint({
+    cloudSync: user.cloud_sync, onboardedAt: me?.onboarded_at, accountCreatedAt: me?.created_at, deviceEmpty, dismissed,
+  })
+  if (!show) return null
+  return (
+    <div role="status" style={{
+      margin: '10px 28px 0', padding: '10px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.55,
+      background: 'var(--surface-2)', border: '0.5px solid var(--border)', color: 'var(--fg)',
+      display: 'flex', alignItems: 'flex-start', gap: 10,
+    }}>
+      <Icon name="device" size={14} />
+      <span style={{ flex: 1 }}>
+        <strong>Nothing on this browser yet.</strong>{' '}
+        <span style={{ color: 'var(--fg-muted)' }}>
+          Your account keeps its data in the browser where you added it — it isn't synced. To use it here,
+          open Landed in that browser and turn on Cloud sync from the account menu, or export a backup there and restore it here.
+        </span>
+      </span>
+      <button type="button" className="btn-secondary" onClick={onRestore}>Restore backup…</button>
+      <button type="button" className="btn-secondary" onClick={() => { dismissEmptyDeviceHint(user.id); setDismissed(true) }}>Got it</button>
     </div>
   )
 }

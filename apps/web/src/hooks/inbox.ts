@@ -26,7 +26,7 @@ export function useSuggestions() {
   return useQuery({ queryKey: ['suggestions', store.kind], enabled: ready, queryFn: () => store.listSuggestions() })
 }
 
-type Me = { auto_add_applications: boolean }
+type Me = { auto_add_applications: boolean; onboarded_at: string | null; created_at: string }
 
 export function useAccountPrefs() {
   const online = useAuth((s) => s.ready && !s.offline && !s.unreachable)
