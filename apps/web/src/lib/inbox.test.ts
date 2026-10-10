@@ -8,7 +8,8 @@ import type { DbAgentObservation } from './store/types'
 
 let n = 0
 const fresh = () => createLocalStore(`landed-inbox-${++n}`)
-const settings = { autoAddApplications: false }
+const settings = { autoApply: true } // the default
+const manual = { autoApply: false }
 
 let seq = 0
 function observation(type: string, payload: Record<string, unknown>, over: Partial<DbAgentObservation> = {}): DbAgentObservation {
@@ -65,7 +66,28 @@ describe('processPending', () => {
     expect((await store.listSuggestions())[0].state).toBe('undone')
   })
 
-  test('interview needs review; accepting moves the stage, rejecting leaves it', async () => {
+  test('automatic mode: a confident interview email moves the card, and undo moves it back', async () => {
+    const store = fresh()
+    const app = await store.addApplication({ name: 'Ramp' }, { role: 'Ops', stage: 'applied' })
+    await deliver(store, observation('application_status', { status: 'interview', company: 'Ramp', confidence: 0.9, evidence: gmail('auto-i') }))
+    await processPending(store, settings)
+    expect((await store.listApplications())[0].stage).toBe('phone')
+    const [s] = await store.listSuggestions()
+    expect(s).toMatchObject({ state: 'auto_applied', previous_stage: 'applied', proposed_stage: 'phone', application_id: app.id })
+    await undoSuggestion(store, s, await store.listApplications())
+    expect((await store.listApplications())[0].stage).toBe('applied')
+  })
+
+  test('automatic mode: recruiter replies are just noted', async () => {
+    const store = fresh()
+    await store.addApplication({ name: 'Ramp' }, { role: 'Ops', stage: 'applied' })
+    await deliver(store, observation('application_status', { status: 'recruiter_response', company: 'Ramp', evidence: gmail('rr') }))
+    await processPending(store, settings)
+    expect((await store.listSuggestions())[0]).toMatchObject({ kind: 'note', state: 'auto_applied' })
+    expect((await store.listAgentObservations(5))[0].processing_status).toBe('processed')
+  })
+
+  test('manual mode: interview needs review; accepting moves the stage, rejecting leaves it', async () => {
     const store = fresh()
     await store.addApplication({ name: 'Ramp' }, { role: 'Ops', stage: 'applied' })
     await store.addApplication({ name: 'Linear' }, { role: 'Engineer', stage: 'applied' })
@@ -73,7 +95,7 @@ describe('processPending', () => {
       observation('application_status', { status: 'interview', company: 'Ramp', confidence: 0.99, evidence: gmail('i1') }),
       observation('application_status', { status: 'rejected', company: 'Linear', confidence: 0.99, evidence: gmail('r1') }),
     )
-    await processPending(store, settings)
+    await processPending(store, manual)
     expect((await store.listApplications()).map((a) => a.stage)).toEqual(['applied', 'applied'])
 
     const suggestions = await store.listSuggestions()
@@ -104,11 +126,11 @@ describe('processPending', () => {
     expect((await store.listApplications()).find((a) => a.id === pm.id)!.stage).toBe('phone')
   })
 
-  test('unmatched emails suggest a new application; the setting auto-adds', async () => {
+  test('unmatched emails: manual mode suggests a new application, automatic mode adds it', async () => {
     const store = fresh()
     const email = (id: string) => observation('application_status', { status: 'applied', company: 'Figma', role: 'Designer', confidence: 0.95, evidence: gmail(id) })
     await deliver(store, email('n1'))
-    await processPending(store, settings)
+    await processPending(store, manual)
     const [s] = await store.listSuggestions()
     expect(s).toMatchObject({ kind: 'new_application', state: 'pending' })
     await acceptSuggestion(store, s, [])
@@ -116,7 +138,7 @@ describe('processPending', () => {
 
     const auto = fresh()
     await deliver(auto, email('n2'))
-    await processPending(auto, { autoAddApplications: true })
+    await processPending(auto, settings)
     const [created] = await auto.listApplications()
     expect(created).toMatchObject({ role: 'Designer', stage: 'applied', source: 'Agent (email)' })
     expect((await auto.listSuggestions())[0]).toMatchObject({ state: 'auto_applied', application_id: created.id })

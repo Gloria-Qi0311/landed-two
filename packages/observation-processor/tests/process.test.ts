@@ -8,7 +8,7 @@ const opts = { now: NOW, newId: () => `id-${++seq}` }
 function ctx(over: Partial<Context> = {}): Context {
   return {
     leads: [], applications: [], companies: [], suggestions: [],
-    settings: { autoAddApplications: false }, ...over,
+    settings: { autoApply: true }, ...over,
   }
 }
 
@@ -23,6 +23,7 @@ function job(payload: Record<string, unknown>, over: Partial<Observation> = {}):
 function status(payload: Record<string, unknown>, over: Partial<Observation> = {}): Observation {
   return job(payload, { observation_type: 'application_status', ...over })
 }
+const statusObs = status
 const gmail = (id: string, subject = 'Your application') => ({ source: 'gmail', message_id: id, sender_domain: 'greenhouse-mail.io', subject })
 
 const companies = [
@@ -108,14 +109,73 @@ describe('job_discovered → leads', () => {
   })
 })
 
-describe('application_status → suggestions', () => {
+const pipelineApps = [
+  app('acme-pm', 'co-acme', 'Product Manager', 'applied'),
+  app('acme-swe', 'co-acme', 'Software Engineer', 'saved'),
+  app('ramp-ops', 'co-ramp', 'Operations Lead', 'saved'),
+]
+
+describe('application_status — automatic mode (default)', () => {
+  const pipeline = ctx({ companies, applications: pipelineApps })
+  const sure = (id: string) => ({ confidence: 0.9, evidence: gmail(id) })
+
+  test.each([
+    ['interview', 'phone'],
+    ['rejected', 'rejected'],
+    ['offer', 'offer'],
+    ['applied', 'applied'],
+  ] as const)('confident %s email moves the application to %s, undoably', (status, to) => {
+    const out = processObservation(statusObs({ status, company: 'Ramp', ...sure(`auto-${status}`) }), pipeline, opts)
+    expect(out.status).toBe('processed')
+    expect(out.effects).toEqual([
+      expect.objectContaining({ type: 'save_suggestion', suggestion: expect.objectContaining({ state: 'auto_applied', previous_stage: 'saved', proposed_stage: to }) }),
+      { type: 'set_stage', application_id: 'ramp-ops', from: 'saved', to },
+    ])
+  })
+
+  test('not confident, or no email evidence → asks', () => {
+    for (const payload of [
+      { status: 'interview', company: 'Ramp', confidence: 0.5, evidence: gmail('low') },
+      { status: 'interview', company: 'Ramp', confidence: 0.99 },
+      { status: 'interview', company: 'Ramp', evidence: gmail('no-confidence') },
+    ]) {
+      const out = processObservation(statusObs(payload), pipeline, opts)
+      expect(out.status).toBe('needs-review')
+      expect(out.effects.map((e) => e.type)).toEqual(['save_suggestion'])
+    }
+  })
+
+  test('recruiter replies go straight to the activity log', () => {
+    const out = processObservation(statusObs({ status: 'recruiter_response', company: 'Ramp', evidence: gmail('rr') }), pipeline, opts)
+    expect(out.status).toBe('processed')
+    expect(out.effects[0]).toMatchObject({ suggestion: { kind: 'note', state: 'auto_applied' } })
+  })
+
+  test('confident email for an untracked application adds it at the right stage', () => {
+    const out = processObservation(statusObs({ status: 'interview', company: 'Figma', role: 'Designer', ...sure('new-int') }), pipeline, opts)
+    expect(out.effects.map((e) => e.type)).toEqual(['save_suggestion', 'create_application'])
+    expect(out.effects[1]).toMatchObject({ application: { company_name: 'Figma', stage: 'phone' } })
+  })
+
+  test('still asks when it cannot tell which application, or when re-opening a closed one', () => {
+    const ambiguous = processObservation(statusObs({ status: 'interview', company: 'Acme', ...sure('amb') }), pipeline, opts)
+    expect(ambiguous.effects[0]).toMatchObject({ suggestion: { kind: 'ambiguous', state: 'pending' } })
+    const closed = ctx({ companies, applications: [app('a', 'co-ramp', 'Ops', 'rejected')] })
+    const reopen = processObservation(statusObs({ status: 'interview', company: 'Ramp', ...sure('reopen-auto') }), closed, opts)
+    expect(reopen.status).toBe('needs-review')
+  })
+
+  test('never moves backwards', () => {
+    const atOnsite = ctx({ companies, applications: [app('a', 'co-ramp', 'Ops', 'onsite')] })
+    expect(processObservation(statusObs({ status: 'applied', company: 'Ramp', ...sure('late-auto') }), atOnsite, opts).effects).toEqual([])
+  })
+})
+
+describe('application_status — manual mode (autoApply off)', () => {
   const pipeline = ctx({
+    settings: { autoApply: false },
     companies,
-    applications: [
-      app('acme-pm', 'co-acme', 'Product Manager', 'applied'),
-      app('acme-swe', 'co-acme', 'Software Engineer', 'saved'),
-      app('ramp-ops', 'co-ramp', 'Operations Lead', 'saved'),
-    ],
+    applications: pipelineApps,
   })
 
   test('confident "applied" email for a unique match auto-applies (and is undoable)', () => {
@@ -147,19 +207,19 @@ describe('application_status → suggestions', () => {
   })
 
   test('interview maps to the next interview stage', () => {
-    const atPhone = ctx({ companies, applications: [app('a', 'co-ramp', 'Ops', 'phone')] })
+    const atPhone = ctx({ settings: { autoApply: false }, companies, applications: [app('a', 'co-ramp', 'Ops', 'phone')] })
     const out = processObservation(status({ status: 'interview', company: 'Ramp' }), atPhone, opts)
     expect(out.effects[0]).toMatchObject({ suggestion: { proposed_stage: 'onsite' } })
   })
 
   test('never moves backwards; a late confirmation is a no-op', () => {
-    const atOnsite = ctx({ companies, applications: [app('a', 'co-ramp', 'Ops', 'onsite')] })
+    const atOnsite = ctx({ settings: { autoApply: false }, companies, applications: [app('a', 'co-ramp', 'Ops', 'onsite')] })
     const out = processObservation(status({ status: 'applied', company: 'Ramp', confidence: 0.99, evidence: gmail('late') }), atOnsite, opts)
     expect(out).toMatchObject({ status: 'processed', effects: [], result: { no_change: 'backward' } })
   })
 
   test('re-opening a closed application is a suggestion, never automatic', () => {
-    const closed = ctx({ companies, applications: [app('a', 'co-ramp', 'Ops', 'rejected')] })
+    const closed = ctx({ settings: { autoApply: false }, companies, applications: [app('a', 'co-ramp', 'Ops', 'rejected')] })
     const out = processObservation(status({ status: 'applied', company: 'Ramp', confidence: 0.99, evidence: gmail('reopen') }), closed, opts)
     expect(out.status).toBe('needs-review')
   })
@@ -180,7 +240,7 @@ describe('application_status → suggestions', () => {
   })
 
   test('job_url pins the application even when titles are vague', () => {
-    const c = ctx({ companies, applications: [
+    const c = ctx({ settings: { autoApply: false }, companies, applications: [
       app('a1', 'co-acme', 'Engineer', 'applied', 'https://jobs.lever.co/acme/0b6f3f2e-1c2d-4e5f-8a9b-0c1d2e3f4a5b'),
       app('a2', 'co-acme', 'Engineer', 'applied', 'https://jobs.lever.co/acme/11111111-1c2d-4e5f-8a9b-0c1d2e3f4a5b'),
     ] })
@@ -188,13 +248,13 @@ describe('application_status → suggestions', () => {
     expect(out.effects[0]).toMatchObject({ suggestion: { application_id: 'a1' } })
   })
 
-  test('unmatched: suggest adding it, or auto-add when the setting is on', () => {
+  test('unmatched: suggest adding it (automatic mode adds it)', () => {
     const email = status({ status: 'applied', company: 'Figma', role: 'Designer', confidence: 0.95, evidence: gmail('new-1') })
     const suggest = processObservation(email, pipeline, opts)
     expect(suggest.status).toBe('needs-review')
     expect(suggest.effects).toEqual([expect.objectContaining({ suggestion: expect.objectContaining({ kind: 'new_application', proposed_stage: 'applied' }) })])
 
-    const auto = processObservation(email, { ...pipeline, settings: { autoAddApplications: true } }, opts)
+    const auto = processObservation(email, { ...pipeline, settings: { autoApply: true } }, opts)
     expect(auto.status).toBe('processed')
     expect(auto.effects.map((e) => e.type)).toEqual(['save_suggestion', 'create_application'])
     expect(auto.effects[1]).toMatchObject({ application: { company_name: 'Figma', role: 'Designer', stage: 'applied' } })

@@ -99,7 +99,8 @@ export async function processPending(store: DataStore, settings: Settings, limit
 
 // ── user actions: job leads ───────────────────────────────────────────────
 
-export async function addLeadToPipeline(store: DataStore, lead: DbJobLead, stage: 'saved' | 'applied') {
+/** Add a lead to the pipeline at any stage (dragged into a Kanban column). */
+export async function addLeadToPipeline(store: DataStore, lead: DbJobLead, stage: Stage) {
   const providers = [...new Set(lead.sources.map((s) => s.provider).filter(Boolean))].join(', ')
   const app = await store.addApplication({ name: lead.company_name }, {
     role: lead.title,
@@ -107,7 +108,7 @@ export async function addLeadToPipeline(store: DataStore, lead: DbJobLead, stage
     location: lead.location,
     portal_application_url: lead.job_url,
     source: providers ? `Agent (${providers})` : 'Agent',
-    applied_at: stage === 'applied' ? new Date().toISOString() : null,
+    applied_at: stage === 'saved' ? null : new Date().toISOString(),
     next_step: stage === 'saved' ? 'Tailor resume' : 'Awaiting response',
   })
   await store.updateJobLead(lead.id, { status: 'saved', application_id: app.id })

@@ -1,6 +1,7 @@
-// Hooks for the observation processor's output: the job-leads list, the
-// review queue, the account preference that governs auto-adding, and the
-// background runner that turns new agent reports into those.
+// Hooks for the observation processor's output: job leads (the Leads
+// column), agent updates (applied automatically by default, plus the few
+// that need the user), the auto-apply preference, and the background runner
+// that turns new agent reports into those.
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
@@ -9,6 +10,7 @@ import {
   acceptSuggestion, addLeadToPipeline, dismissLead, processPending, rejectSuggestion, restoreLead, undoSuggestion,
 } from '../lib/inbox'
 import { useStore, type DbJobLead, type DbSuggestion } from '../lib/store'
+import type { Stage } from '@landed/observation-processor'
 
 const RUN_INTERVAL_MS = 30_000
 /** Fired by useAgentRelay when new observations land in this browser. */
@@ -26,17 +28,17 @@ export function useSuggestions() {
   return useQuery({ queryKey: ['suggestions', store.kind], enabled: ready, queryFn: () => store.listSuggestions() })
 }
 
-type Me = { auto_add_applications: boolean; onboarded_at: string | null; created_at: string }
+type Me = { auto_apply_updates: boolean; onboarded_at: string | null; created_at: string }
 
 export function useAccountPrefs() {
   const online = useAuth((s) => s.ready && !s.offline && !s.unreachable)
   return useQuery({ queryKey: ['profile', 'me'], enabled: online, queryFn: () => api.get<Me>('/me') })
 }
 
-export function useSetAutoAdd() {
+export function useSetAutoApply() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (on: boolean) => api.patch<Me>('/me', { auto_add_applications: on }),
+    mutationFn: (on: boolean) => api.patch<Me>('/me', { auto_apply_updates: on }),
     onSuccess: (me) => qc.setQueryData(['profile', 'me'], me),
   })
 }
@@ -45,7 +47,8 @@ export function useSetAutoAdd() {
 export function useObservationProcessor() {
   const qc = useQueryClient()
   const { store, ready } = useStore()
-  const autoAdd = useAccountPrefs().data?.auto_add_applications ?? false
+  // On by default; offline (no /me) keeps the default too.
+  const autoApply = useAccountPrefs().data?.auto_apply_updates ?? true
 
   useEffect(() => {
     if (!ready) return
@@ -54,7 +57,7 @@ export function useObservationProcessor() {
       if (running) return
       running = true
       try {
-        const handled = await processPending(store, { autoAddApplications: autoAdd })
+        const handled = await processPending(store, { autoApply })
         if (handled > 0) for (const key of AFFECTED) qc.invalidateQueries({ queryKey: [key] })
       } catch (e) {
         console.warn('[landed] processing agent reports failed', e)
@@ -71,7 +74,7 @@ export function useObservationProcessor() {
       window.removeEventListener(OBSERVATIONS_ARRIVED, run)
       window.removeEventListener('focus', run)
     }
-  }, [store, ready, autoAdd, qc])
+  }, [store, ready, autoApply, qc])
 }
 
 function useInvalidating<T>(fn: (input: T) => Promise<unknown>) {
@@ -87,7 +90,7 @@ function useInvalidating<T>(fn: (input: T) => Promise<unknown>) {
 export function useLeadActions() {
   const { store } = useStore()
   return {
-    add: useInvalidating(({ lead, stage }: { lead: DbJobLead; stage: 'saved' | 'applied' }) => addLeadToPipeline(store, lead, stage)),
+    add: useInvalidating(({ lead, stage }: { lead: DbJobLead; stage: Stage }) => addLeadToPipeline(store, lead, stage)),
     dismiss: useInvalidating((id: string) => dismissLead(store, id)),
     restore: useInvalidating((id: string) => restoreLead(store, id)),
   }

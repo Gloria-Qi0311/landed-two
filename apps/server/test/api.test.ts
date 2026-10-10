@@ -744,11 +744,11 @@ describe('observation processing storage (Cloud)', () => {
     assert.equal((await call('PATCH', `/api/agent-observations/${a.body.observation_id}`, { token: owner, body: { processing_status: 'done' } })).status, 400)
   })
 
-  test('auto_add_applications is an account preference', async () => {
+  test('auto_apply_updates is an account preference, on by default', async () => {
     const owner = await signup('proc-pref@example.com', undefined, { cloud: false })
-    assert.equal((await call('GET', '/api/me', { token: owner })).body.auto_add_applications, false)
-    assert.equal((await call('PATCH', '/api/me', { token: owner, body: { auto_add_applications: true } })).body.auto_add_applications, true)
-    assert.equal((await call('PATCH', '/api/me', { token: owner, body: { auto_add_applications: 'yes' } })).status, 400)
+    assert.equal((await call('GET', '/api/me', { token: owner })).body.auto_apply_updates, true)
+    assert.equal((await call('PATCH', '/api/me', { token: owner, body: { auto_apply_updates: false } })).body.auto_apply_updates, false)
+    assert.equal((await call('PATCH', '/api/me', { token: owner, body: { auto_apply_updates: 'yes' } })).status, 400)
   })
 
   test('leads and suggestions travel in snapshots and leave with sync off', async () => {

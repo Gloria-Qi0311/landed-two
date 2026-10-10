@@ -91,12 +91,10 @@ export const Sidebar = ({ apps, account, onProfileClick, navCounts = {} }) => {
 
       {/* Nav */}
       <div style={{ padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
-        <NavItem to="/applications" icon={<Icon name="inbox" size={14} />} label="Applications" />
+        <NavItem to="/applications" icon={<Icon name="inbox" size={14} />} label="Applications" count={navCounts.applications} />
         <NavItem to="/sync" icon={<Icon name="refresh" size={14} />} label="Sync" />
         <NavItem to="/resume-match" icon={<Icon name="sparkle" size={14} />} label="Resume Match" />
         <NavItem to="/jd-breakdown" icon={<Icon name="target" size={14} />} label="JD Breakdown" />
-        <NavItem to="/leads" icon={<Icon name="search" size={14} />} label="Job leads" count={navCounts.leads} />
-        <NavItem to="/review" icon={<Icon name="check" size={14} />} label="Review" count={navCounts.review} />
         <NavItem to="/agents" icon={<Icon name="wand" size={14} />} label="Agents" />
       </div>
 

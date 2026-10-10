@@ -76,6 +76,6 @@ Agents run in the cloud, so every observation passes through this server. What t
 The observation processor (`packages/observation-processor`, rules in [docs/observation-processor.md](../../docs/observation-processor.md)) runs in the user's browser:
 
 - `job_discovered` observations are deduplicated into **job leads**, the "to apply" list.
-- `application_status` observations are matched to applications and become **suggestions** in the Review queue.
-  - Only a confident "applied" email with evidence changes an application automatically, and that change can be undone.
-  - Interviews, rejections and offers always wait for the user.
+- `application_status` observations are matched to applications.
+  - By default (`auto_apply_updates`, on), a confident update applies automatically. Confident means `confidence` ≥ 0.8 plus email evidence (`message_id` or `sender_domain`). The update can be a stage change, a new application, or a recruiter note in the activity log. Every automatic change can be undone.
+  - An update waits for the user when Landed can't tell which application it is about, when confidence is low, or when it would re-open a closed application. With the setting off, only "application received" emails apply on their own.

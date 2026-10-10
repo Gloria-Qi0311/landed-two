@@ -1,17 +1,15 @@
-// Review — status updates agents read from email, waiting for a decision.
-// Nothing changes until the user accepts, except confident "application
-// received" emails (auto-applied and listed under Recent with Undo).
-// Rules: docs/observation-processor.md §5.
+// Agent updates on the Applications page: what agents changed from email
+// (applied automatically by default, each undoable) and the few updates
+// Landed can't decide alone — which application an email is about, low
+// confidence, or re-opening a closed application.
+// Rules: packages/observation-processor, docs/observation-processor.md.
 import { useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { Icon, StageBadge } from './primitives'
-import { PageHeader } from './shell'
-import { useAuth } from '../lib/auth'
 import { formatRelative } from '../lib/time'
 import { AGENT_PROVIDERS } from '../lib/agent-prompt'
 import { canUndo } from '../lib/inbox'
 import { useApplications, useCompanies } from '../hooks/queries'
-import { useAccountPrefs, useSetAutoAdd, useSuggestionActions, useSuggestions } from '../hooks/inbox'
+import { useSuggestionActions, useSuggestions } from '../hooks/inbox'
 import type { DbSuggestion } from '../lib/store'
 
 type AppShape = { id: string; companyId: string; role: string; stage: string }
@@ -21,74 +19,6 @@ const providerLabel = (id?: string | null) => AGENT_PROVIDERS.find((p) => p.id =
 const STATUS_TEXT: Record<string, string> = {
   applied: 'application received', recruiter_response: 'recruiter replied', interview: 'interview invitation',
   rejected: 'rejection', offer: 'offer', other: 'update',
-}
-
-export function ReviewPage() {
-  const suggestions = useSuggestions()
-  const apps = (useApplications().data ?? []) as AppShape[]
-  const companies = (useCompanies().data ?? []) as CompanyShape[]
-  const all = suggestions.data ?? []
-  const pending = all.filter((s) => s.state === 'pending')
-  const recent = all.filter((s) => s.state !== 'pending').slice(0, 20)
-
-  const label = (appId: string | null) => {
-    const a = apps.find((x) => x.id === appId)
-    if (!a) return null
-    return `${companies.find((c) => c.id === a.companyId)?.name ?? ''} · ${a.role}`
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <PageHeader
-        title="Review"
-        subtitle="Status updates your agents read from email. Nothing changes until you accept — except confident “application received” emails."
-      />
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px 28px 28px', display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 980 }}>
-        <AutoAddToggle />
-
-        {suggestions.isLoading && <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>Loading…</div>}
-        {suggestions.error && <div role="alert" style={{ fontSize: 12, color: 'oklch(0.45 0.15 30)' }}>{(suggestions.error as Error).message}</div>}
-        {suggestions.isSuccess && pending.length === 0 && (
-          <div style={{ padding: 20, border: '0.5px dashed var(--border)', borderRadius: 10, background: 'var(--surface)', fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-            Nothing to review. {all.length === 0 && <>Once an <Link to="/agents" style={{ color: 'var(--accent)' }}>agent</Link> reads your job emails, updates show up here.</>}
-          </div>
-        )}
-
-        {pending.map((s) => <PendingCard key={s.id} s={s} apps={apps} companies={companies} label={label} />)}
-
-        {recent.length > 0 && (
-          <section style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10 }}>
-            <div style={{ padding: '10px 14px', borderBottom: '0.5px solid var(--border)', fontSize: 12.5, fontWeight: 600 }}>Recent</div>
-            <div style={{ padding: '0 14px' }}>
-              {recent.map((s, i) => <RecentRow key={s.id} s={s} first={i === 0} label={label} />)}
-            </div>
-          </section>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function AutoAddToggle() {
-  const prefs = useAccountPrefs()
-  const set = useSetAutoAdd()
-  const offline = useAuth((s) => s.offline)
-  const on = prefs.data?.auto_add_applications ?? false
-  return (
-    <label style={{
-      display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.5,
-      background: 'var(--surface-2)', border: '0.5px solid var(--border)', cursor: offline ? 'default' : 'pointer',
-    }}>
-      <input type="checkbox" checked={on} disabled={offline || prefs.isLoading || set.isPending}
-        onChange={(e) => set.mutate(e.target.checked)} style={{ marginTop: 2 }} />
-      <span>
-        <span style={{ fontWeight: 500 }}>Add applications from confirmation emails automatically</span>
-        <span style={{ display: 'block', color: 'var(--fg-muted)' }}>
-          When an agent is confident an email confirms an application you haven't tracked yet, add it to your pipeline instead of asking.
-        </span>
-      </span>
-    </label>
-  )
 }
 
 function Evidence({ s }: { s: DbSuggestion }) {
@@ -108,11 +38,16 @@ function Evidence({ s }: { s: DbSuggestion }) {
   )
 }
 
+/** One row: what happened on the left, the decision on the right — compact,
+ *  so a couple of pending items don't push the board off screen. */
 function Card({ children, footer }: { children: ReactNode; footer: ReactNode }) {
   return (
-    <section style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10 }}>
-      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</div>
-      <div style={{ padding: '8px 14px', borderTop: '0.5px solid var(--border-subtle)', display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>{footer}</div>
+    <section style={{
+      background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8,
+      padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+    }}>
+      <div style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>{children}</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>{footer}</div>
     </section>
   )
 }
@@ -148,7 +83,7 @@ function PendingCard({ s, apps, companies, label }: {
   } else if (s.kind === 'ambiguous') {
     const candidates = apps.filter((a) => s.candidate_ids.includes(a.id))
     headline = <>
-      <span style={{ fontWeight: 500 }}>{s.company_name}: {STATUS_TEXT[s.status] ?? s.status} — which application?</span>
+      <span style={{ fontWeight: 500 }}>{s.company_name}: {STATUS_TEXT[s.status] ?? s.status} — which application is this?</span>
       <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ padding: '4px 8px', fontSize: 12, fontFamily: 'inherit' }}>
         <option value="">Choose…</option>
         {candidates.map((a) => <option key={a.id} value={a.id}>{a.role} ({a.stage})</option>)}
@@ -162,7 +97,7 @@ function PendingCard({ s, apps, companies, label }: {
 
   return (
     <Card footer={<>
-      {error && <span role="alert" style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)', marginRight: 'auto' }}>{(error as Error).message}</span>}
+      {error && <span role="alert" style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)' }}>{(error as Error).message}</span>}
       <button type="button" className="btn-secondary" disabled={busy} onClick={() => reject.mutate(s.id)}>
         {s.kind === 'note' ? 'Dismiss' : 'Not right'}
       </button>
@@ -203,7 +138,9 @@ function RecentRow({ s, first, label }: { s: DbSuggestion; first: boolean; label
         {label(s.application_id) ?? `${s.company_name}${s.role ? ` · ${s.role}` : ''}`}
         <span style={{ color: 'var(--fg-muted)' }}> — {STATUS_TEXT[s.status] ?? s.status}{recentOutcome(s)}</span>
       </span>
-      <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{STATE_TEXT[s.state] ?? s.state} · {formatRelative(s.resolved_at ?? s.created_at)}</span>
+      <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
+        {s.kind === 'note' && s.state === 'auto_applied' ? 'Noted' : STATE_TEXT[s.state] ?? s.state} · {formatRelative(s.resolved_at ?? s.created_at)}
+      </span>
       <span style={{ minWidth: 52, textAlign: 'right' }}>
         {canUndo(s) && (
           <button type="button" className="btn-secondary" disabled={undo.isPending} onClick={() => undo.mutate(s)}>Undo</button>
@@ -211,4 +148,59 @@ function RecentRow({ s, first, label }: { s: DbSuggestion; first: boolean; label
       </span>
     </div>
   )
+}
+
+const RECENT_DAYS = 7
+
+/** Top-of-Applications strip. Renders nothing when there's nothing to show. */
+export function AgentUpdatesBar() {
+  const suggestions = useSuggestions().data ?? []
+  const apps = (useApplications().data ?? []) as AppShape[]
+  const companies = (useCompanies().data ?? []) as CompanyShape[]
+  const [open, setOpen] = useState(false)
+  const cutoff = Date.now() - RECENT_DAYS * 86_400_000
+  const pending = suggestions.filter((s) => s.state === 'pending')
+  const recent = suggestions.filter((s) => s.state !== 'pending' && Date.parse(s.resolved_at ?? s.created_at) >= cutoff)
+  if (pending.length === 0 && recent.length === 0) return null
+
+  const label = (appId: string | null) => {
+    const a = apps.find((x) => x.id === appId)
+    if (!a) return null
+    return `${companies.find((c) => c.id === a.companyId)?.name ?? ''} · ${a.role}`
+  }
+  const auto = recent.filter((s) => s.state === 'auto_applied').length
+
+  return (
+    <div style={{ padding: '10px 28px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {pending.length > 0 && (
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Needs your input ({pending.length})
+        </div>
+      )}
+      {pending.map((s) => <PendingCard key={s.id} s={s} apps={apps} companies={companies} label={label} />)}
+      {recent.length > 0 && (
+        <section style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10 }}>
+          <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} style={{
+            width: '100%', padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--fg)', fontFamily: 'inherit', textAlign: 'left',
+          }}>
+            <Icon name="wand" size={13} />
+            <span style={{ fontWeight: 500 }}>Your agents updated {recent.length} application{recent.length === 1 ? '' : 's'} this week</span>
+            {auto > 0 && <span style={{ color: 'var(--fg-muted)' }}>· {auto} automatically, all undoable</span>}
+            <span style={{ marginLeft: 'auto', display: 'flex' }}><Icon name={open ? 'chevronDown' : 'chevronRight'} size={12} stroke={2} /></span>
+          </button>
+          {open && (
+            <div style={{ padding: '0 12px', borderTop: '0.5px solid var(--border)' }}>
+              {recent.map((s, i) => <RecentRow key={s.id} s={s} first={i === 0} label={label} />)}
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  )
+}
+
+/** Count for the sidebar badge. */
+export function usePendingUpdateCount() {
+  return (useSuggestions().data ?? []).filter((s) => s.state === 'pending').length
 }

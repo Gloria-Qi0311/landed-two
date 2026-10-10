@@ -47,6 +47,7 @@ Rules:
 - If a request fails or you are unsure it arrived, retry with the SAME Idempotency-Key and the EXACT same body. Landed answers 200 with "duplicate": true.
 - Use a NEW Idempotency-Key for anything new. Reusing a key with a different body returns 409.
 - Report facts with evidence; don't guess. Landed decides whether an application's status changes.
+- For application_status, always include "confidence" and the email "evidence" (message_id, sender_domain, subject, received_at). Landed applies confident updates (confidence 0.8 or higher, with evidence) automatically; anything less waits for me to confirm.
 - 400 means the body doesn't match the schema: fix it instead of resending it unchanged. 401 means this token was revoked. 429 means slow down (max 1000 per hour).
 
 Example:

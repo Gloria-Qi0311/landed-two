@@ -10,7 +10,8 @@ import type {
 } from './types'
 
 const FUZZY_WINDOW_DAYS = 60
-const AUTO_APPLY_CONFIDENCE = 0.85
+/** Minimum agent confidence (with email evidence) to change anything without asking. */
+const AUTO_APPLY_CONFIDENCE = 0.8
 const MATCH_MIN_SIMILARITY = 0.6
 const MATCH_MIN_MARGIN = 0.2
 
@@ -138,6 +139,10 @@ export function proposedStage(status: EmailStatus, current: string): Stage | nul
     case 'interview':
       if (current === 'saved' || current === 'applied' || current === 'oa') return 'phone'
       if (current === 'phone') return 'onsite'
+      // An interview for a closed application may be a re-open: propose it
+      // (direction() marks it 'reopen', which always asks). At onsite it's
+      // just another round — information only.
+      if (TERMINAL.has(current)) return 'phone'
       return null
     case 'rejected': return 'rejected'
     case 'offer': return 'offer'
@@ -223,7 +228,7 @@ function processStatus(o: Observation, ctx: Context, opts: ProcessOptions): Outc
 
   if (match.kind === 'unmatched') {
     const stage = proposedStage(status, 'saved') ?? 'applied'
-    const auto = ctx.settings.autoAddApplications && status === 'applied' && confident
+    const auto = ctx.settings.autoApply && confident
     const suggestion: Suggestion = {
       ...base, kind: 'new_application', state: auto ? 'auto_applied' : 'pending',
       application_id: null, proposed_stage: stage, resolved_at: auto ? opts.now : null,
@@ -246,9 +251,18 @@ function processStatus(o: Observation, ctx: Context, opts: ProcessOptions): Outc
   const app = match.app
   const stage = proposedStage(status, app.stage)
   if (!stage) {
-    // recruiter_response / other, or an interview past onsite: information only.
-    const suggestion: Suggestion = { ...base, kind: 'note', state: 'pending', application_id: app.id, proposed_stage: null }
-    return { status: 'needs-review', result: { suggestion_id: suggestion.id, application_id: app.id }, effects: [{ type: 'save_suggestion', suggestion }] }
+    // recruiter_response / other, or an interview past onsite: information
+    // only. Automatic mode just records it; manual mode asks to acknowledge.
+    const auto = ctx.settings.autoApply
+    const suggestion: Suggestion = {
+      ...base, kind: 'note', state: auto ? 'auto_applied' : 'pending', application_id: app.id,
+      proposed_stage: null, resolved_at: auto ? opts.now : null,
+    }
+    return {
+      status: auto ? 'processed' : 'needs-review',
+      result: { suggestion_id: suggestion.id, application_id: app.id },
+      effects: [{ type: 'save_suggestion', suggestion }],
+    }
   }
 
   const dir = direction(app.stage, stage)
@@ -257,7 +271,9 @@ function processStatus(o: Observation, ctx: Context, opts: ProcessOptions): Outc
     return { status: 'processed', result: { application_id: app.id, no_change: dir }, effects: [] }
   }
 
-  const auto = dir === 'forward' && status === 'applied' && confident
+  // Automatic mode applies any confident forward move; manual mode only
+  // "application received". Re-opening a closed application always asks.
+  const auto = dir === 'forward' && confident && (ctx.settings.autoApply || status === 'applied')
   const suggestion: Suggestion = {
     ...base, kind: 'stage_change', state: auto ? 'auto_applied' : 'pending', application_id: app.id,
     proposed_stage: stage, previous_stage: auto ? (app.stage as Stage) : null, resolved_at: auto ? opts.now : null,

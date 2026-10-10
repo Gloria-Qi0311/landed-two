@@ -1,6 +1,6 @@
 // Agents — connect external agents (Meta Muse, Claude, Codex…) that find
-// jobs and read status emails, revoke them, and see what they've reported.
-// Landed stores reports raw; nothing here changes an application yet.
+// jobs and read status emails, revoke them, choose whether email updates
+// apply automatically, and see the raw reports.
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from './primitives'
 import { PageHeader } from './shell'
@@ -11,6 +11,7 @@ import {
   useAgentConnections, useAgentObservations, useCreateAgentConnection, useRevokeAgentConnection,
   type AgentConnection,
 } from '../hooks/agents'
+import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
 
 const TYPE_LABEL: Record<string, string> = {
   job_discovered: 'Job found',
@@ -69,6 +70,8 @@ export function AgentsPage() {
         {created
           ? <SetupPanel created={created} onDone={() => setCreated(null)} />
           : <ConnectForm onCreated={setCreated} />}
+
+        <AutoApplySetting />
 
         <Card title={`Connections${active.length ? ` (${active.length} active)` : ''}`}>
           {connections.isLoading && <Muted>Loading…</Muted>}
@@ -220,5 +223,29 @@ function ConnectionRow({ connection: c, first }: { connection: AgentConnection; 
         </>}
       </div>
     </div>
+  )
+}
+
+function AutoApplySetting() {
+  const prefs = useAccountPrefs()
+  const set = useSetAutoApply()
+  const offline = useAuth((s) => s.offline)
+  const on = prefs.data?.auto_apply_updates ?? true
+  return (
+    <Card title="Email updates">
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, lineHeight: 1.5, cursor: offline ? 'default' : 'pointer' }}>
+        <input type="checkbox" checked={on} disabled={offline || prefs.isLoading || set.isPending}
+          onChange={(e) => set.mutate(e.target.checked)} style={{ marginTop: 2 }} />
+        <span>
+          <span style={{ fontWeight: 500 }}>Apply updates from email automatically</span>
+          <span style={{ display: 'block', color: 'var(--fg-muted)' }}>
+            When an agent is confident about an email — application received, interview, rejection, offer — Landed updates
+            your board right away and you can undo it from the Applications page. Updates it can't place (which application?
+            low confidence?) always ask first. Turn this off to approve every change yourself.
+          </span>
+        </span>
+      </label>
+      {set.error && <div style={{ marginTop: 6 }}><ErrorText message={(set.error as Error).message} /></div>}
+    </Card>
   )
 }

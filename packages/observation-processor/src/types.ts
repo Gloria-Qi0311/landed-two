@@ -89,9 +89,12 @@ export type ApplicationRef = {
 export type CompanyRef = { id: string; name: string }
 
 export type Settings = {
-  /** Add an application automatically for a confident "applied" email that
-   *  matches nothing in the pipeline (off by default). */
-  autoAddApplications: boolean
+  /** Apply confident email updates automatically (the default): stage
+   *  changes, new applications for unmatched emails, notes straight to the
+   *  activity log. Off = only confident "application received" emails apply
+   *  and everything else waits for the user. Either way every automatic
+   *  change can be undone, and ambiguous/low-confidence ones always ask. */
+  autoApply: boolean
 }
 
 export type Context = {

@@ -1,6 +1,6 @@
 // Account-level routes — available whether or not Landed Cloud sync is on.
 //
-//   GET/PATCH /me        profile (onboarding flag, auto_add_applications) + cloud_sync state
+//   GET/PATCH /me        profile (onboarding flag, auto_apply_updates) + cloud_sync state
 //   POST /cloud/enable   upload this device's snapshot and turn sync on, atomically
 //                        (held agent observations become Cloud data)
 //   POST /cloud/disable  { password } — delete every data row and turn sync off;
@@ -14,7 +14,7 @@ import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
 import { uploadSnapshot } from './sync.ts'
 
-const ME_COLUMNS = ['id', 'email', 'cloud_sync', 'onboarded_at', 'auto_add_applications', 'plan', 'created_at']
+const ME_COLUMNS = ['id', 'email', 'cloud_sync', 'onboarded_at', 'auto_apply_updates', 'plan', 'created_at']
 
 async function checkPassword(sql: Sql, userId: string, password: unknown) {
   const [row] = await sql<{ password_hash: string }[]>`select password_hash from users where id = ${userId}`
@@ -40,11 +40,11 @@ export function accountRoutes(sql: Sql) {
       if (at !== null && typeof at !== 'string') fail(400, 'onboarded_at must be an ISO timestamp or null')
       patch.onboarded_at = at
     }
-    if ('auto_add_applications' in body) {
-      if (typeof body.auto_add_applications !== 'boolean') fail(400, 'auto_add_applications must be a boolean')
-      patch.auto_add_applications = body.auto_add_applications
+    if ('auto_apply_updates' in body) {
+      if (typeof body.auto_apply_updates !== 'boolean') fail(400, 'auto_apply_updates must be a boolean')
+      patch.auto_apply_updates = body.auto_apply_updates
     }
-    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: onboarded_at, auto_add_applications)')
+    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: onboarded_at, auto_apply_updates)')
     const [row] = await sql`
       update users set ${sql(patch)} where id = ${c.get('user').id}
       returning ${sql(ME_COLUMNS)}`

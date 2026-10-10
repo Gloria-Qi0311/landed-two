@@ -4,10 +4,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
 import { useExtensionBridge } from './hooks/extension-bridge';
 import { useAgentRelay } from './hooks/agents';
-import { useJobLeads, useObservationProcessor, useSuggestions } from './hooks/inbox';
+import { useJobLeads, useLeadActions, useObservationProcessor } from './hooks/inbox';
 import { AgentsPage } from './components/agents-page';
-import { LeadsPage } from './components/leads-page';
-import { ReviewPage } from './components/review-page';
+import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
 import { useAuth } from './lib/auth';
 import {
@@ -21,7 +20,8 @@ import { Sidebar, PageHeader, StatsBanner } from './components/shell';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
 import { EmptyDeviceNotice, OfflineNotice, RestoreBackupDialog, TurnOffCloudDialog, TurnOnCloudDialog } from './components/cloud';
 import { downloadBackup, readBackupFile, signOut } from './lib/cloud';
-import { currentStore, type Snapshot } from './lib/store';
+import { currentStore, type DbJobLead, type Snapshot } from './lib/store';
+import type { Stage } from '@landed/observation-processor';
 import { Icon } from './components/primitives';
 import { KanbanView } from './components/kanban';
 import { TableView } from './components/table';
@@ -115,10 +115,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useExtensionBridge();
   useAgentRelay();
   useObservationProcessor();
-  const sidebarCounts = {
-    leads: (useJobLeads().data ?? []).filter((l) => l.status === 'new').length,
-    review: (useSuggestions().data ?? []).filter((s) => s.state === 'pending').length,
-  };
+  const sidebarCounts = { applications: usePendingUpdateCount() };
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();
   const addApp = useAddApplication();
@@ -252,8 +249,6 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
           <Route path="/resume-match" element={<ResumeMatchRoute />} />
           <Route path="/jd-breakdown" element={<JDBreakdownRoute />} />
           <Route path="/resumes" element={<ResumesPage />} />
-          <Route path="/leads" element={<LeadsPage />} />
-          <Route path="/review" element={<ReviewPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="*" element={<Navigate to="/applications" replace />} />
         </Routes>
@@ -345,7 +340,11 @@ function ApplicationsPage({
   };
   const ViewComp = ViewCompMap[view] || KanbanView;
 
-  const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0);
+  // Jobs agents found but the user hasn't acted on — the Kanban's Leads column.
+  const leads = (useJobLeads().data ?? []).filter((l) => l.status === 'new');
+  const leadActions = useLeadActions();
+
+  const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0 && leads.length === 0);
 
   if (showEmpty) {
     return (
@@ -436,8 +435,17 @@ function ApplicationsPage({
         }
       />
       <StatsBanner apps={apps} />
+      <AgentUpdatesBar />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        <ViewComp apps={filteredApps} companies={companies} onOpen={onOpenApp} onMoveCard={onMoveCard} />
+        <ViewComp
+          apps={filteredApps}
+          companies={companies}
+          onOpen={onOpenApp}
+          onMoveCard={onMoveCard}
+          leads={leads}
+          onAddLead={(lead: DbJobLead, stage: Stage) => leadActions.add.mutate({ lead, stage })}
+          onDismissLead={(id: string) => leadActions.dismiss.mutate(id)}
+        />
       </div>
     </>
   );
