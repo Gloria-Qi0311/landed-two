@@ -12,6 +12,7 @@ import type { Sql } from './db.ts'
 import { pgErrorStatus } from './http.ts'
 import type { PortalEventsHub } from './realtime.ts'
 import { accountRoutes } from './routes/account.ts'
+import { agentAccountRoutes, agentIngestRoutes } from './routes/agent.ts'
 import { dataRoutes } from './routes/data.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
@@ -38,12 +39,16 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
 
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.route('/api/auth', authRoutes(sql, config))
+  // External agents authenticate with a narrow connection token, never a
+  // browser/extension session token.
+  app.route('/api/agent', agentIngestRoutes(sql))
 
   // Signed-in routes. Account routes work for everyone; data routes only
   // for accounts with Landed Cloud sync on (Landed is local-first).
   const api = new Hono<AppEnv>()
   api.use('*', requireUser(sql))
   api.route('/', accountRoutes(sql))
+  api.route('/', agentAccountRoutes(sql))
   const cloud = new Hono<AppEnv>()
   cloud.use('*', requireCloud)
   cloud.route('/', dataRoutes(sql, config))

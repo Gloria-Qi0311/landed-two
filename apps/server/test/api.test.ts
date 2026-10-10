@@ -29,8 +29,8 @@ let app: ReturnType<typeof createApp>
 
 type Res = { status: number; body: any; headers: Headers }
 
-async function call(method: string, path: string, opts: { token?: string; cookie?: string; body?: unknown } = {}): Promise<Res> {
-  const headers: Record<string, string> = {}
+async function call(method: string, path: string, opts: { token?: string; cookie?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<Res> {
+  const headers: Record<string, string> = { ...opts.headers }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`
   if (opts.cookie) headers.Cookie = opts.cookie
@@ -110,6 +110,52 @@ describe('auth', () => {
   test('unauthenticated API calls get 401', async () => {
     assert.equal((await call('GET', '/api/applications')).status, 401)
     assert.equal((await call('GET', '/api/applications', { token: 'garbage' })).status, 401)
+  })
+})
+
+describe('agent observation inbox', () => {
+  test('uses a narrow token and deduplicates retries', async () => {
+    const owner = await signup('agent-owner@example.com', undefined, { cloud: false })
+    const created = await call('POST', '/api/agent-connections', {
+      token: owner,
+      body: { provider: 'meta_muse', display_name: 'Muse smoke test' },
+    })
+    assert.equal(created.status, 201, JSON.stringify(created.body))
+    assert.match(created.body.token, /^landed_agent_/)
+
+    const observation = {
+      schema_version: '0.1',
+      run_id: 'muse-run-001',
+      observation_type: 'job_discovered',
+      observed_at: '2026-10-09T16:00:00-07:00',
+      job: { company: 'Acme Test Company', title: 'Test Product Manager' },
+    }
+    const request = () => call('POST', '/api/agent/observations', {
+      token: created.body.token,
+      headers: { 'Idempotency-Key': 'muse-run-001:job-001' },
+      body: observation,
+    })
+    const first = await request()
+    assert.equal(first.status, 201, JSON.stringify(first.body))
+    assert.equal(first.body.duplicate, false)
+    const retry = await request()
+    assert.equal(retry.status, 200, JSON.stringify(retry.body))
+    assert.equal(retry.body.duplicate, true)
+    assert.equal(retry.body.observation_id, first.body.observation_id)
+
+    const conflict = await call('POST', '/api/agent/observations', {
+      token: created.body.token,
+      headers: { 'Idempotency-Key': 'muse-run-001:job-001' },
+      body: { ...observation, job: { company: 'Different Company', title: 'Different Role' } },
+    })
+    assert.equal(conflict.status, 409)
+    assert.match(conflict.body.error, /different payload/)
+
+    const inbox = await call('GET', '/api/agent-observations', { token: owner })
+    assert.equal(inbox.status, 200)
+    assert.equal(inbox.body.length, 1)
+    assert.equal(inbox.body[0].payload_json.job.company, 'Acme Test Company')
+    assert.equal((await call('POST', '/api/agent/observations', { body: observation })).status, 401)
   })
 })
 
