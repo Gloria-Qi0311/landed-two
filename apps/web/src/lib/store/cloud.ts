@@ -2,7 +2,7 @@
 // server (apps/server). Active for accounts with Landed Cloud sync on.
 import { api } from '../api'
 import type {
-  DataStore, DbApplication, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
+  DataStore, DbAgentObservation, DbApplication, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
 } from './types'
 
 export function createCloudStore(): DataStore {
@@ -40,6 +40,8 @@ export function createCloudStore(): DataStore {
     },
 
     addAiRun: (row) => api.post<{ id: string }>('/ai-runs', row),
+
+    listAgentObservations: (limit) => api.get<DbAgentObservation[]>(`/agent-observations?limit=${limit}`),
 
     exportSnapshot: () => api.get<Snapshot>('/export'),
   }

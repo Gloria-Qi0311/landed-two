@@ -9,6 +9,7 @@ import type { Config } from '../src/config.ts'
 import { connect, type Sql } from '../src/db.ts'
 import { migrate } from '../src/migrate.ts'
 import { PortalEventsHub } from '../src/realtime.ts'
+import { purgeAgentRelay } from '../src/routes/agent.ts'
 import { decryptSecret } from '../src/secrets.ts'
 
 const DB_URL = process.env.TEST_DATABASE_URL ?? 'postgres://localhost:5432/landed_test'
@@ -114,48 +115,179 @@ describe('auth', () => {
 })
 
 describe('agent observation inbox', () => {
-  test('uses a narrow token and deduplicates retries', async () => {
-    const owner = await signup('agent-owner@example.com', undefined, { cloud: false })
-    const created = await call('POST', '/api/agent-connections', {
-      token: owner,
-      body: { provider: 'meta_muse', display_name: 'Muse smoke test' },
-    })
+  const obs = (over: Record<string, unknown> = {}) => ({
+    schema_version: '0.1',
+    run_id: 'muse-run-001',
+    observation_type: 'job_discovered',
+    observed_at: '2026-10-09T16:00:00-07:00',
+    payload: { title: 'Test Product Manager', company: 'Acme Test Company', job_url: 'https://acme.test/jobs/1', source: 'muse' },
+    ...over,
+  })
+  const submit = (token: string, key: string, body: unknown) =>
+    call('POST', '/api/agent/observations', { token, headers: { 'Idempotency-Key': key }, body })
+
+  async function connect(owner: string, name = 'Muse') {
+    const created = await call('POST', '/api/agent-connections', { token: owner, body: { provider: 'Meta_Muse', display_name: name } })
     assert.equal(created.status, 201, JSON.stringify(created.body))
     assert.match(created.body.token, /^landed_agent_/)
+    assert.equal(created.body.connection.provider, 'meta_muse')
+    return created.body as { token: string; connection: { id: string } }
+  }
 
-    const observation = {
-      schema_version: '0.1',
-      run_id: 'muse-run-001',
-      observation_type: 'job_discovered',
-      observed_at: '2026-10-09T16:00:00-07:00',
-      job: { company: 'Acme Test Company', title: 'Test Product Manager' },
-    }
-    const request = () => call('POST', '/api/agent/observations', {
-      token: created.body.token,
-      headers: { 'Idempotency-Key': 'muse-run-001:job-001' },
-      body: observation,
-    })
-    const first = await request()
+  test('narrow token, idempotent retries, conflicting reuse of a key', async () => {
+    const owner = await signup('agent-owner@example.com')
+    const { token } = await connect(owner)
+
+    const first = await submit(token, 'muse-run-001:job-001', obs())
     assert.equal(first.status, 201, JSON.stringify(first.body))
     assert.equal(first.body.duplicate, false)
-    const retry = await request()
-    assert.equal(retry.status, 200, JSON.stringify(retry.body))
+    const retry = await submit(token, 'muse-run-001:job-001', obs())
+    assert.equal(retry.status, 200)
     assert.equal(retry.body.duplicate, true)
     assert.equal(retry.body.observation_id, first.body.observation_id)
 
-    const conflict = await call('POST', '/api/agent/observations', {
-      token: created.body.token,
-      headers: { 'Idempotency-Key': 'muse-run-001:job-001' },
-      body: { ...observation, job: { company: 'Different Company', title: 'Different Role' } },
-    })
+    const conflict = await submit(token, 'muse-run-001:job-001', obs({ payload: { title: 'Other', company: 'Different Co' } }))
     assert.equal(conflict.status, 409)
-    assert.match(conflict.body.error, /different payload/)
+    assert.equal(conflict.body.code, 'idempotency_conflict')
 
-    const inbox = await call('GET', '/api/agent-observations', { token: owner })
+    assert.equal((await call('POST', '/api/agent/observations', { body: obs() })).status, 401)
+    assert.equal((await call('GET', '/api/applications', { token })).status, 401, 'agent token is not a session')
+  })
+
+  test('schema v0.1 is enforced per observation type', async () => {
+    const owner = await signup('schema-owner@example.com')
+    const { token } = await connect(owner)
+    const bad: [string, unknown][] = [
+      ['no payload', { ...obs(), payload: undefined }],
+      ['legacy job field', { ...obs(), payload: undefined, job: { title: 't', company: 'c' } }],
+      ['missing company', obs({ payload: { title: 'PM' } })],
+      ['non-http url', obs({ payload: { title: 'PM', company: 'X', job_url: 'javascript:alert(1)' } })],
+      ['unknown type', obs({ observation_type: 'vibes' })],
+      ['bad status', obs({ observation_type: 'application_status', payload: { status: 'ghosted?', company: 'X' } })],
+      ['bad confidence', obs({ observation_type: 'application_status', payload: { status: 'interview', company: 'X', confidence: 7 } })],
+      ['loose timestamp', obs({ observed_at: '2026' })],
+      ['no time zone', obs({ observed_at: '2026-10-09T12:00:00' })],
+      ['old schema', obs({ schema_version: '0.0' })],
+    ]
+    for (const [label, body] of bad) {
+      const res = await submit(token, `bad-${label}`, body)
+      assert.equal(res.status, 400, `${label}: ${JSON.stringify(res.body)}`)
+    }
+    const status = await submit(token, 'gmail-1', obs({
+      observation_type: 'application_status',
+      payload: {
+        status: 'interview', company: 'Acme', role: 'PM', confidence: 0.92,
+        evidence: { source: 'gmail', message_id: '<abc@mail>', sender_domain: 'acme.com', subject: 'Interview invite', received_at: '2026-10-09T13:00:00Z' },
+      },
+    }))
+    assert.equal(status.status, 201, JSON.stringify(status.body))
+    assert.equal((await submit(token, 'err-1', obs({ observation_type: 'sync_error', payload: { message: 'Gmail auth expired' } }))).status, 201)
+    const huge = obs({ payload: { title: 'PM', company: 'X', description: 'x'.repeat(70 * 1024) } })
+    assert.equal((await submit(token, 'huge', huge)).status, 413)
+  })
+
+  test('revoked tokens stop working; connections are per user', async () => {
+    const owner = await signup('revoke-owner@example.com')
+    const other = await signup('revoke-other@example.com')
+    const { token, connection } = await connect(owner)
+    assert.equal((await call('POST', `/api/agent-connections/${connection.id}/revoke`, { token: other })).status, 404)
+    assert.deepEqual((await call('GET', '/api/agent-connections', { token: other })).body, [])
+    const revoked = await call('POST', `/api/agent-connections/${connection.id}/revoke`, { token: owner })
+    assert.equal(revoked.status, 200)
+    assert.ok(revoked.body.revoked_at)
+    assert.equal((await submit(token, 'after-revoke', obs())).status, 401)
+  })
+
+  test('sync-off account: the server only relays until the browser picks it up', async () => {
+    const owner = await signup('relay-owner@example.com', 'relay-password-1', { cloud: false })
+    const { token } = await connect(owner)
+    const first = await submit(token, 'relay-1', obs())
+    assert.equal(first.status, 201)
+
+    const inbox = await call('GET', '/api/agent-inbox', { token: owner })
     assert.equal(inbox.status, 200)
     assert.equal(inbox.body.length, 1)
-    assert.equal(inbox.body[0].payload_json.job.company, 'Acme Test Company')
-    assert.equal((await call('POST', '/api/agent/observations', { body: observation })).status, 401)
+    assert.equal(inbox.body[0].payload_json.payload.company, 'Acme Test Company')
+    assert.equal(inbox.body[0].provider, 'meta_muse')
+
+    const ack = await call('POST', '/api/agent-inbox/ack', { token: owner, body: { ids: [first.body.observation_id] } })
+    assert.deepEqual(ack.body, { acked: 1 })
+    assert.deepEqual((await call('GET', '/api/agent-inbox', { token: owner })).body, [])
+    const [row] = await sql`select payload_json, delivered_at from agent_observations where id = ${first.body.observation_id}`
+    assert.equal(row.payload_json, null, 'payload purged after delivery')
+    assert.ok(row.delivered_at)
+
+    // the receipt still makes retries idempotent and catches conflicting reuse
+    assert.equal((await submit(token, 'relay-1', obs())).body.duplicate, true)
+    assert.equal((await submit(token, 'relay-1', obs({ run_id: 'other-run' }))).status, 409)
+  })
+
+  test('sync-on account keeps observations in Cloud', async () => {
+    const owner = await signup('cloud-agent@example.com')
+    const { token } = await connect(owner)
+    const res = await submit(token, 'cloud-1', obs())
+    const [row] = await sql`select expires_at, payload_json from agent_observations where id = ${res.body.observation_id}`
+    assert.equal(row.expires_at, null)
+    assert.ok(row.payload_json)
+    assert.deepEqual((await call('GET', '/api/agent-inbox', { token: owner })).body, [], 'nothing to relay')
+    const exp = await call('GET', '/api/export', { token: owner })
+    assert.deepEqual(exp.body.agent_observations.map((o: any) => o.id), [res.body.observation_id])
+  })
+
+  test('observations follow the data when sync is turned on and off', async () => {
+    const owner = await signup('switch-agent@example.com', 'switch-password-1', { cloud: false })
+    const { token, connection } = await connect(owner)
+    const held = await submit(token, 'held-1', obs())
+    const picked = await submit(token, 'picked-1', obs({ run_id: 'run-2' }))
+    // the device pulled `picked` earlier, so the server only has its receipt
+    const [pickedRow] = await call('GET', '/api/agent-inbox', { token: owner }).then((r) => r.body.filter((o: any) => o.id === picked.body.observation_id))
+    await call('POST', '/api/agent-inbox/ack', { token: owner, body: { ids: [picked.body.observation_id] } })
+
+    // turning sync on uploads the device copy of `picked` and promotes `held`
+    const deviceSnapshot = { ...EMPTY_SNAPSHOT, agent_observations: [{ ...pickedRow }] }
+    const on = await call('POST', '/api/cloud/enable', { token: owner, body: deviceSnapshot })
+    assert.equal(on.status, 200, JSON.stringify(on.body))
+    const rows = await sql`select id, payload_json is not null as has_payload, expires_at, payload_sha256 from agent_observations where connection_id = ${connection.id} order by created_at`
+    assert.deepEqual(rows.map((r) => [r.id, r.has_payload, r.expires_at]), [
+      [held.body.observation_id, true, null],
+      [picked.body.observation_id, true, null],
+    ])
+    assert.ok(rows.every((r) => /^[0-9a-f]{64}$/.test(r.payload_sha256)))
+    assert.equal((await submit(token, 'picked-1', obs({ run_id: 'run-2' }))).body.duplicate, true)
+
+    // turning sync off: export carries both, then the server keeps receipts only
+    const exp = await call('GET', '/api/export', { token: owner })
+    assert.equal(exp.body.agent_observations.length, 2)
+    assert.equal((await call('POST', '/api/cloud/disable', { token: owner, body: { password: 'switch-password-1' } })).status, 200)
+    const after = await sql`select count(*)::int as n from agent_observations where connection_id = ${connection.id} and payload_json is not null`
+    assert.equal(after[0].n, 0)
+    assert.equal((await submit(token, 'held-1', obs())).body.duplicate, true)
+  })
+
+  test('relay cleanup: unclaimed payloads expire, old receipts go away', async () => {
+    const owner = await signup('purge-owner@example.com', 'purge-password-1', { cloud: false })
+    const { token } = await connect(owner)
+    const stale = await submit(token, 'stale-1', obs())
+    const old = await submit(token, 'old-1', obs({ run_id: 'old' }))
+    const fresh = await submit(token, 'fresh-1', obs({ run_id: 'fresh' }))
+    await sql`update agent_observations set expires_at = now() - interval '1 minute' where id = ${stale.body.observation_id}`
+    await sql`update agent_observations set payload_json = null, delivered_at = now() - interval '31 days' where id = ${old.body.observation_id}`
+    await purgeAgentRelay(sql)
+    const rows = await sql`select id, payload_json is not null as has_payload from agent_observations where id = any(${[stale.body.observation_id, old.body.observation_id, fresh.body.observation_id]}::uuid[])`
+    const state = Object.fromEntries(rows.map((r) => [r.id, r.has_payload]))
+    assert.equal(state[stale.body.observation_id], false, 'expired payload purged')
+    assert.equal(old.body.observation_id in state, false, 'old receipt deleted')
+    assert.equal(state[fresh.body.observation_id], true)
+  })
+
+  test('observation review list is scoped to the owner', async () => {
+    const owner = await signup('review-owner@example.com')
+    const other = await signup('review-other@example.com')
+    const { token } = await connect(owner)
+    await submit(token, 'review-1', obs())
+    assert.equal((await call('GET', '/api/agent-observations', { token: owner })).body.length, 1)
+    assert.deepEqual((await call('GET', '/api/agent-observations', { token: other })).body, [])
+    assert.deepEqual((await call('GET', '/api/agent-inbox', { token: other })).body, [])
   })
 })
 
@@ -400,7 +532,7 @@ describe('sync: local device <-> Landed Cloud', () => {
     assert.equal(up.status, 201, JSON.stringify(up.body))
     assert.deepEqual(up.body, {
       companies: 2, companies_merged: 0, applications: 2, portal_connections: 1,
-      portal_events: 2, resumes: 1, ai_runs: 1,
+      portal_events: 2, resumes: 1, ai_runs: 1, agent_observations: 0,
     })
 
     const exp = await call('GET', '/api/export', { token: erin })

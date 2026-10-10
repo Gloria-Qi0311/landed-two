@@ -24,6 +24,15 @@ Every user signs in (email + password, `apps/server`), but an account's data liv
 - Local schema changes go in a new Dexie `this.version(n)` block in `local.ts`; never edit an existing version.
 - **Extension ↔ page bridge**: in local mode the extension can't reach a server, so the open Landed tab pulls queued portal events and pushes resumes over `window.postMessage` (`apps/web/src/hooks/extension-bridge.ts` ↔ `apps/extension/lib/web-bridge.js` + `lib/bridge-handler.js`). Every read-modify-write of the extension's pending queue goes through `withQueueLock` in `background.js`. Landed web origins are listed in both `lib/config.js` (`WEB_ORIGINS`) and `manifest.json` — keep them in sync when adding a production origin.
 
+## External agents report observations; Landed decides
+
+Agents (Meta Muse, Claude, Codex…) submit **observations** to `POST /api/agent/observations` with a narrow per-connection token (`apps/server/src/routes/agent.ts`, protocol in `apps/server/AGENT_PROTOCOL.md`). Rules:
+
+- **Agents never mutate the pipeline.** Observations are stored raw; turning them into jobs/application status changes is a separate processor (not built yet) with a human review queue for low-confidence matches.
+- **Agent data follows local-first too.** For sync-off accounts the server is only a relay: hold until the browser pulls + acks (`hooks/agents.ts` → `useAgentRelay`), then purge the payload and keep a hash-only receipt for idempotency; unclaimed payloads expire after 7 days. Don't add server-side processing that reads a sync-off account's observations.
+- **Schema changes** (new `observation_type`, new fields) go in three places together: the validators in `agent.ts`, `AGENT_PROTOCOL.md`, and the setup prompt in `apps/web/src/lib/agent-prompt.ts`. Bump `schema_version` for breaking changes.
+- Every agent write is idempotent on `(connection_id, Idempotency-Key)`; same key + different body is a 409. Agents retry and reuse stale bodies — never rely on "called once".
+
 ## Landed Cloud backend: `apps/server` + Postgres (no Supabase)
 
 Supabase was removed. The API server (`apps/server`, Hono + postgres.js) owns Cloud auth, every table, realtime, and portal-ingest; it also serves the built web app. See `apps/server/README.md` for setup and deployment.

@@ -8,6 +8,7 @@ import { loadConfig } from './config.ts'
 import { connect } from './db.ts'
 import { migrate } from './migrate.ts'
 import { PortalEventsHub } from './realtime.ts'
+import { purgeAgentRelay } from './routes/agent.ts'
 
 const config = loadConfig()
 const sql = connect(config.databaseUrl)
@@ -22,7 +23,10 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
     (config.webDist ? ` (web: ${config.webDist})` : ''))
 })
 
-const cleanup = setInterval(() => void deleteExpiredSessions(sql).catch(console.error), 3_600_000)
+const cleanup = setInterval(() => {
+  void deleteExpiredSessions(sql).catch(console.error)
+  void purgeAgentRelay(sql).catch(console.error)
+}, 3_600_000)
 
 async function shutdown() {
   clearInterval(cleanup)

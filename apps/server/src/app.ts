@@ -21,6 +21,8 @@ const tooLarge = (c: Context) => c.json({ error: 'request body too large' }, 413
 const smallBody = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooLarge })
 // A whole-device snapshot (resumes + AI run transcripts) can be big.
 const uploadBody = bodyLimit({ maxSize: 50 * 1024 * 1024, onError: tooLarge })
+// One agent observation is small; a large body is a misbehaving agent.
+const agentBody = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge })
 
 export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
   const app = new Hono<AppEnv>()
@@ -35,7 +37,12 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
     maxAge: 86400,
   }))
 
-  app.use('/api/*', (c, next) => (c.req.path === '/api/sync/upload' ? uploadBody : smallBody)(c, next))
+  app.use('/api/*', (c, next) => {
+    const limit = c.req.path === '/api/sync/upload' || c.req.path === '/api/cloud/enable'
+      ? uploadBody
+      : c.req.path.startsWith('/api/agent/') ? agentBody : smallBody
+    return limit(c, next)
+  })
 
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.route('/api/auth', authRoutes(sql, config))

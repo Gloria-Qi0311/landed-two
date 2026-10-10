@@ -94,6 +94,27 @@ export type DbAiRun = {
   created_at: string
 }
 
+/** Raw report from an external agent (Muse, Claude, Codex…). Stored as
+ *  received; a processor decides later what it means for the pipeline.
+ *  payload_json is the agent's whole request body (envelope + payload). */
+export type DbAgentObservation = {
+  id: string
+  user_id: string
+  connection_id: string
+  idempotency_key: string
+  schema_version: string
+  run_id: string
+  observation_type: 'job_discovered' | 'application_status' | 'sync_error' | string
+  payload_json: { payload?: Record<string, unknown> } & Record<string, unknown>
+  payload_sha256: string
+  observed_at: string
+  processing_status: 'pending' | 'processed' | 'needs-review' | 'rejected'
+  created_at: string
+  // joined from agent_connections when read from the server
+  provider?: string
+  display_name?: string
+}
+
 /** Account-level (users row on the server, not part of either store);
  *  carried in snapshots only for backup-file compatibility. */
 export type Profile = { onboarded_at: string | null }
@@ -152,10 +173,11 @@ export type Snapshot = {
   portal_connections: Owned<DbPortalConnection>[]
   portal_events: Owned<DbPortalEvent>[]
   ai_runs: Owned<DbAiRun>[]
+  agent_observations?: Owned<DbAgentObservation>[] // absent in pre-agent backups
 }
 
 export const SNAPSHOT_TABLES = [
-  'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs',
+  'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
 ] as const
 
 export function snapshotRowCount(s: Snapshot): number {
@@ -191,6 +213,9 @@ export interface DataStore {
   subscribePortalEvents(onInsert: (row: DbPortalEvent) => void): () => void
 
   addAiRun(row: AiRunInput): Promise<{ id: string }>
+
+  /** Newest first. Local: pulled from the server's relay inbox. Cloud: kept server-side. */
+  listAgentObservations(limit: number): Promise<DbAgentObservation[]>
 
   exportSnapshot(): Promise<Snapshot>
 }

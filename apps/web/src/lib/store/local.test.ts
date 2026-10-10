@@ -93,6 +93,38 @@ describe('portal sync', () => {
   })
 })
 
+describe('agent observations (relay inbox)', () => {
+  const observation = (id: string, key: string) => ({
+    id, user_id: 'server-user', connection_id: 'conn-1', idempotency_key: key, schema_version: '0.1',
+    run_id: 'run-1', observation_type: 'job_discovered', observed_at: '2026-10-09T12:00:00Z',
+    payload_json: { payload: { title: 'PM', company: 'Acme' } }, payload_sha256: 'abc',
+    processing_status: 'pending' as const, created_at: '2026-10-09T12:00:01Z', provider: 'meta_muse', display_name: 'Muse',
+  })
+
+  test('stores pulled observations once and reports every id as safe to ack', async () => {
+    const store = fresh()
+    expect(await store.receiveAgentObservations([observation('o1', 'k1'), observation('o2', 'k2')])).toEqual(['o1', 'o2'])
+    // a re-delivery (same connection + key) is acked again but not duplicated
+    expect(await store.receiveAgentObservations([observation('o1', 'k1')])).toEqual(['o1'])
+    const list = await store.listAgentObservations(10)
+    expect(list.map((o) => o.id).sort()).toEqual(['o1', 'o2'])
+    expect(list[0]).not.toHaveProperty('provider')
+    expect(list[0].user_id).toBe('local')
+  })
+
+  test('observations travel in snapshots', async () => {
+    const a = fresh()
+    await a.receiveAgentObservations([observation('o1', 'k1')])
+    const snap = await a.exportSnapshot()
+    expect(snap.agent_observations).toHaveLength(1)
+    const b = fresh()
+    await b.replaceWith(snap)
+    expect((await b.listAgentObservations(10)).map((o) => o.id)).toEqual(['o1'])
+    await b.replaceWith({ ...snap, agent_observations: undefined })
+    expect(await b.listAgentObservations(10)).toEqual([])
+  })
+})
+
 describe('snapshots', () => {
   test('export → replaceWith round-trips into another device', async () => {
     const a = fresh()
@@ -103,7 +135,7 @@ describe('snapshots', () => {
 
     const snap = await a.exportSnapshot()
     expect(snap.format).toBe(BACKUP_FORMAT)
-    expect(snapshotRowCount(snap)).toBe(5)
+    expect(snapshotRowCount(snap)).toBe(5) // agent_observations: none yet
     expect(snap.applications[0]).not.toHaveProperty('user_id')
 
     const b = fresh()

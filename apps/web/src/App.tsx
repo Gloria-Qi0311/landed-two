@@ -3,6 +3,8 @@ import { Routes, Route, Navigate, useSearchParams, useNavigate } from 'react-rou
 import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
 import { useExtensionBridge } from './hooks/extension-bridge';
+import { useAgentRelay } from './hooks/agents';
+import { AgentsPage } from './components/agents-page';
 
 import { useAuth } from './lib/auth';
 import {
@@ -108,6 +110,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   // database, or Landed Cloud when the account syncs).
   const appsQuery = useApplications();
   useExtensionBridge();
+  useAgentRelay();
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();
   const addApp = useAddApplication();
@@ -240,6 +243,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
           <Route path="/resume-match" element={<ResumeMatchRoute />} />
           <Route path="/jd-breakdown" element={<JDBreakdownRoute />} />
           <Route path="/resumes" element={<ResumesPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
           <Route path="*" element={<Navigate to="/applications" replace />} />
         </Routes>
       </main>

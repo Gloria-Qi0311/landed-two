@@ -89,6 +89,7 @@ export const Sidebar = ({ apps, account, onProfileClick }) => {
         <NavItem to="/sync" icon={<Icon name="refresh" size={14} />} label="Sync" />
         <NavItem to="/resume-match" icon={<Icon name="sparkle" size={14} />} label="Resume Match" />
         <NavItem to="/jd-breakdown" icon={<Icon name="target" size={14} />} label="JD Breakdown" />
+        <NavItem to="/agents" icon={<Icon name="wand" size={14} />} label="Agents" />
       </div>
 
       {/* Design-only references — easy access for reviewer */}

@@ -8,6 +8,7 @@ The Landed backend: a Hono API on Node + PostgreSQL. It replaced Supabase. Lande
 - **Realtime**: an insert on `portal_events` fires a Postgres `NOTIFY`, which the server sends to that user over SSE at `GET /api/portal-events/stream`.
 - **portal-ingest**: `POST /api/portal-ingest`, ported from the former Edge Function.
 - **AI provider keys**: encrypted at rest with AES-256-GCM using `SECRETS_KEY`.
+- **Agent inbox**: external agents report observations with narrow tokens. For sync-off accounts the server only relays them to the browser. See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md).
 - **Web app**: in production it serves the built `apps/web/dist` at `/`.
 
 ## Local development
@@ -59,6 +60,8 @@ All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` 
 | `GET /export`, `POST /sync/upload` | Whole-account snapshot (`landed-backup` v1) for download, and idempotent upload from a device (merges companies by name) |
 | `DELETE /me` | `{ password }`: delete the account and all its rows (works with sync off) |
 | `GET /ai-keys`, `PUT /ai-keys/:provider`, `DELETE /ai-keys/:id` | Write-only provider keys |
+| `POST /agent/observations` | External agents (agent token, not a session). See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) |
+| `GET/POST /agent-connections`, `POST /agent-connections/:id/revoke`, `GET /agent-observations`, `GET /agent-inbox`, `POST /agent-inbox/ack` | Manage agents, review reports, relay pull for sync-off accounts. These work with sync off. |
 
 ## Production (Mac mini)
 

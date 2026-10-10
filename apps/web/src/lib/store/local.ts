@@ -8,7 +8,7 @@
 import Dexie, { type Table } from 'dexie'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
-  type AiRunInput, type ApplicationInput, type ApplicationPatch, type CompanyInput, type ConnectionInput,
+  type AiRunInput, type ApplicationInput, type DbAgentObservation, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
   type DbPortalEvent, type DbResume, type DemoImport, type PortalEventInput, type Snapshot,
 } from './types'
@@ -66,6 +66,7 @@ class LandedDB extends Dexie {
   portal_events!: Table<DbPortalEvent, string>
   ai_runs!: Table<DbAiRun, string>
   meta!: Table<Meta, string>
+  agent_observations!: Table<DbAgentObservation, string>
 
   constructor(name: string) {
     super(name)
@@ -77,6 +78,10 @@ class LandedDB extends Dexie {
       portal_events: 'id, created_at',
       ai_runs: 'id',
       meta: 'key',
+    })
+    // v2: raw inbox of agent reports, pulled from the server's relay.
+    this.version(2).stores({
+      agent_observations: 'id, created_at, &[connection_id+idempotency_key]',
     })
   }
 }
@@ -111,6 +116,9 @@ const byDesc = <T>(key: keyof T) => (a: T, b: T) => String(b[key]).localeCompare
 const strip = <T extends { user_id: string }>({ user_id: _, ...rest }: T) => rest
 
 export type LocalStore = DataStore & {
+  /** Store observations pulled from the server's relay inbox; returns the ids
+   *  now safely on this device (to ack). Re-deliveries are ignored. */
+  receiveAgentObservations(rows: DbAgentObservation[]): Promise<string[]>
   /** True when this device holds no rows (profile flags don't count). */
   isEmpty(): Promise<boolean>
   /** Replace everything on this device with a snapshot (backup restore, leaving Cloud). */
@@ -309,6 +317,25 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       return { id: row.id }
     },
 
+    async listAgentObservations(limit) {
+      return db.agent_observations.orderBy('created_at').reverse().limit(limit).toArray()
+    },
+    async receiveAgentObservations(rows) {
+      return db.transaction('rw', db.agent_observations, async () => {
+        const stored: string[] = []
+        for (const r of rows) {
+          const dup = await db.agent_observations
+            .where('[connection_id+idempotency_key]').equals([r.connection_id, r.idempotency_key]).first()
+          if (!dup) {
+            const { provider: _p, display_name: _d, ...row } = r
+            await db.agent_observations.add({ ...row, user_id: LOCAL_USER })
+          }
+          stored.push(r.id)
+        }
+        return stored
+      })
+    },
+
     async exportSnapshot(): Promise<Snapshot> {
       return db.transaction('r', SNAPSHOT_TABLES.map((t) => db[t]), async () => ({
         format: BACKUP_FORMAT,
@@ -321,6 +348,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         portal_connections: (await db.portal_connections.toArray()).map(strip),
         portal_events: (await db.portal_events.toArray()).map(strip),
         ai_runs: (await db.ai_runs.toArray()).map(strip),
+        agent_observations: (await db.agent_observations.toArray()).map(strip),
       }))
     },
 
@@ -339,6 +367,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         await db.portal_connections.bulkAdd(own(snapshot.portal_connections) as DbPortalConnection[])
         await db.portal_events.bulkAdd(own(snapshot.portal_events) as DbPortalEvent[])
         await db.ai_runs.bulkAdd(own(snapshot.ai_runs) as DbAiRun[])
+        await db.agent_observations.bulkAdd(own(snapshot.agent_observations) as DbAgentObservation[])
       })
     },
     async clearAll() {

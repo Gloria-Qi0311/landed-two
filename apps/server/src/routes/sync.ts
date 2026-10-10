@@ -26,7 +26,7 @@ type Row = Record<string, any>
 export const BACKUP_FORMAT = 'landed-backup'
 export const BACKUP_VERSION = 1
 
-const TABLES = ['companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs'] as const
+const TABLES = ['companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations'] as const
 const MAX_ROWS_PER_TABLE = 20_000
 const CHUNK = 500
 
@@ -44,6 +44,12 @@ const COLUMNS = {
   portal_events: ['id', 'connection_id', 'application_id', 'type', 'payload_json', 'created_at'],
   resumes: ['id', 'name', 'file_path', 'parsed_json', 'is_current', 'created_at'],
   ai_runs: ['id', 'task', 'provider', 'prompt_text', 'response_text', 'parsed_json', 'parse_format', 'created_at'],
+  // Raw agent inbox. Only rows that still carry a payload travel in a
+  // snapshot (receipts are server bookkeeping, not user data).
+  agent_observations: [
+    'id', 'connection_id', 'idempotency_key', 'schema_version', 'run_id', 'observation_type',
+    'payload_json', 'payload_sha256', 'observed_at', 'processing_status', 'created_at',
+  ],
 } as const
 
 // NOT NULL columns get their DB default when a snapshot row omits them, so
@@ -51,7 +57,7 @@ const COLUMNS = {
 function defaults(now: string): Row {
   return {
     created_at: now, last_activity_at: now, referral: false, starred: false, stage: 'saved',
-    status: 'active', payload_json: {}, is_current: false,
+    status: 'active', payload_json: {}, is_current: false, processing_status: 'pending',
   }
 }
 
@@ -163,6 +169,31 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
 
   counts.ai_runs = await insertRows('ai_runs', list('ai_runs').map((r) => normalize('ai_runs', r, {})))
 
+  // agent_observations — only for this account's own connections. A row the
+  // server already knows as a payload-free receipt (delivered earlier) gets
+  // its payload back; the hash is recomputed from the stored body.
+  const ownConnections = new Set((await tx<{ id: string }[]>`
+    select id from agent_connections where user_id = ${userId}`).map((r) => r.id))
+  const observations = list('agent_observations')
+    .filter((r) => ownConnections.has(r.connection_id) && r.payload_json && typeof r.payload_json === 'object')
+    .map((r) => normalize('agent_observations', r, { payload_sha256: '' }))
+  let restored = 0
+  for (const chunk of chunks(observations)) {
+    const res = await tx`
+      insert into agent_observations ${tx(chunk)}
+      on conflict (connection_id, idempotency_key) do update
+        set payload_json = excluded.payload_json, delivered_at = null, expires_at = null
+        where agent_observations.payload_json is null
+      returning id`
+    restored += res.length
+  }
+  if (observations.length > 0) {
+    await tx`
+      update agent_observations set payload_sha256 = encode(sha256(convert_to(payload_json::text, 'UTF8')), 'hex')
+      where user_id = ${userId} and payload_sha256 = ''`
+  }
+  counts.agent_observations = restored
+
   const onboarded = snap.profile?.onboarded_at
   if (typeof onboarded === 'string') {
     await tx`update users set onboarded_at = coalesce(onboarded_at, ${onboarded}) where id = ${userId}`
@@ -183,8 +214,10 @@ export function syncRoutes(sql: Sql) {
       profile: { onboarded_at: profile.onboarded_at },
     }
     for (const table of TABLES) {
-      const rows = await sql`select ${sql(COLUMNS[table] as unknown as string[])} from ${sql(table)} where user_id = ${userId}`
-      snapshot[table] = rows
+      const withPayload = table === 'agent_observations' ? sql`and payload_json is not null` : sql``
+      snapshot[table] = await sql`
+        select ${sql(COLUMNS[table] as unknown as string[])} from ${sql(table)}
+        where user_id = ${userId} ${withPayload}`
     }
     return c.json(snapshot)
   })
