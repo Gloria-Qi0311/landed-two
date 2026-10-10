@@ -1,4 +1,5 @@
-// REST routes for the user-owned tables (replaces PostgREST + RLS).
+// REST routes for the user-owned tables (replaces PostgREST + RLS). Mounted
+// behind requireCloud: they only serve accounts with Landed Cloud sync on.
 //
 // Every query is scoped by the session's user_id. Rows come back in the same
 // snake_case JSON shape PostgREST returned, so the web hooks' transform
@@ -33,26 +34,6 @@ function requireString(v: unknown, field: string): string {
 
 export function dataRoutes(sql: Sql, config: Config) {
   const app = new Hono<AppEnv>()
-
-  // ── profile (users row) ───────────────────────────────────────────────
-
-  app.get('/me', async (c) => {
-    const [row] = await sql`
-      select id, email, onboarded_at, plan, current_resume_id, created_at
-      from users where id = ${c.get('user').id}`
-    return c.json(row)
-  })
-
-  app.patch('/me', async (c) => {
-    const body = await jsonBody(c)
-    if (!('onboarded_at' in body)) fail(400, 'nothing to update (allowed: onboarded_at)')
-    const at = body.onboarded_at
-    if (at !== null && typeof at !== 'string') fail(400, 'onboarded_at must be an ISO timestamp or null')
-    const [row] = await sql`
-      update users set onboarded_at = ${at} where id = ${c.get('user').id}
-      returning id, email, onboarded_at, plan, current_resume_id, created_at`
-    return c.json(row)
-  })
 
   // ── companies + applications ──────────────────────────────────────────
 

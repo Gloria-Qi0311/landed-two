@@ -43,9 +43,17 @@ async function call(method: string, path: string, opts: { token?: string; cookie
   return { status: res.status, body: text ? JSON.parse(text) : null, headers: res.headers }
 }
 
-async function signup(email: string, password = 'correct horse battery'): Promise<string> {
+const EMPTY_SNAPSHOT = { format: 'landed-backup', version: 1, exported_at: new Date().toISOString(), profile: { onboarded_at: null } }
+
+/** New account (token mode). Landed is local-first, so accounts start with
+ *  Cloud sync off; most tests exercise Cloud data routes and turn it on. */
+async function signup(email: string, password = 'correct horse battery', opts: { cloud?: boolean } = {}): Promise<string> {
   const res = await call('POST', '/api/auth/signup', { body: { email, password, mode: 'token' } })
   assert.equal(res.status, 201, JSON.stringify(res.body))
+  if (opts.cloud !== false) {
+    const on = await call('POST', '/api/cloud/enable', { token: res.body.token, body: EMPTY_SNAPSHOT })
+    assert.equal(on.status, 200, JSON.stringify(on.body))
+  }
   return res.body.token
 }
 
@@ -350,6 +358,7 @@ describe('sync: local device <-> Landed Cloud', () => {
     })
 
     const exp = await call('GET', '/api/export', { token: erin })
+    assert.equal(exp.status, 200)
     assert.equal(exp.body.format, 'landed-backup')
     assert.equal(exp.body.profile.onboarded_at, now)
     assert.deepEqual(exp.body.applications.map((a: any) => a.id).sort(), [snap.applications[0].id, snap.applications[1].id].sort())
@@ -412,5 +421,66 @@ describe('sync: local device <-> Landed Cloud', () => {
     const ivy = await signup('ivy@example.com')
     const big = 'x'.repeat(3 * 1024 * 1024)
     assert.equal((await call('POST', '/api/ai-runs', { token: ivy, body: { task: 'jd_breakdown', provider: 'claude', prompt_text: big } })).status, 413)
+  })
+})
+
+describe('local-first: Cloud sync is opt-in per account', () => {
+  test('a new account has sync off and the API holds none of its data', async () => {
+    const kim = await signup('kim@example.com', 'kim-password-1', { cloud: false })
+    const session = await call('GET', '/api/auth/session', { token: kim })
+    assert.equal(session.body.user.cloud_sync, false)
+    assert.equal((await call('GET', '/api/me', { token: kim })).status, 200, 'account routes still work')
+
+    for (const [method, path, body] of [
+      ['GET', '/api/applications'], ['GET', '/api/resumes'], ['GET', '/api/export'],
+      ['POST', '/api/applications', { company: { name: 'X' }, application: { role: 'r' } }],
+      ['POST', '/api/portal-events', [{ type: 'sync' }]],
+      ['POST', '/api/portal-ingest', { provider: 'greenhouse', event_type: 'sync' }],
+      ['PUT', '/api/ai-keys/claude', { secret: 'sk' }],
+    ] as const) {
+      const res = await call(method, path, { token: kim, body })
+      assert.equal(res.status, 409, `${method} ${path}`)
+      assert.equal(res.body.code, 'cloud_off')
+    }
+    const [{ n }] = await sql`select count(*)::int as n from portal_events e join users u on u.id = e.user_id where u.email = 'kim@example.com'`
+    assert.equal(n, 0)
+  })
+
+  test('enable uploads the device snapshot and turns sync on atomically', async () => {
+    const lee = await signup('lee@example.com', 'lee-password-1', { cloud: false })
+    const bad = await call('POST', '/api/cloud/enable', { token: lee, body: { format: 'nope' } })
+    assert.equal(bad.status, 400)
+    assert.equal((await call('GET', '/api/auth/session', { token: lee })).body.user.cloud_sync, false, 'failed upload leaves sync off')
+
+    const snap = { ...EMPTY_SNAPSHOT, companies: [{ id: crypto.randomUUID(), name: 'Stripe' }] }
+    const app = { id: crypto.randomUUID(), company_id: snap.companies[0].id, role: 'PM' }
+    const on = await call('POST', '/api/cloud/enable', { token: lee, body: { ...snap, applications: [app] } })
+    assert.equal(on.status, 200, JSON.stringify(on.body))
+    assert.equal(on.body.uploaded.applications, 1)
+    assert.equal((await call('GET', '/api/auth/session', { token: lee })).body.user.cloud_sync, true)
+    assert.deepEqual((await call('GET', '/api/applications', { token: lee })).body.map((a: any) => a.id), [app.id])
+  })
+
+  test('disable deletes the Cloud copy but keeps the account', async () => {
+    const mo = await signup('mo@example.com', 'mo-password-1')
+    await call('POST', '/api/applications', { token: mo, body: { company: { name: 'Figma' }, application: { role: 'Designer' } } })
+    await call('POST', '/api/resumes', { token: mo, body: { name: 'CV', set_current: true } })
+    await call('POST', '/api/portal-events', { token: mo, body: [{ type: 'sync' }] })
+    await call('PUT', '/api/ai-keys/claude', { token: mo, body: { secret: 'sk-ant' } })
+
+    assert.equal((await call('POST', '/api/cloud/disable', { token: mo, body: { password: 'nope' } })).status, 403)
+    assert.equal((await call('GET', '/api/applications', { token: mo })).body.length, 1, 'wrong password changes nothing')
+
+    const off = await call('POST', '/api/cloud/disable', { token: mo, body: { password: 'mo-password-1' } })
+    assert.equal(off.status, 200)
+    const [{ id }] = await sql`select id from users where email = 'mo@example.com'`
+    for (const table of ['companies', 'applications', 'resumes', 'portal_events', 'portal_connections', 'ai_runs', 'ai_provider_keys']) {
+      const [{ n }] = await sql`select count(*)::int as n from ${sql(table)} where user_id = ${id}`
+      assert.equal(n, 0, table)
+    }
+    assert.equal((await call('GET', '/api/applications', { token: mo })).status, 409)
+    const login = await call('POST', '/api/auth/login', { body: { email: 'mo@example.com', password: 'mo-password-1' } })
+    assert.equal(login.status, 200)
+    assert.equal(login.body.user.cloud_sync, false)
   })
 })

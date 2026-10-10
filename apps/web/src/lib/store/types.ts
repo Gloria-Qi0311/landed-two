@@ -94,6 +94,8 @@ export type DbAiRun = {
   created_at: string
 }
 
+/** Account-level (users row on the server, not part of either store);
+ *  carried in snapshots only for backup-file compatibility. */
 export type Profile = { onboarded_at: string | null }
 
 // ── inputs ────────────────────────────────────────────────────────────────
@@ -164,9 +166,6 @@ export function snapshotRowCount(s: Snapshot): number {
 
 export interface DataStore {
   readonly kind: 'local' | 'cloud'
-
-  getProfile(): Promise<Profile>
-  updateProfile(patch: Profile): Promise<Profile>
 
   listCompanies(): Promise<DbCompany[]>
   listApplications(): Promise<DbApplication[]> // last_activity_at desc

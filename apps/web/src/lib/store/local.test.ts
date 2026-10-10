@@ -100,7 +100,6 @@ describe('snapshots', () => {
     await a.addResume({ name: 'CV', parsed_json: { basic: { name: 'Erin' } } as never, set_current: true })
     await a.addPortalEvents([{ type: 'status-change', application_id: app.id }])
     await a.addAiRun({ task: 'jd_breakdown', provider: 'claude', prompt_text: 'p', response_text: 'r', parsed_json: [1], parse_format: 'json' })
-    await a.updateProfile({ onboarded_at: '2026-10-09T00:00:00.000Z' })
 
     const snap = await a.exportSnapshot()
     expect(snap.format).toBe(BACKUP_FORMAT)
@@ -111,17 +110,21 @@ describe('snapshots', () => {
     await b.addApplication({ name: 'Old' }, { role: 'replaced' })
     await b.replaceWith(snap)
     expect((await b.listApplications()).map((r) => [r.id, r.role, r.user_id])).toEqual([[app.id, 'PM', 'local']])
-    expect((await b.getProfile()).onboarded_at).toBe('2026-10-09T00:00:00.000Z')
     expect(await b.exportSnapshot()).toMatchObject({ applications: snap.applications, resumes: snap.resumes })
   })
 
-  test('clearAll empties the device but keeps the onboarding flag', async () => {
+  test('clearAll empties the device', async () => {
     const store = fresh()
     await store.addApplication({ name: 'Stripe' }, { role: 'PM' })
-    await store.updateProfile({ onboarded_at: '2026-10-09T00:00:00.000Z' })
     expect(await store.isEmpty()).toBe(false)
     await store.clearAll()
     expect(await store.isEmpty()).toBe(true)
-    expect((await store.getProfile()).onboarded_at).toBe('2026-10-09T00:00:00.000Z')
+  })
+
+  test('each account gets its own database', async () => {
+    const alice = createLocalStore('landed-alice')
+    const bob = createLocalStore('landed-bob')
+    await alice.addApplication({ name: 'Stripe' }, { role: 'PM' })
+    expect(await bob.isEmpty()).toBe(true)
   })
 })

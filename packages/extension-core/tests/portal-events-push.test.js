@@ -117,6 +117,11 @@ describe('pushEvents', () => {
     expect(res).toEqual({ ok: false, needsAuth: true })
   })
 
+  test('returns cloudOff on 409 (account keeps data on-device)', async () => {
+    const res = await pushEvents(fakeFetch(409, '{"code":"cloud_off"}'), URL_, TOKEN, [mapEventToRow(applied(), USER)])
+    expect(res).toEqual({ ok: false, cloudOff: true })
+  })
+
   test('returns needsAuth on 403', async () => {
     const res = await pushEvents(fakeFetch(403), URL_, TOKEN, [mapEventToRow(applied(), USER)])
     expect(res).toEqual({ ok: false, needsAuth: true })

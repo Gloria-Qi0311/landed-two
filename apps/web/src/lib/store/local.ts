@@ -1,6 +1,6 @@
-// Local store — every row lives in this browser's IndexedDB (via Dexie).
-// This is the default: Landed works fully without an account, and nothing
-// leaves the device until the user turns on Landed Cloud.
+// Local store — every row lives in this browser's IndexedDB (via Dexie), one
+// database per account. This is the default: nothing leaves the device
+// until the account turns on Landed Cloud sync.
 //
 // It mirrors the server's semantics (apps/server/src/routes/*) closely —
 // same defaults, same enum checks, same "reference must exist" rules — so a
@@ -10,7 +10,7 @@ import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
   type AiRunInput, type ApplicationInput, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
-  type DbPortalEvent, type DbResume, type DemoImport, type PortalEventInput, type Profile, type Snapshot,
+  type DbPortalEvent, type DbResume, type DemoImport, type PortalEventInput, type Snapshot,
 } from './types'
 
 const LOCAL_USER = 'local'
@@ -53,6 +53,9 @@ const now = () => {
 }
 const uuid = () => crypto.randomUUID()
 
+// v1 shipped a `meta` table (device profile); profile moved to the account
+// on the server. The table stays in the schema — Dexie versions are
+// append-only — but nothing reads or writes it.
 type Meta = { key: string; value: unknown }
 
 class LandedDB extends Dexie {
@@ -139,16 +142,6 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
 
   const store: LocalStore = {
     kind: 'local',
-
-    async getProfile() {
-      const row = await db.meta.get('profile')
-      return (row?.value as Profile | undefined) ?? { onboarded_at: null }
-    },
-    async updateProfile(patch) {
-      const profile = { onboarded_at: patch.onboarded_at ?? null }
-      await db.meta.put({ key: 'profile', value: profile })
-      return profile
-    },
 
     async listCompanies() {
       return db.companies.toArray()
@@ -317,11 +310,11 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
     },
 
     async exportSnapshot(): Promise<Snapshot> {
-      return db.transaction('r', [db.meta, ...SNAPSHOT_TABLES.map((t) => db[t])], async () => ({
+      return db.transaction('r', SNAPSHOT_TABLES.map((t) => db[t]), async () => ({
         format: BACKUP_FORMAT,
         version: BACKUP_VERSION,
         exported_at: now(),
-        profile: await store.getProfile(),
+        profile: { onboarded_at: null }, // account-level, lives on the server
         companies: (await db.companies.toArray()).map(strip),
         applications: (await db.applications.toArray()).map(strip),
         resumes: (await db.resumes.toArray()).map(strip),
@@ -337,7 +330,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
     },
     async replaceWith(snapshot) {
       askPersist()
-      await db.transaction('rw', [db.meta, ...SNAPSHOT_TABLES.map((t) => db[t])], async () => {
+      await db.transaction('rw', SNAPSHOT_TABLES.map((t) => db[t]), async () => {
         for (const t of SNAPSHOT_TABLES) await db[t].clear()
         const own = <T,>(rows: T[] | undefined) => (rows ?? []).map((r) => ({ ...r, user_id: LOCAL_USER }))
         await db.companies.bulkAdd(own(snapshot.companies) as DbCompany[])
@@ -346,11 +339,8 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         await db.portal_connections.bulkAdd(own(snapshot.portal_connections) as DbPortalConnection[])
         await db.portal_events.bulkAdd(own(snapshot.portal_events) as DbPortalEvent[])
         await db.ai_runs.bulkAdd(own(snapshot.ai_runs) as DbAiRun[])
-        await db.meta.put({ key: 'profile', value: { onboarded_at: snapshot.profile?.onboarded_at ?? null } })
       })
     },
-    // Drops every row but keeps the device's profile (onboarding seen), so
-    // signing out of Cloud later doesn't replay the tour on this device.
     async clearAll() {
       await db.transaction('rw', SNAPSHOT_TABLES.map((t) => db[t]), async () => {
         for (const t of SNAPSHOT_TABLES) await db[t].clear()

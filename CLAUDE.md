@@ -13,11 +13,13 @@ This applies to:
 - Commits made via PR branches
 - Squash-merge commit messages (use the PR title + a clean body; no trailer)
 
-## Local-first: data lives in the browser unless the user turns on Landed Cloud
+## Local-first: everyone signs in, data stays in the browser unless the account turns on Cloud sync
 
-By default every row lives in the browser's IndexedDB (`apps/web/src/lib/store/local.ts`, Dexie) — no account, nothing sent to a server. **Landed Cloud** is opt-in: signing in switches the app to `apps/web/src/lib/store/cloud.ts`, which talks to `apps/server`. Turning Cloud on uploads the device snapshot and clears the device; leaving Cloud downloads it back and deletes the account (`apps/web/src/lib/cloud.ts`).
+Every user signs in (email + password, `apps/server`), but an account's data lives in **its own** IndexedDB database in the browser (`landed-<userId>`, `apps/web/src/lib/store/local.ts`, Dexie) unless the account turns on **Landed Cloud sync** (`users.cloud_sync`). With sync on, the app uses `apps/web/src/lib/store/cloud.ts` → `apps/server`. Turning sync on uploads the device data and clears it (`POST /api/cloud/enable`); turning it off copies Cloud data to the device, then deletes it server-side but keeps the account (`POST /api/cloud/disable`). Flows: `apps/web/src/lib/cloud.ts`.
 
-- **Hooks and components only use `useStore()`** — never call `api` directly for data. A new data operation goes on the `DataStore` interface (`lib/store/types.ts`) and must be implemented in **both** `local.ts` and `cloud.ts` (+ the server route), with the same defaults and validation, so local data always uploads cleanly.
+- **The server enforces it**: every data route sits behind `requireCloud` and answers `409 { code: 'cloud_off' }` for accounts with sync off. Only account-level routes (`/auth/*`, `/me`, `/cloud/*`) work for everyone. Never add a data route outside the `requireCloud` group, and never store user data server-side for a sync-off account.
+- The signed-in account (`{id, email, cloud_sync}`, no secrets) is cached in `localStorage['landed:account']` so a sync-off account keeps working offline when the server is unreachable; it's cleared on sign-out.
+- **Hooks and components only use `useStore()` for data** — never call `api` directly for it. A new data operation goes on the `DataStore` interface (`lib/store/types.ts`) and must be implemented in **both** `local.ts` and `cloud.ts` (+ the server route), with the same defaults and validation, so local data always uploads cleanly.
 - **Snapshot format** (`landed-backup` v1) is shared by backup files, `GET /api/export` and `POST /api/sync/upload`. Adding a table or column means updating `SNAPSHOT_TABLES` / types on the web side and `COLUMNS` in `apps/server/src/routes/sync.ts`; bump `BACKUP_VERSION` if old files can't be read as-is. Rows carry client-generated UUIDs, which is what makes upload idempotent.
 - Local schema changes go in a new Dexie `this.version(n)` block in `local.ts`; never edit an existing version.
 - **Extension ↔ page bridge**: in local mode the extension can't reach a server, so the open Landed tab pulls queued portal events and pushes resumes over `window.postMessage` (`apps/web/src/hooks/extension-bridge.ts` ↔ `apps/extension/lib/web-bridge.js` + `lib/bridge-handler.js`). Every read-modify-write of the extension's pending queue goes through `withQueueLock` in `background.js`. Landed web origins are listed in both `lib/config.js` (`WEB_ORIGINS`) and `manifest.json` — keep them in sync when adding a production origin.
@@ -33,9 +35,9 @@ Supabase was removed. The API server (`apps/server`, Hono + postgres.js) owns Cl
 
 ## Per-user state lives in the data store, not localStorage
 
-Anything tied to the user (onboarding completion, preferences, anything that should move with their data to and from Cloud) goes through the store's profile — `apps/web/src/hooks/profile.ts` (`useOnboardedAt` / `useMarkOnboarded` / `useResetOnboarded` pattern), backed by the local `meta` table or `users` via `GET/PATCH /api/me`.
+Account-level state (onboarding completion, preferences — things that should follow the person to any device regardless of Cloud sync) goes in the `users` row via `GET/PATCH /api/me`, read/written through `apps/web/src/hooks/profile.ts` (`useOnboardedAt` / `useMarkOnboarded` / `useResetOnboarded` pattern). Job-hunt data never goes there — it belongs in the data store.
 
-`localStorage` is reserved for genuinely client-local UI state: `landed:theme`, `landed:last-email`, `landed:mode` (which store this device last used), URL filter preferences. **Never** use it for user-attached state — the localStorage `landed:onboarded_at` flag was removed because it broke on sign-out and leaked across accounts (commit `3d5a489`).
+`localStorage` is reserved for genuinely client-local UI state: `landed:theme`, `landed:last-email`, `landed:account` (the offline session cache above), URL filter preferences. **Never** use it for user-attached state — the localStorage `landed:onboarded_at` flag was removed because it broke on sign-out and leaked across accounts (commit `3d5a489`).
 
 ## portal_connections uses a real upsert
 

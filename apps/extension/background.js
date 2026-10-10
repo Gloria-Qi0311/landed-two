@@ -342,6 +342,14 @@ async function drainPendingEventsLocked() {
     refreshBadge()
     return
   }
+  if (result.cloudOff) {
+    // Signed in, but the account keeps its data on-device (Landed Cloud sync
+    // off). The open Landed tab drains the queue over the page bridge; don't
+    // re-ask the server every minute — check again in 30 minutes in case
+    // sync gets turned on.
+    await saveBackoffState({ consecutive_failures: 0, next_retry_at: new Date(Date.now() + 30 * 60_000).toISOString() })
+    return
+  }
   if (result.needsAuth) {
     chrome.storage.local.set({ [NEEDS_AUTH_KEY]: new Date().toISOString() })
     // Queue intact — retry on next alarm after the user re-authenticates.

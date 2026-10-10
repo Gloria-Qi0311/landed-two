@@ -1,6 +1,6 @@
 # Handoff: Landed — Job Hunt Operations Tool
 
-> **Running it:** `pnpm install && pnpm dev` (needs a local Postgres). Landed is **local-first**: data lives in the browser by default, and the optional **Landed Cloud** (`apps/server`, Hono + Postgres) syncs it across devices. See [`apps/server/README.md`](apps/server/README.md) for setup, configuration, and deployment, and `CLAUDE.md` for the data-layer rules. The design handoff below predates both changes: read "Supabase" as Landed Cloud, and note there is no login gate.
+> **Running it:** `pnpm install && pnpm dev` (needs a local Postgres). Landed is **local-first**: everyone signs in, but each account's data lives in the browser unless the account turns on **Landed Cloud sync** (`apps/server`, Hono + Postgres) to sync across devices. See [`apps/server/README.md`](apps/server/README.md) for setup, configuration, and deployment, and `CLAUDE.md` for the data-layer rules. The design handoff below predates both changes: read "Supabase" as `apps/server`.
 
 ## Overview
 

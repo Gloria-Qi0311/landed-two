@@ -15,7 +15,7 @@ import type { Config } from './config.ts'
 import type { Sql } from './db.ts'
 import { fail, jsonBody } from './http.ts'
 
-export type SessionUser = { id: string; email: string }
+export type SessionUser = { id: string; email: string; cloud_sync: boolean }
 export type AppEnv = { Variables: { user: SessionUser; sessionHash: string } }
 
 export const SESSION_COOKIE = 'landed_session'
@@ -78,8 +78,8 @@ export function requireUser(sql: Sql): MiddlewareHandler<AppEnv> {
     const token = readToken(c)
     if (!token) fail(401, 'not signed in')
     const hash = sha256(token)
-    const [row] = await sql<{ id: string; email: string; expires_at: string; last_used_at: string }[]>`
-      select u.id, u.email, s.expires_at, s.last_used_at
+    const [row] = await sql<(SessionUser & { expires_at: string; last_used_at: string })[]>`
+      select u.id, u.email, u.cloud_sync, s.expires_at, s.last_used_at
       from sessions s join users u on u.id = s.user_id
       where s.token_hash = ${hash}`
     if (!row || Date.parse(row.expires_at) < Date.now()) {
@@ -91,7 +91,7 @@ export function requireUser(sql: Sql): MiddlewareHandler<AppEnv> {
         update sessions set last_used_at = now(), expires_at = ${new Date(Date.now() + SESSION_TTL_MS)}
         where token_hash = ${hash}`
     }
-    c.set('user', { id: row.id, email: row.email })
+    c.set('user', { id: row.id, email: row.email, cloud_sync: row.cloud_sync })
     c.set('sessionHash', hash)
     await next()
   }
@@ -161,7 +161,7 @@ export function authRoutes(sql: Sql, config: Config) {
       const [row] = await tx<SessionUser[]>`
         insert into users (email, password_hash) values (${email}, ${passwordHash})
         on conflict (email) do nothing
-        returning id, email`
+        returning id, email, cloud_sync`
       if (!row) fail(409, 'an account with this email already exists — sign in instead')
       return row
     })
@@ -176,14 +176,14 @@ export function authRoutes(sql: Sql, config: Config) {
       fail(429, 'too many failed attempts — try again in 15 minutes')
     }
     const [row] = await sql<(SessionUser & { password_hash: string })[]>`
-      select id, email, password_hash from users where email = ${email}`
+      select id, email, cloud_sync, password_hash from users where email = ${email}`
     const ok = await verifyPassword(password, row?.password_hash ?? DUMMY_HASH)
     if (!row || !ok) {
       for (const k of keys) failures.set(k, [...recentFailures(k), Date.now()])
       fail(401, 'wrong email or password')
     }
     for (const k of keys) failures.delete(k)
-    return startSession(c, { id: row.id, email: row.email }, mode)
+    return startSession(c, { id: row.id, email: row.email, cloud_sync: row.cloud_sync }, mode)
   })
 
   app.post('/logout', async (c) => {
@@ -199,12 +199,20 @@ export function authRoutes(sql: Sql, config: Config) {
     const token = readToken(c)
     if (!token) return c.json({ user: null })
     const [row] = await sql<SessionUser[]>`
-      select u.id, u.email from sessions s join users u on u.id = s.user_id
+      select u.id, u.email, u.cloud_sync from sessions s join users u on u.id = s.user_id
       where s.token_hash = ${sha256(token)} and s.expires_at > now()`
     return c.json({ user: row ?? null })
   })
 
   return app
+}
+
+/** Data routes only work for accounts that turned on Landed Cloud sync. */
+export const requireCloud: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (!c.get('user').cloud_sync) {
+    fail(409, 'Landed Cloud sync is off for this account — its data lives on your devices', { code: 'cloud_off' })
+  }
+  await next()
 }
 
 export async function deleteExpiredSessions(sql: Sql) {

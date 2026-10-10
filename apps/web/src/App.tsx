@@ -13,9 +13,9 @@ import {
   useImportDemoData,
 } from './hooks/queries';
 import { Sidebar, PageHeader, StatsBanner } from './components/shell';
-import { OnboardingTour, ProfileMenu } from './components/auth';
-import { CloudNotice, LeaveCloudDialog, RestoreBackupDialog, TurnOnCloudDialog } from './components/cloud';
-import { downloadBackup, readBackupFile, signOutOfCloud } from './lib/cloud';
+import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
+import { OfflineNotice, RestoreBackupDialog, TurnOffCloudDialog, TurnOnCloudDialog } from './components/cloud';
+import { downloadBackup, readBackupFile, signOut } from './lib/cloud';
 import { currentStore, type Snapshot } from './lib/store';
 import { Icon } from './components/primitives';
 import { KanbanView } from './components/kanban';
@@ -43,28 +43,69 @@ function usePreviewEmpty() {
   return params.get('preview') === 'empty';
 }
 
+// Login gate. Everyone signs in; the account's cloud_sync flag then decides
+// where its data lives (lib/store). SignedInApp remounts — and the query
+// cache is cleared — whenever the account or its sync mode changes, so no
+// rows or UI state carry over between the two.
 export function App() {
   const [theme, setTheme] = useState<string>(
     () => localStorage.getItem('landed:theme') || 'cool'
   );
-  const [openApp, setOpenApp] = useState<string | null>(null);
-  const [addModalOpen, setAddModalOpen] = useState(false);
-
-  // Landed is local-first: no login gate. `user` is set only while this
-  // browser is signed in to Landed Cloud, which switches the data store
-  // (lib/store) from this device to the API server.
   const user = useAuth((s) => s.user);
   const authReady = useAuth((s) => s.ready);
   const hydrateAuth = useAuth((s) => s.hydrate);
-  const account = user ? { mode: 'cloud' as const, email: user.email } : { mode: 'local' as const };
-  const [dialog, setDialog] = useState<null | 'turn-on' | 'sign-in' | 'leave' | { restore: Snapshot }>(null);
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  // Theme: apply on <body> + persist (the login screen is themed too)
+  useEffect(() => {
+    document.body.setAttribute('data-theme', theme);
+    localStorage.setItem('landed:theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    hydrateAuth();
+  }, [hydrateAuth]);
+
+  // Account + mode identity. Undefined until hydrated, so the initial
+  // hydration (reloads, bookmarks) doesn't count as a switch.
+  const sessionKey = user ? `${user.id}:${user.cloud_sync ? 'cloud' : 'local'}` : null;
+  const prevKeyRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!authReady) return;
+    const prev = prevKeyRef.current;
+    prevKeyRef.current = sessionKey;
+    if (prev === undefined || prev === sessionKey) return;
+    queryClient.clear();
+    // Fresh start on /applications so nobody lands on a URL that only made
+    // sense for the previous account or mode.
+    navigate('/applications');
+  }, [authReady, sessionKey, queryClient, navigate]);
+
+  // While the session probe runs, render nothing — avoids flashing the
+  // login screen at a signed-in user.
+  if (!authReady) {
+    return <div style={{ height: '100vh', width: '100vw', background: 'var(--bg)' }} />;
+  }
+  if (!user) return <LoginScreen />;
+  return <SignedInApp key={sessionKey!} theme={theme} setTheme={setTheme} />;
+}
+
+function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string) => void }) {
+  const [openApp, setOpenApp] = useState<string | null>(null);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+
+  const user = useAuth((s) => s.user)!;
+  const account = { mode: user.cloud_sync ? ('cloud' as const) : ('local' as const), email: user.email };
+  const [dialog, setDialog] = useState<null | 'sync-on' | 'sync-off' | { restore: Snapshot }>(null);
   const backupInput = useRef<HTMLInputElement>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [showTour, setShowTour] = useState(false);
+  const queryClient = useQueryClient();
 
-  // Data layer (TanStack Query → active store: this device or Landed Cloud).
-  // Query hooks wait for the Cloud session probe before firing.
+  // Data layer (TanStack Query → the account's store: this device's
+  // database, or Landed Cloud when the account syncs).
   const appsQuery = useApplications();
   useExtensionBridge();
   const companiesQuery = useCompanies();
@@ -72,61 +113,37 @@ export function App() {
   const addApp = useAddApplication();
   const importDemo = useImportDemoData();
 
-  const apps = appsQuery.data ?? [];
   // Companies for rendering: prefer the user's table; fall back to the
   // catalog so newly-added apps don't visually break before the next refetch.
   const companies = (companiesQuery.data && companiesQuery.data.length > 0)
     ? companiesQuery.data
     : COMPANY_CATALOG;
+  // Every view looks an application's company up by id, but the two queries
+  // resolve independently (on a fresh load or mode switch, and right after
+  // an add the new company lands a beat after the app). Only hand the views
+  // applications whose company has arrived; the rest show up a moment later.
+  const companyIds = useMemo(() => new Set(companies.map((c: { id: string }) => c.id)), [companies]);
+  const apps = useMemo(
+    () => (appsQuery.data ?? []).filter((a) => companyIds.has(a.companyId)),
+    [appsQuery.data, companyIds],
+  );
 
-  // Theme: apply on <body> + persist
-  useEffect(() => {
-    document.body.setAttribute('data-theme', theme);
-    localStorage.setItem('landed:theme', theme);
-  }, [theme]);
-
-  // Hydrate the Cloud session on mount, then react to user changes (turning
-  // Cloud on/off, sign-out, server-side expiry). On every change we clear
-  // the TanStack Query cache so one account's rows (or this device's) never
-  // show up under another.
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  useEffect(() => {
-    hydrateAuth();
-  }, [hydrateAuth]);
-  // Previous user id, so we can tell a fresh sign-in (null → user, after
-  // hydration) from the initial hydration itself. Undefined until hydrated.
-  const prevUserIdRef = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
-    if (!authReady) return;
-    const prev = prevUserIdRef.current;
-    const next = user?.id ?? null;
-    prevUserIdRef.current = next;
-    if (prev === undefined || prev === next) return;
-    queryClient.clear();
-    // Reset to /applications when switching data sources so nobody lands on
-    // a URL that only made sense for the other one. Bookmarks + reloads
-    // (initial hydration) stay on the current URL.
-    navigate('/applications');
-  }, [authReady, user, queryClient, navigate]);
-
-  // Onboarding flag — server-side per-user (users.onboarded_at). The
-  // earlier localStorage approach was destructive (cleared on sign-out, not
-  // scoped by user_id) so users re-saw the tour every time they signed back
-  // in and on every new account. Source of truth is now the DB; survives
-  // sign-out, scoped to the signed-in user by the API.
-  const { data: onboardedAt, isLoading: profileLoading } = useOnboardedAt();
+  // Onboarding flag — account-level on the server (users.onboarded_at), so
+  // the tour shows once per account on any device. The earlier localStorage
+  // flag was destructive (cleared on sign-out, not scoped by user) and was
+  // removed. Only acts on a successful read, so offline mode skips the tour.
+  const { data: onboardedAt, isSuccess: profileLoaded } = useOnboardedAt();
   const markOnboarded = useMarkOnboarded();
   const resetOnboarded = useResetOnboarded();
   useEffect(() => {
-    if (authReady && !profileLoading && !onboardedAt) {
+    if (profileLoaded && !onboardedAt) {
       setShowTour(true);
     }
-  }, [authReady, profileLoading, onboardedAt]);
+  }, [profileLoaded, onboardedAt]);
 
   const handleSignOut = async () => {
     setProfileOpen(false);
-    await signOutOfCloud();
+    await signOut();
   };
   const handleExport = async () => {
     setAccountError(null);
@@ -155,12 +172,6 @@ export function App() {
     setProfileOpen(false);
   };
 
-  // While the Cloud session probe runs, render nothing — avoids flashing
-  // this device's (possibly empty) local data at a Cloud user.
-  if (!authReady) {
-    return <div style={{ height: '100vh', width: '100vw', background: 'var(--bg)' }} />;
-  }
-
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)' }}>
       <Sidebar apps={apps} account={account} onProfileClick={() => setProfileOpen((o) => !o)} />
@@ -172,8 +183,8 @@ export function App() {
         onShowTour={handleShowTour}
         theme={theme}
         setTheme={setTheme}
-        onTurnOnCloud={() => setDialog('turn-on')}
-        onLeaveCloud={() => setDialog('leave')}
+        onTurnOnCloud={() => setDialog('sync-on')}
+        onLeaveCloud={() => setDialog('sync-off')}
         onSignOut={handleSignOut}
         onExport={handleExport}
         onImport={() => backupInput.current?.click()}
@@ -190,10 +201,8 @@ export function App() {
       />
 
       {showTour && <OnboardingTour onClose={handleTourClose} />}
-      {(dialog === 'turn-on' || dialog === 'sign-in') && (
-        <TurnOnCloudDialog signIn={dialog === 'sign-in'} onClose={() => setDialog(null)} />
-      )}
-      {dialog === 'leave' && <LeaveCloudDialog onClose={() => setDialog(null)} />}
+      {dialog === 'sync-on' && <TurnOnCloudDialog onClose={() => setDialog(null)} />}
+      {dialog === 'sync-off' && <TurnOffCloudDialog onClose={() => setDialog(null)} />}
       {dialog && typeof dialog === 'object' && (
         <RestoreBackupDialog
           snapshot={dialog.restore}
@@ -203,7 +212,7 @@ export function App() {
       )}
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
-        <CloudNotice onSignIn={() => setDialog('sign-in')} />
+        <OfflineNotice />
         {accountError && (
           <div role="alert" style={{ margin: '10px 28px 0', padding: '8px 12px', borderRadius: 8, fontSize: 12, background: 'oklch(0.97 0.03 30)', border: '0.5px solid oklch(0.88 0.06 30)', color: 'oklch(0.45 0.15 30)', display: 'flex', gap: 10 }}>
             <span style={{ flex: 1 }}>{accountError}</span>

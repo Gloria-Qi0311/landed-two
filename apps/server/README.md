@@ -1,9 +1,10 @@
 # @landed/server
 
-**Landed Cloud**, the optional backend: a Hono API on Node + PostgreSQL. Landed is local-first, so the web app keeps data in the browser by default and only uses this server once a user turns on Landed Cloud. It replaced Supabase and owns:
+The Landed backend: a Hono API on Node + PostgreSQL. It replaced Supabase. Landed is local-first: every user signs in here, but an account's job-hunt data stays in the browser unless the account turns on **Landed Cloud sync** (`users.cloud_sync`). The server owns:
 
 - **Auth**: email + password (scrypt) with opaque session tokens. The web app gets an httpOnly cookie and the extension gets a Bearer token.
-- **Data**: REST endpoints for every table. Each query is scoped to the signed-in user.
+- **Cloud sync switch**: `POST /cloud/enable` uploads the device snapshot and turns sync on in one transaction; `POST /cloud/disable` (password) deletes the Cloud copy and turns it off, keeping the account.
+- **Data**: REST endpoints for every table, scoped to the signed-in user. They only serve accounts with sync on; others get `409 { code: "cloud_off" }`.
 - **Realtime**: an insert on `portal_events` fires a Postgres `NOTIFY`, which the server sends to that user over SSE at `GET /api/portal-events/stream`.
 - **portal-ingest**: `POST /api/portal-ingest`, ported from the former Edge Function.
 - **AI provider keys**: encrypted at rest with AES-256-GCM using `SECRETS_KEY`.
@@ -41,13 +42,14 @@ pnpm --filter @landed/server test
 
 ## API surface
 
-All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` requires a session.
+All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` requires a session; everything below `/cloud/*` additionally requires Cloud sync on.
 
 | Route | Purpose |
 |---|---|
 | `POST /auth/signup`, `POST /auth/login` | `{ email, password, mode? }`. With `mode: "token"` the response returns a Bearer token (extension); otherwise it sets the cookie. |
 | `POST /auth/logout`, `GET /auth/session` | Revoke the session / probe who is signed in |
-| `GET/PATCH /me` | Profile (`onboarded_at`) |
+| `GET/PATCH /me` | Account profile (`onboarded_at`, `cloud_sync`); works with sync off |
+| `POST /cloud/enable`, `POST /cloud/disable` | Turn Cloud sync on (body: device snapshot) / off (`{ password }`); work with sync off |
 | `GET /companies`, `GET/POST /applications`, `PATCH /applications/:id`, `POST /import` | Pipeline data. `POST /applications` finds or creates the company. |
 | `GET/POST /resumes`, `PATCH/DELETE /resumes/:id`, `POST /resumes/:id/current` | Resumes; at most one is current |
 | `GET/PUT /portal-connections` | List / upsert on (user, company, provider) |
@@ -55,7 +57,7 @@ All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` 
 | `POST /portal-ingest` | One event plus an optional connection upsert |
 | `POST /ai-runs` | Persist an AI round-trip |
 | `GET /export`, `POST /sync/upload` | Whole-account snapshot (`landed-backup` v1) for download, and idempotent upload from a device (merges companies by name) |
-| `DELETE /me` | `{ password }`: delete the account and all its rows |
+| `DELETE /me` | `{ password }`: delete the account and all its rows (works with sync off) |
 | `GET /ai-keys`, `PUT /ai-keys/:provider`, `DELETE /ai-keys/:id` | Write-only provider keys |
 
 ## Production (Mac mini)

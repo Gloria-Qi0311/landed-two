@@ -165,10 +165,10 @@ export const Sidebar = ({ apps, account, onProfileClick }) => {
           <AccountAvatar account={account} size={24} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {account.mode === 'cloud' ? account.email : 'This device'}
+              {account.email}
             </div>
             <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>
-              {account.mode === 'cloud' ? 'Landed Cloud' : 'Local only'}
+              {account.mode === 'cloud' ? 'Landed Cloud' : 'On this device'}
             </div>
           </div>
           <Icon name="chevronRight" size={12} stroke={2} />

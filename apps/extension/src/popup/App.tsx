@@ -276,8 +276,9 @@ type DbResume = {
 const byCurrentThenNewest = (list: DbResume[]) =>
   [...list].sort((a, b) => Number(b.is_current) - Number(a.is_current) || b.created_at.localeCompare(a.created_at))
 
-/** Resume picker + fill. `email` set = signed in to Landed Cloud (resumes from
- *  the API); null = local mode (resumes handed over by the open Landed tab). */
+/** Resume picker + fill. Resumes come from the API when the extension is
+ *  signed in to an account with Landed Cloud sync on; otherwise (not signed
+ *  in, or the account keeps its data on-device) from the open Landed tab. */
 function Workspace({ email, onSignOut, onSignIn, busy, error }: {
   email: string | null
   onSignOut?: () => void
@@ -285,7 +286,9 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
   busy: boolean
   error: string | null
 }) {
-  const inCloud = email !== null
+  const signedIn = email !== null
+  const [cloudOff, setCloudOff] = useState(false)
+  const inCloud = signedIn && !cloudOff
   const [cloudResumes, setCloudResumes] = useState<DbResume[] | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [fillingId, setFillingId] = useState<string | null>(null)
@@ -295,16 +298,19 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
   const handedOver = useStorageSentinel<{ resumes: DbResume[]; synced_at: string }>(config.LOCAL_RESUMES_KEY)
 
   useEffect(() => {
-    if (!inCloud) return
+    if (!signedIn) return
     ;(async () => {
       try {
         setCloudResumes(byCurrentThenNewest(await auth.apiFetch<DbResume[]>('/resumes')))
       } catch (e) {
-        setLoadErr(toErr(e))
-        setCloudResumes([])
+        if ((e as { code?: string }).code === 'cloud_off') setCloudOff(true)
+        else {
+          setLoadErr(toErr(e))
+          setCloudResumes([])
+        }
       }
     })()
-  }, [inCloud])
+  }, [signedIn])
 
   const resumes = inCloud ? cloudResumes : byCurrentThenNewest(handedOver?.resumes ?? [])
 
@@ -337,11 +343,12 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
         <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
           {inCloud ? 'Landed Cloud' : 'This device'}
         </div>
-        {inCloud
-          ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{email}</div>
-          : <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-              Local mode — nothing leaves this browser. Portal updates reach Landed whenever a Landed tab is open.
-            </div>}
+        {signedIn && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, marginBottom: inCloud ? 0 : 4 }}>{email}</div>}
+        {!inCloud && (
+          <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+            Your data stays in this browser. Portal updates reach Landed whenever a Landed tab is open.
+          </div>
+        )}
       </div>
 
       {inCloud && fatalState && (
@@ -399,9 +406,9 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       )}
       {loadErr && <ErrorBanner message={loadErr} />}
 
-      {inCloud ? (
+      {signedIn ? (
         <button onClick={onSignOut} disabled={busy} className="btn-secondary" style={{ marginTop: 'auto', justifyContent: 'center' }}>
-          {busy ? 'Signing out…' : 'Sign out of Cloud'}
+          {busy ? 'Signing out…' : 'Sign out'}
         </button>
       ) : (
         <button onClick={onSignIn} className="btn-secondary" style={{ marginTop: 'auto', justifyContent: 'center' }}>

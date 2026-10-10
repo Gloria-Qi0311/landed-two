@@ -1,10 +1,12 @@
-// Account + onboarding components — profile/account menu, first-run tour.
-// Landed is local-first: there is no login gate. The account menu shows
-// where data lives (this device vs Landed Cloud) and hosts the switches.
+// Account + onboarding components — login screen, account menu, first-run
+// tour. Landed is local-first: everyone signs in, but data stays in the
+// browser unless the account turns on Landed Cloud sync. The account menu
+// shows where data lives and hosts that switch.
 import React, { useState as authState, useEffect as authEffect, useRef as authRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon, LandedMark, StageBadge, CompanyMark } from './primitives';
 import { COMPANIES } from '../data';
+import { useAuth } from '../lib/auth';
 
 // ---------- Profile menu (dropdown from sidebar avatar) ----------
 const THEMES = [
@@ -76,10 +78,11 @@ export function ProfileMenu({
           <AccountAvatar account={account} size={28} />
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {inCloud ? account.email : 'This device'}
+              {account.email}
             </div>
-            <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>
-              {inCloud ? 'Landed Cloud · synced' : 'Local · stays in this browser'}
+            <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Icon name={inCloud ? 'cloud' : 'device'} size={11} />
+              {inCloud ? 'Landed Cloud sync on' : 'Data stored on this device'}
             </div>
           </div>
         </div>
@@ -109,8 +112,8 @@ export function ProfileMenu({
 
       <div style={{ padding: '4px 0' }}>
         {inCloud
-          ? <Item icon={<Icon name="device" size={13} />} label="Move data to this device…" onClick={onLeaveCloud} />
-          : <Item icon={<Icon name="cloud" size={13} />} label="Turn on Landed Cloud…" onClick={onTurnOnCloud} />}
+          ? <Item icon={<Icon name="device" size={13} />} label="Turn off Cloud sync…" onClick={onLeaveCloud} />
+          : <Item icon={<Icon name="cloud" size={13} />} label="Turn on Cloud sync…" onClick={onTurnOnCloud} />}
         <Item icon={<Icon name="download" size={13} />} label="Export backup" onClick={onExport} />
         <Item icon={<Icon name="upload" size={13} />} label="Restore backup…" onClick={onImport} />
       </div>
@@ -123,26 +126,228 @@ export function ProfileMenu({
         <Item icon={<Icon name="target" size={13} />} label="Show tour again" onClick={onShowTour} />
         <Item icon={<Icon name="external" size={13} />} label="Help & docs" />
       </div>
-      {inCloud && (
-        <div style={{ borderTop: '0.5px solid var(--border)', padding: '4px 0' }}>
-          <Item icon={<Icon name="x" size={13} />} label="Sign out of Cloud" onClick={onSignOut} danger />
-        </div>
-      )}
+      <div style={{ borderTop: '0.5px solid var(--border)', padding: '4px 0' }}>
+        <Item icon={<Icon name="x" size={13} />} label="Sign out" onClick={onSignOut} danger />
+      </div>
     </div>
   );
 }
 
-// Round avatar: email initial in Cloud mode, a device glyph locally.
+// Round avatar with the email initial; tinted when the account syncs to Cloud.
 export function AccountAvatar({ account, size = 24 }) {
   const inCloud = account.mode === 'cloud';
   return (
     <div style={{
       width: size, height: size, borderRadius: size / 2, flexShrink: 0,
       background: inCloud ? 'oklch(0.85 0.06 220)' : 'var(--surface-3)',
-      color: inCloud ? 'oklch(0.35 0.15 220)' : 'var(--fg-muted)',
+      color: inCloud ? 'oklch(0.35 0.15 220)' : 'var(--fg)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.43, fontWeight: 600,
     }}>
-      {inCloud ? account.email.slice(0, 1).toUpperCase() : <Icon name="device" size={Math.round(size * 0.55)} />}
+      {account.email.slice(0, 1).toUpperCase()}
+    </div>
+  );
+}
+
+// ---------- Login screen ----------
+// Everyone signs in (email + password against apps/server). Signing in does
+// NOT move data anywhere: each account's data stays in this browser until
+// the user turns on Landed Cloud sync from the account menu.
+export function LoginScreen() {
+  const signIn = useAuth((s) => s.signIn);
+  const signUp = useAuth((s) => s.signUp);
+  const sessionExpired = useAuth((s) => s.sessionExpired);
+  const [mode, setMode] = authState('signin'); // 'signin' | 'signup'
+  const [email, setEmail] = authState(() => localStorage.getItem('landed:last-email') || '');
+  const [password, setPassword] = authState('');
+  const [loading, setLoading] = authState(false);
+  const [error, setError] = authState(null);
+  const isSignup = mode === 'signup';
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    const trimmed = email.trim();
+    try {
+      await (isSignup ? signUp : signIn)(trimmed, password);
+      localStorage.setItem('landed:last-email', trimmed);
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
+
+  const switchMode = () => {
+    setMode(isSignup ? 'signin' : 'signup');
+    setError(null);
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'var(--bg)', zIndex: 500,
+      display: 'flex', alignItems: 'stretch',
+    }}>
+      {/* Left — form */}
+      <div style={{
+        flex: '0 0 420px',
+        display: 'flex', flexDirection: 'column',
+        padding: '48px 56px',
+        borderRight: '0.5px solid var(--border)',
+        background: 'var(--surface)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 'auto' }}>
+          <LandedMark size={22} />
+          <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>Landed</span>
+        </div>
+
+        <div style={{ marginTop: 40, marginBottom: 24 }}>
+          <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.025em', lineHeight: 1.15, fontFamily: 'var(--font-display)', marginBottom: 6 }}>
+            {isSignup ? 'Create your account.' : 'Land your next role.'}
+          </div>
+          <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.55 }}>
+            {isSignup
+              ? 'Your pipeline stays in this browser. Turn on Landed Cloud sync later if you want it on every device.'
+              : 'Your data stays on your device unless you turned on Landed Cloud sync.'}
+          </div>
+        </div>
+
+        {sessionExpired && (
+          <div role="status" style={{
+            fontSize: 11.5, padding: '7px 10px', marginBottom: 12, borderRadius: 6, lineHeight: 1.5,
+            background: 'oklch(0.97 0.03 70)', border: '0.5px solid oklch(0.86 0.07 70)', color: 'oklch(0.38 0.1 60)',
+          }}>
+            Your session ended — sign in again.
+          </div>
+        )}
+
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <label htmlFor="login-email" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Email</label>
+          <input
+            id="login-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="you@work.com"
+            required
+            autoFocus={!email}
+            style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
+          />
+
+          <label htmlFor="login-password" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, marginTop: 4 }}>Password</label>
+          <input
+            id="login-password"
+            type="password"
+            autoComplete={isSignup ? 'new-password' : 'current-password'}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder={isSignup ? 'At least 8 characters' : ''}
+            minLength={isSignup ? 8 : undefined}
+            required
+            autoFocus={!!email}
+            style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
+          />
+
+          {error && (
+            <div style={{
+              fontSize: 11.5, color: 'oklch(0.45 0.15 30)',
+              padding: '6px 10px', background: 'oklch(0.97 0.03 30)',
+              border: '0.5px solid oklch(0.88 0.06 30)', borderRadius: 6,
+            }}>{error}</div>
+          )}
+
+          <button type="submit" disabled={loading || !email || !password} className="btn-primary"
+            style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px', fontSize: 12.5, opacity: (loading || !email || !password) ? 0.6 : 1 }}>
+            {loading ? (isSignup ? 'Creating account…' : 'Signing in…') : (isSignup ? 'Create account' : 'Sign in')}
+            {!loading && <Icon name="arrowRight" size={12} />}
+          </button>
+
+          <button type="button" onClick={switchMode} style={{
+            alignSelf: 'flex-start', marginTop: 6,
+            background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+            color: 'var(--accent)', fontSize: 12, fontFamily: 'inherit', fontWeight: 500,
+          }}>
+            {isSignup ? 'Already have an account? Sign in →' : 'New here? Create an account →'}
+          </button>
+        </form>
+
+        <div style={{ marginTop: 'auto', paddingTop: 24, fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
+          By continuing you agree to the <a href="#" style={{ color: 'var(--fg-muted)' }}>terms</a> and <a href="#" style={{ color: 'var(--fg-muted)' }}>privacy policy</a>. Cookies from portals never leave your browser.
+        </div>
+      </div>
+
+      {/* Right — marketing canvas */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 48, position: 'relative', overflow: 'hidden', background: 'var(--surface-2)' }}>
+        <LoginCollage />
+      </div>
+    </div>
+  );
+}
+
+function LoginCollage() {
+  return (
+    <div style={{ width: '100%', maxWidth: 520, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', fontFamily: 'var(--font-display)', lineHeight: 1.25, marginBottom: 6 }}>
+        Every application, every portal, every AI reply — one place.
+      </div>
+
+      {/* Mini kanban-ish preview */}
+      <div style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8, padding: 12, display: 'flex', gap: 8 }}>
+        {['applied','phone','onsite'].map((s, i) => (
+          <div key={s} style={{ flex: 1, padding: 8, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 6 }}>
+            <StageBadge stage={s} />
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {[0, 1, 2 - i].slice(0, 3 - i).map(j => {
+                const c = COMPANIES[i * 3 + j];
+                return c ? (
+                  <div key={j} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: 5, background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 4 }}>
+                    <CompanyMark company={c} size={16} />
+                    <span style={{ fontSize: 10.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name.split(' ')[0]}</span>
+                  </div>
+                ) : null;
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Activity card */}
+      <div style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8, padding: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <span style={{ width: 6, height: 6, borderRadius: 3, background: 'oklch(0.65 0.17 155)' }} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg)' }}>Live · auto-sync from 16 portals</span>
+        </div>
+        {[
+          { c: COMPANIES[0], from: 'Phone', to: 'Onsite', t: 'just now' },
+          { c: COMPANIES[4], from: 'Applied', to: 'Phone', t: '14 min' },
+        ].map((e, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: i === 0 ? 'none' : '0.5px solid var(--border-subtle)' }}>
+            <CompanyMark company={e.c} size={16} />
+            <span style={{ fontSize: 11, fontWeight: 500 }}>{e.c.name.split(' ')[0]}</span>
+            <span style={{ fontSize: 10.5, color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{e.from}</span>
+            <Icon name="arrowRight" size={10} />
+            <span style={{ fontSize: 10.5, color: 'oklch(0.45 0.13 240)', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>{e.to}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{e.t}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* AI router preview */}
+      <div style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8, padding: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8 }}>Route to your AI</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[
+            { name: 'ChatGPT', color: 'oklch(0.55 0.13 155)' },
+            { name: 'Claude',  color: 'oklch(0.58 0.14 40)' },
+            { name: 'Gemini',  color: 'oklch(0.55 0.13 255)' },
+          ].map(p => (
+            <div key={p.name} style={{ flex: 1, padding: '6px 8px', background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 6, height: 6, borderRadius: 3, background: p.color }} />
+              <span style={{ fontSize: 10.5, fontWeight: 500 }}>{p.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -151,7 +356,7 @@ export function AccountAvatar({ account, size = 24 }) {
 const ONBOARDING_STEPS = [
   {
     title: 'Welcome to Landed',
-    body: "Your job-hunt operations console. No account needed — everything you add stays in this browser. Turn on Landed Cloud later if you want it on every device.",
+    body: "Your job-hunt operations console. Everything you add stays in this browser — turn on Landed Cloud sync from the account menu when you want it on every device.",
     art: 'hero',
   },
   {

@@ -1,16 +1,13 @@
 // Cloud store — the same DataStore contract, backed by the Landed API
-// server (apps/server). Active while the user is signed in to Landed Cloud.
+// server (apps/server). Active for accounts with Landed Cloud sync on.
 import { api } from '../api'
 import type {
-  DataStore, DbApplication, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Profile, Snapshot,
+  DataStore, DbApplication, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
 } from './types'
 
 export function createCloudStore(): DataStore {
   return {
     kind: 'cloud',
-
-    getProfile: () => api.get<Profile>('/me'),
-    updateProfile: (patch) => api.patch<Profile>('/me', patch),
 
     listCompanies: () => api.get<DbCompany[]>('/companies'),
     listApplications: () => api.get<DbApplication[]>('/applications'),

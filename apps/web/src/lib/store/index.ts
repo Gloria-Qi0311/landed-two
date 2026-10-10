@@ -1,24 +1,41 @@
-// Picks the active store: Landed Cloud while signed in, otherwise this
-// browser's local database. Hooks call useStore() and include store.kind in
-// their query keys so the two never share cached rows.
-import { useAuth } from '../auth'
-import { createCloudStore } from './cloud'
-import { createLocalStore } from './local'
+// Picks the active store for the signed-in account: Landed Cloud when the
+// account has cloud_sync on, otherwise that account's own database in this
+// browser (one IndexedDB per account, so accounts sharing a browser never
+// see each other's local data). Hooks call useStore() and include
+// store.kind in their query keys; the query cache is cleared whenever the
+// account or its sync mode changes (App.tsx).
 import type { AiRunInsert } from '@landed/ai-roundtrip'
+import { useAuth, type User } from '../auth'
+import { createCloudStore } from './cloud'
+import { createLocalStore, type LocalStore } from './local'
 import type { DataStore } from './types'
 
-export const localStore = createLocalStore()
 export const cloudStore = createCloudStore()
 
+const localStores = new Map<string, LocalStore>()
+export function localStoreFor(userId: string): LocalStore {
+  let store = localStores.get(userId)
+  if (!store) localStores.set(userId, (store = createLocalStore(`landed-${userId}`)))
+  return store
+}
+
+function storeFor(user: User): DataStore {
+  return user.cloud_sync ? cloudStore : localStoreFor(user.id)
+}
+
+/** Only valid below the login gate (a user is always signed in there). */
 export function useStore(): { store: DataStore; ready: boolean } {
-  const signedIn = useAuth((s) => !!s.user)
+  const user = useAuth((s) => s.user)
   const ready = useAuth((s) => s.ready && !s.unreachable)
-  return { store: signedIn ? cloudStore : localStore, ready }
+  if (!user) throw new Error('useStore() used while signed out')
+  return { store: storeFor(user), ready }
 }
 
 /** Non-hook access for code outside components (e.g. the AI-run sink). */
 export function currentStore(): DataStore {
-  return useAuth.getState().user ? cloudStore : localStore
+  const user = useAuth.getState().user
+  if (!user) throw new Error('not signed in')
+  return storeFor(user)
 }
 
 /** Sink for @landed/ai-roundtrip's saveAiRun — persists one ai_runs row. */

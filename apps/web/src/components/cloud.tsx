@@ -1,11 +1,11 @@
-// Account surfaces for local-first Landed: turning Landed Cloud on/off,
-// restoring backups, and the notices shown when a Cloud session can't be
-// used. The flows themselves live in lib/cloud.ts; these are the dialogs.
+// Account surfaces for local-first Landed: turning Landed Cloud sync on/off,
+// restoring backups, and the notices shown when the server can't be reached.
+// The flows themselves live in lib/cloud.ts; these are the dialogs.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from './primitives'
 import { useAuth } from '../lib/auth'
-import { leaveCloud, restoreBackup, summarize, turnOnCloud } from '../lib/cloud'
-import { localStore, type Snapshot } from '../lib/store'
+import { restoreBackup, summarize, turnOffCloudSync, turnOnCloudSync } from '../lib/cloud'
+import { localStoreFor, type Snapshot } from '../lib/store'
 
 const FIELD = {
   label: { fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 },
@@ -79,82 +79,65 @@ function Note({ children }: { children: ReactNode }) {
   )
 }
 
-// ── Turn on Landed Cloud ─────────────────────────────────────────────────
+// ── Turn on Landed Cloud sync ────────────────────────────────────────────
 
-export function TurnOnCloudDialog({ onClose, signIn = false }: { onClose: () => void; signIn?: boolean }) {
-  const [isSignup, setIsSignup] = useState(!signIn)
-  const [email, setEmail] = useState(() => localStorage.getItem('landed:last-email') || '')
-  const [password, setPassword] = useState('')
+export function TurnOnCloudDialog({ onClose }: { onClose: () => void }) {
+  const user = useAuth((s) => s.user)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [onDevice, setOnDevice] = useState<{ applications: number; resumes: number; total: number } | null>(null)
 
   useEffect(() => {
-    localStore.exportSnapshot().then((s) => setOnDevice(summarize(s))).catch(() => {})
-  }, [])
+    if (!user) return
+    localStoreFor(user.id).exportSnapshot().then((s) => setOnDevice(summarize(s))).catch(() => {})
+  }, [user])
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
+  const turnOn = async () => {
     setBusy(true)
     setError(null)
     try {
-      await turnOnCloud({ email: email.trim(), password, isSignup })
-      localStorage.setItem('landed:last-email', email.trim())
+      await turnOnCloudSync()
       onClose()
     } catch (err) {
-      setError((err as Error).message)
+      setError(`Nothing was changed: ${(err as Error).message}`)
       setBusy(false)
     }
   }
 
-  const ready = !!email.trim() && password.length > 0
   return (
     <Dialog
       icon="cloud"
-      title={isSignup ? 'Turn on Landed Cloud' : 'Sign in to Landed Cloud'}
+      title="Turn on Landed Cloud sync"
       onClose={onClose}
       footer={<>
         <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-        <button type="submit" form="cloud-form" className="btn-primary" disabled={busy || !ready} style={{ opacity: busy || !ready ? 0.6 : 1 }}>
-          {busy ? 'Working…' : isSignup ? 'Create account & sync' : 'Sign in & sync'}
+        <button type="button" className="btn-primary" onClick={turnOn} disabled={busy} style={{ opacity: busy ? 0.6 : 1 }}>
+          {busy ? 'Moving data…' : 'Turn on sync'}
         </button>
       </>}
     >
       <div style={{ color: 'var(--fg-muted)' }}>
-        Sync your pipeline across devices and let the extension sync portals in the background.
-        Without Cloud, everything stays in this browser.
+        Your pipeline moves to Landed Cloud: it follows you to every device you sign in on, and the extension
+        can sync portals in the background even when no Landed tab is open.
       </div>
-      {onDevice && onDevice.total > 0 && (
+      {onDevice && (
         <Note>
-          <strong style={{ color: 'var(--fg)' }}>{onDevice.applications} applications</strong>
-          {onDevice.resumes > 0 && <> and <strong style={{ color: 'var(--fg)' }}>{onDevice.resumes} resumes</strong></>}
-          {' '}on this device will move to your Cloud account{isSignup ? '' : ' and merge with what is already there'}.
+          {onDevice.total > 0 ? <>
+            <strong style={{ color: 'var(--fg)' }}>{onDevice.applications} applications</strong>
+            {onDevice.resumes > 0 && <> and <strong style={{ color: 'var(--fg)' }}>{onDevice.resumes} resumes</strong></>}
+            {' '}on this device will be uploaded, then removed from this browser.
+          </> : 'Nothing on this device yet — new data will go straight to Landed Cloud.'}
         </Note>
       )}
-      <form id="cloud-form" onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <label htmlFor="cloud-email" style={FIELD.label}>Email</label>
-        <input id="cloud-email" type="email" autoComplete="email" required value={email}
-          onChange={(e) => setEmail(e.target.value)} placeholder="you@work.com" style={FIELD.input} autoFocus={!email} />
-        <label htmlFor="cloud-password" style={{ ...FIELD.label, marginTop: 4 }}>Password</label>
-        <input id="cloud-password" type="password" required value={password}
-          autoComplete={isSignup ? 'new-password' : 'current-password'}
-          minLength={isSignup ? 8 : undefined} placeholder={isSignup ? 'At least 8 characters' : ''}
-          onChange={(e) => setPassword(e.target.value)} style={FIELD.input} autoFocus={!!email} />
-      </form>
+      <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>You can turn sync off any time; your data moves back to the device you do it on.</div>
       {error && <ErrorBox message={error} />}
-      <button type="button" onClick={() => { setIsSignup(!isSignup); setError(null) }} style={{
-        alignSelf: 'flex-start', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-        color: 'var(--accent)', fontSize: 12, fontFamily: 'inherit', fontWeight: 500,
-      }}>
-        {isSignup ? 'Already have a Cloud account? Sign in →' : 'New to Landed Cloud? Create an account →'}
-      </button>
     </Dialog>
   )
 }
 
-// ── Leave Landed Cloud ───────────────────────────────────────────────────
+// ── Turn off Landed Cloud sync ───────────────────────────────────────────
 
-export function LeaveCloudDialog({ onClose }: { onClose: () => void }) {
+export function TurnOffCloudDialog({ onClose }: { onClose: () => void }) {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -164,7 +147,7 @@ export function LeaveCloudDialog({ onClose }: { onClose: () => void }) {
     setBusy(true)
     setError(null)
     try {
-      await leaveCloud(password)
+      await turnOffCloudSync(password)
       onClose()
     } catch (err) {
       setError((err as Error).message)
@@ -175,24 +158,24 @@ export function LeaveCloudDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       icon="device"
-      title="Move data back to this device"
+      title="Turn off Landed Cloud sync"
       onClose={onClose}
       footer={<>
         <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-        <button type="submit" form="leave-form" className="btn-primary" disabled={busy || !password}
-          style={{ opacity: busy || !password ? 0.6 : 1, background: 'oklch(0.5 0.16 30)', borderColor: 'oklch(0.5 0.16 30)' }}>
-          {busy ? 'Moving…' : 'Move & delete Cloud account'}
+        <button type="submit" form="sync-off-form" className="btn-primary" disabled={busy || !password}
+          style={{ opacity: busy || !password ? 0.6 : 1 }}>
+          {busy ? 'Moving…' : 'Move data here & turn off'}
         </button>
       </>}
     >
       <div>
-        Everything in your Cloud account is copied into this browser, then the Cloud account and all of
-        its data are <strong>permanently deleted</strong>.
+        Everything in Landed Cloud is copied into this browser, then <strong>deleted from Landed Cloud</strong>.
+        Your account stays — you just won't see this data on other devices anymore.
       </div>
-      <Note>Other devices signed in to this account will lose access. Export a backup first if you want an extra copy.</Note>
-      <form id="leave-form" onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <label htmlFor="leave-password" style={FIELD.label}>Confirm your password</label>
-        <input id="leave-password" type="password" autoComplete="current-password" required autoFocus
+      <Note>Want an extra copy first? Use Export backup in the account menu.</Note>
+      <form id="sync-off-form" onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <label htmlFor="sync-off-password" style={FIELD.label}>Confirm your password</label>
+        <input id="sync-off-password" type="password" autoComplete="current-password" required autoFocus
           value={password} onChange={(e) => setPassword(e.target.value)} style={FIELD.input} />
       </form>
       {error && <ErrorBox message={error} />}
@@ -207,7 +190,7 @@ export function RestoreBackupDialog({ snapshot, onClose, onRestored }: {
   onClose: () => void
   onRestored: () => void
 }) {
-  const inCloud = useAuth((s) => !!s.user)
+  const inCloud = useAuth((s) => !!s.user?.cloud_sync)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const counts = summarize(snapshot)
@@ -251,30 +234,26 @@ export function RestoreBackupDialog({ snapshot, onClose, onRestored }: {
   )
 }
 
-// ── Notices when Cloud can't be used ─────────────────────────────────────
+// ── Notice when the server can't be reached ─────────────────────────────
 
-export function CloudNotice({ onSignIn }: { onSignIn: () => void }) {
+export function OfflineNotice() {
+  const offline = useAuth((s) => s.offline)
   const unreachable = useAuth((s) => s.unreachable)
-  const sessionExpired = useAuth((s) => s.sessionExpired)
   const hydrate = useAuth((s) => s.hydrate)
-  const setUser = useAuth((s) => s.setUser)
-  if (!unreachable && !sessionExpired) return null
+  if (!offline && !unreachable) return null
   return (
     <div role="status" style={{
       margin: '10px 28px 0', padding: '9px 12px', borderRadius: 8, fontSize: 12,
       background: 'oklch(0.97 0.03 70)', border: '0.5px solid oklch(0.86 0.07 70)', color: 'oklch(0.38 0.1 60)',
       display: 'flex', alignItems: 'center', gap: 10,
     }}>
-      <Icon name="cloud" size={14} />
+      <Icon name={unreachable ? 'cloud' : 'device'} size={14} />
       <span style={{ flex: 1 }}>
         {unreachable
           ? "Can't reach Landed Cloud right now — your data is safe there. Try again in a moment."
-          : "Your Landed Cloud session ended — you're seeing this device's local data. Sign in again to see your Cloud data."}
+          : "Working offline — Landed's server can't be reached, but your data is all on this device."}
       </span>
-      {unreachable ? <>
-        <button type="button" className="btn-secondary" onClick={() => setUser(null)}>Use this device only</button>
-        <button type="button" className="btn-secondary" onClick={() => hydrate()}>Retry</button>
-      </> : <button type="button" className="btn-secondary" onClick={onSignIn}>Sign in</button>}
+      <button type="button" className="btn-secondary" onClick={() => hydrate()}>Retry</button>
     </div>
   )
 }

@@ -172,6 +172,8 @@ export function mapEventToRow(event, userId) {
  *  Outcomes:
  *    - `{ ok: true,  inserted: N }`          — all rows landed; caller drops queue
  *    - `{ ok: false, needsAuth: true }`      — 401/403; queue stays for retry
+ *    - `{ ok: false, cloudOff: true }`       — 409; account keeps data on-device,
+ *                                                queue stays for the page bridge
  *    - `{ ok: false, retryable: true }`      — 5xx / network; queue stays
  *    - `{ ok: false, fatal: true,  error }`  — 400 (schema mismatch); queue
  *                                                stays but log loudly — needs
@@ -207,6 +209,11 @@ export async function pushEvents(httpAdapter, apiUrl, accessToken, rows) {
   }
   if (response.status === 401 || response.status === 403) {
     return { ok: false, needsAuth: true }
+  }
+  if (response.status === 409) {
+    // The account keeps its data on-device (Landed Cloud sync off). Not an
+    // error: keep the queue for the open Landed tab to pull via the bridge.
+    return { ok: false, cloudOff: true }
   }
   if (response.status >= 500) {
     return { ok: false, retryable: true, error: `http ${response.status}` }

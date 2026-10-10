@@ -14,7 +14,8 @@
 //   signIn(email, password)      → Promise<{ data, error }>
 //   signOut()                    → Promise<{ error }>
 //   onAuthChange(callback)       → unsubscribe()
-//   apiFetch(path, init?)        → Promise<parsed JSON>  (throws on !ok)
+//   apiFetch(path, init?)        → Promise<parsed JSON>  (throws on !ok; the
+//                                  error carries .status and the server's .code)
 //
 // No manifest host_permissions needed: the server answers extension
 // origins with permissive CORS and auth is the Bearer header, not cookies.
@@ -103,9 +104,15 @@
     });
     if (res.status === 401) {
       await chromeStorageAdapter.removeItem(SESSION_STORAGE_KEY);
-      throw new Error('Session expired — sign in again');
+      throw Object.assign(new Error('Session expired — sign in again'), { status: 401 });
     }
-    if (!res.ok) throw new Error(await readError(res, 'Request failed'));
+    if (!res.ok) {
+      let body = null;
+      try { body = await res.json(); } catch { /* non-JSON body */ }
+      const message = (body && typeof body.error === 'string') ? body.error : 'Request failed (' + res.status + ')';
+      // `code` lets callers tell e.g. 'cloud_off' (account keeps data on-device) from real failures.
+      throw Object.assign(new Error(message), { status: res.status, code: body && body.code });
+    }
     return res.status === 204 ? null : res.json();
   }
 

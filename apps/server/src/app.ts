@@ -6,11 +6,12 @@ import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
-import { authRoutes, requireUser, type AppEnv } from './auth.ts'
+import { authRoutes, requireCloud, requireUser, type AppEnv } from './auth.ts'
 import type { Config } from './config.ts'
 import type { Sql } from './db.ts'
 import { pgErrorStatus } from './http.ts'
 import type { PortalEventsHub } from './realtime.ts'
+import { accountRoutes } from './routes/account.ts'
 import { dataRoutes } from './routes/data.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
@@ -38,11 +39,17 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.route('/api/auth', authRoutes(sql, config))
 
+  // Signed-in routes. Account routes work for everyone; data routes only
+  // for accounts with Landed Cloud sync on (Landed is local-first).
   const api = new Hono<AppEnv>()
   api.use('*', requireUser(sql))
-  api.route('/', dataRoutes(sql, config))
-  api.route('/', portalRoutes(sql, hub))
-  api.route('/', syncRoutes(sql))
+  api.route('/', accountRoutes(sql))
+  const cloud = new Hono<AppEnv>()
+  cloud.use('*', requireCloud)
+  cloud.route('/', dataRoutes(sql, config))
+  cloud.route('/', portalRoutes(sql, hub))
+  cloud.route('/', syncRoutes(sql))
+  api.route('/', cloud)
   app.route('/api', api)
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))
 

@@ -1,40 +1,47 @@
-// Landed Cloud session state. Landed works without an account (local mode);
-// this store only tracks whether this browser is signed in to Landed Cloud,
-// which decides the active data store (lib/store).
+// Session state. Everyone signs in, but signing in only establishes who you
+// are: each account's data stays in this browser unless the account turned
+// on Landed Cloud sync (`cloud_sync`), which picks the data store (lib/store).
 //
-// The session itself is an httpOnly cookie owned by the server. We remember
-// the last mode on this device ('landed:mode', device-local UI state) only
-// to tell "signed out" apart from "Cloud is unreachable right now": a Cloud
-// user whose server is down must not be dropped into an empty local mode.
+// The session itself is an httpOnly cookie owned by the server. We also
+// cache the signed-in account ({id, email, cloud_sync}, no secrets) in
+// localStorage so the app keeps working when the server is unreachable:
+// a local-only account just carries on offline (its data is all here), a
+// Cloud account gets a "can't reach Landed Cloud" notice instead of an
+// empty screen. The cache is cleared on sign-out.
 import { create } from 'zustand'
 import { ApiError, api, setUnauthorizedHandler } from './api'
 
-export type User = { id: string; email: string }
+export type User = { id: string; email: string; cloud_sync: boolean }
 
-const MODE_KEY = 'landed:mode'
+const ACCOUNT_KEY = 'landed:account'
 
-function rememberMode(user: User | null) {
+function cacheAccount(user: User | null) {
   try {
-    localStorage.setItem(MODE_KEY, user ? 'cloud' : 'local')
+    if (user) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(user))
+    else localStorage.removeItem(ACCOUNT_KEY)
   } catch {
-    // storage blocked — mode memory is best-effort
+    // storage blocked — the cache is best-effort
   }
 }
 
-function lastModeWasCloud() {
+function cachedAccount(): User | null {
   try {
-    return localStorage.getItem(MODE_KEY) === 'cloud'
+    const v = JSON.parse(localStorage.getItem(ACCOUNT_KEY) ?? 'null')
+    return v && typeof v.id === 'string' && typeof v.email === 'string' ? { ...v, cloud_sync: !!v.cloud_sync } : null
   } catch {
-    return false
+    return null
   }
 }
 
 type AuthState = {
   user: User | null
   ready: boolean // false until the first /auth/session probe settles
-  unreachable: boolean // last mode was Cloud but the server can't be reached
-  sessionExpired: boolean // a Cloud session was revoked/expired mid-use
+  offline: boolean // server unreachable; local-only account running from cache
+  unreachable: boolean // server unreachable and the account's data is in Cloud
+  sessionExpired: boolean // the session was revoked/expired mid-use
   hydrate: () => Promise<void>
+  signIn: (email: string, password: string) => Promise<void>
+  signUp: (email: string, password: string) => Promise<void>
   setUser: (user: User | null) => void
   signOut: () => Promise<void>
 }
@@ -42,22 +49,36 @@ type AuthState = {
 export const useAuth = create<AuthState>((set, get) => ({
   user: null,
   ready: false,
+  offline: false,
   unreachable: false,
   sessionExpired: false,
   hydrate: async () => {
     try {
       const { user } = await api.get<{ user: User | null }>('/auth/session')
-      rememberMode(user)
-      set({ user, ready: true, unreachable: false })
+      cacheAccount(user)
+      set({ user, ready: true, offline: false, unreachable: false })
     } catch (e) {
-      // Network error or 5xx. Only a problem if this device was in Cloud mode.
       const serverDown = !(e instanceof ApiError) || e.status >= 500
-      set({ user: null, ready: true, unreachable: serverDown && lastModeWasCloud() })
+      const cached = serverDown ? cachedAccount() : null
+      set({
+        user: cached,
+        ready: true,
+        offline: !!cached && !cached.cloud_sync,
+        unreachable: !!cached && cached.cloud_sync,
+      })
     }
   },
+  signIn: async (email, password) => {
+    const { user } = await api.post<{ user: User }>('/auth/login', { email, password })
+    get().setUser(user)
+  },
+  signUp: async (email, password) => {
+    const { user } = await api.post<{ user: User }>('/auth/signup', { email, password })
+    get().setUser(user)
+  },
   setUser: (user) => {
-    rememberMode(user)
-    set({ user, unreachable: false, sessionExpired: false })
+    cacheAccount(user)
+    set({ user, offline: false, unreachable: false, sessionExpired: false })
   },
   signOut: async () => {
     try {
@@ -70,6 +91,6 @@ export const useAuth = create<AuthState>((set, get) => ({
 
 setUnauthorizedHandler(() => {
   if (!useAuth.getState().user) return
-  rememberMode(null)
+  cacheAccount(null)
   useAuth.setState({ user: null, sessionExpired: true })
 })

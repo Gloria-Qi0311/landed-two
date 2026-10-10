@@ -158,6 +158,14 @@ describe('apiFetch', () => {
     expect(store.has(SESSION_STORAGE_KEY)).toBe(false);
   });
 
+  test('errors carry the HTTP status and server error code', async () => {
+    store.set(SESSION_STORAGE_KEY, SESSION);
+    fetch.mockResolvedValueOnce(jsonResponse(409, { error: 'Landed Cloud sync is off', code: 'cloud_off' }));
+    const auth = require('../lib/auth.js');
+    await expect(auth.apiFetch('/resumes')).rejects.toMatchObject({ status: 409, code: 'cloud_off', message: 'Landed Cloud sync is off' });
+    expect(store.get(SESSION_STORAGE_KEY)).toEqual(SESSION);
+  });
+
   test('throws without a session and never calls the network', async () => {
     const auth = require('../lib/auth.js');
     await expect(auth.apiFetch('/resumes')).rejects.toThrow(/Not signed in/);

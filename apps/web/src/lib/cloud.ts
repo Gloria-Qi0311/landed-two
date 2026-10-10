@@ -1,57 +1,50 @@
-// Moving between "this device" (local mode, the default) and Landed Cloud,
-// plus backup files. Every flow is ordered so a failure part-way never
-// loses data:
+// Turning Landed Cloud sync on and off for the signed-in account, plus
+// backup files. Every flow is ordered so a failure part-way never loses data:
 //
-//   turn on Cloud:  sign in → upload device snapshot → clear device → switch
-//                   (upload fails → sign back out, device data untouched)
-//   leave Cloud:    download snapshot → delete account (password) → write device
-//                   (device write fails → snapshot saved as a backup file)
-//   sign out:       Cloud keeps the data; the device goes back to local mode
+//   sync on:   upload this device's data + flip cloud_sync in one server
+//              transaction → then clear the device copy
+//              (upload fails → nothing changed, device data untouched)
+//   sync off:  download Cloud data → write it to this device → server
+//              deletes its copy + flips cloud_sync (password-checked)
+//              (wrong password → the fresh device copy is discarded again)
 import { api } from './api'
 import { useAuth, type User } from './auth'
-import { cloudStore, localStore } from './store'
+import { cloudStore, localStoreFor } from './store'
 import { BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES, snapshotRowCount, type Snapshot } from './store/types'
 
-export async function turnOnCloud(input: { email: string; password: string; isSignup: boolean }) {
-  const { user } = await api.post<{ user: User }>(input.isSignup ? '/auth/signup' : '/auth/login', {
-    email: input.email,
-    password: input.password,
-  })
-  let uploaded = 0
-  try {
-    const snapshot = await localStore.exportSnapshot()
-    uploaded = snapshotRowCount(snapshot)
-    if (uploaded > 0) {
-      await api.post('/sync/upload', snapshot)
-      await localStore.clearAll()
-    }
-  } catch (e) {
-    // Stay in local mode with the device data intact.
-    await api.post('/auth/logout').catch(() => {})
-    throw new Error(`Couldn't move this device's data to Landed Cloud: ${(e as Error).message}`)
-  }
-  useAuth.getState().setUser(user)
-  return { uploaded }
+function signedInUser(): User {
+  const user = useAuth.getState().user
+  if (!user) throw new Error('not signed in')
+  return user
 }
 
-export async function leaveCloud(password: string) {
+export async function turnOnCloudSync() {
+  const user = signedInUser()
+  const device = localStoreFor(user.id)
+  const snapshot = await device.exportSnapshot()
+  await api.post('/cloud/enable', snapshot)
+  // The data is in Cloud now; drop the device copy so there's one source of truth.
+  await device.clearAll().catch(() => {})
+  useAuth.getState().setUser({ ...user, cloud_sync: true })
+  return { uploaded: snapshotRowCount(snapshot) }
+}
+
+export async function turnOffCloudSync(password: string) {
+  const user = signedInUser()
+  const device = localStoreFor(user.id)
   const snapshot = await cloudStore.exportSnapshot()
-  // Throws on a wrong password before anything changes.
-  await api.del('/me', { password })
+  await device.replaceWith(snapshot)
   try {
-    await localStore.replaceWith(snapshot)
+    await api.post('/cloud/disable', { password })
   } catch (e) {
-    downloadBackup(snapshot)
-    useAuth.getState().setUser(null)
-    throw new Error(
-      `Your cloud account is deleted, but saving to this browser failed (${(e as Error).message}). ` +
-        'A backup file was downloaded instead — use Import backup to restore it.',
-    )
+    // Still syncing (e.g. wrong password): the copy we just wrote would be stale.
+    await device.clearAll().catch(() => {})
+    throw e
   }
-  useAuth.getState().setUser(null)
+  useAuth.getState().setUser({ ...user, cloud_sync: false })
 }
 
-export async function signOutOfCloud() {
+export async function signOut() {
   await useAuth.getState().signOut()
 }
 
@@ -85,10 +78,11 @@ export async function readBackupFile(file: File): Promise<Snapshot> {
   return { profile: { onboarded_at: null }, ...s } as Snapshot
 }
 
-/** Restore a backup: replaces this device's data, or merges into Cloud. */
+/** Restore a backup: merges into Cloud, or replaces this device's data. */
 export async function restoreBackup(snapshot: Snapshot) {
-  if (useAuth.getState().user) await api.post('/sync/upload', snapshot)
-  else await localStore.replaceWith(snapshot)
+  const user = signedInUser()
+  if (user.cloud_sync) await api.post('/sync/upload', snapshot)
+  else await localStoreFor(user.id).replaceWith(snapshot)
 }
 
 export function summarize(snapshot: Snapshot) {

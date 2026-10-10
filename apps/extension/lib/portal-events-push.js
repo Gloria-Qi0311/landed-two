@@ -91,6 +91,9 @@
     if (response.status === 401 || response.status === 403) {
       return { ok: false, needsAuth: true }
     }
+    if (response.status === 409) {
+      return { ok: false, cloudOff: true }
+    }
     if (response.status >= 500) {
       return { ok: false, retryable: true, error: 'http ' + response.status }
     }
