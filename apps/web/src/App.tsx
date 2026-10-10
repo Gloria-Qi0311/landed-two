@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
 import { useExtensionBridge } from './hooks/extension-bridge';
 import { useAgentRelay } from './hooks/agents';
 import { useJobLeads, useLeadActions, useObservationProcessor } from './hooks/inbox';
-import { AgentsPage } from './components/agents-page';
+import { AgentPanel, type AgentPanelView } from './components/agent-panel';
 import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
 import { useAuth } from './lib/auth';
@@ -20,7 +20,7 @@ import { Sidebar, PageHeader, StatsBanner } from './components/shell';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
 import { EmptyDeviceNotice, OfflineNotice, RestoreBackupDialog, TurnOffCloudDialog, TurnOnCloudDialog } from './components/cloud';
 import { downloadBackup, readBackupFile, signOut } from './lib/cloud';
-import { currentStore, type DbJobLead, type Snapshot } from './lib/store';
+import { currentStore, type ApplicationPatch, type DbJobLead, type Snapshot } from './lib/store';
 import type { Stage } from '@landed/observation-processor';
 import { Icon } from './components/primitives';
 import { KanbanView } from './components/kanban';
@@ -249,7 +249,8 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
           <Route path="/resume-match" element={<ResumeMatchRoute />} />
           <Route path="/jd-breakdown" element={<JDBreakdownRoute />} />
           <Route path="/resumes" element={<ResumesPage />} />
-          <Route path="/agents" element={<AgentsPage />} />
+          {/* Agent settings moved into the Ask Agent panel on Applications. */}
+          <Route path="/agents" element={<Navigate to="/applications?agent=settings" replace />} />
           <Route path="*" element={<Navigate to="/applications" replace />} />
         </Routes>
       </main>
@@ -260,14 +261,14 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
           apps={apps}
           companies={companies}
           onClose={() => setOpenApp(null)}
-          onUpdate={(id, patch) => updateApp.mutate({ id, patch })}
+          onUpdate={(id: string, patch: ApplicationPatch) => updateApp.mutate({ id, patch })}
         />
       )}
 
       <AddApplicationModal
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
-        onAdd={(input) => addApp.mutateAsync(input)}
+        onAdd={(input: Parameters<typeof addApp.mutateAsync>[0]) => addApp.mutateAsync(input)}
       />
     </div>
   );
@@ -302,6 +303,27 @@ function ApplicationsPage({
     setSearchParams(next, { replace: true });
   };
   const [query, setQuery] = useState('');
+  // Ask Agent side panel, kept in the URL (?agent=chat|settings) so it
+  // survives reloads and old /agents links can open it.
+  const agentView = (searchParams.get('agent') as AgentPanelView | null) ?? null;
+  const setAgentView = (v: AgentPanelView | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (v) next.set('agent', v);
+    else next.delete('agent');
+    setSearchParams(next, { replace: true });
+  };
+  const askAgentButton = (
+    <button className="btn-secondary" onClick={() => setAgentView(agentView ? null : 'chat')}
+      style={agentView ? { background: 'var(--surface-3)' } : undefined} aria-pressed={!!agentView}>
+      <Icon name="sparkle" size={13} /> Ask Agent
+    </button>
+  );
+  const withPanel = (content: ReactNode) => (
+    <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>{content}</div>
+      {agentView && <AgentPanel view={agentView} onView={setAgentView} onClose={() => setAgentView(null)} />}
+    </div>
+  );
 
   const filteredApps = useMemo(() => {
     let list = apps;
@@ -347,20 +369,23 @@ function ApplicationsPage({
   const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0 && leads.length === 0);
 
   if (showEmpty) {
-    return (
+    return withPanel(
       <>
         <PageHeader
           title="Applications"
-          subtitle="No applications yet — add one, or import demo data to look around"
+          subtitle="No applications yet — add one, import demo data, or ask your agent to help you start"
           actions={
-            <button
-              onClick={onImportDemo}
-              disabled={importing}
-              className="btn-secondary"
-              style={{ opacity: importing ? 0.6 : 1 }}
-            >
-              <Icon name="sparkle" size={13} /> {importing ? 'Importing…' : 'Try with demo data'}
-            </button>
+            <>
+              <button
+                onClick={onImportDemo}
+                disabled={importing}
+                className="btn-secondary"
+                style={{ opacity: importing ? 0.6 : 1 }}
+              >
+                <Icon name="sparkle" size={13} /> {importing ? 'Importing…' : 'Try with demo data'}
+              </button>
+              {askAgentButton}
+            </>
           }
         />
         <EmptyApplicationsView onAddManual={onOpenAddModal} onConnectPortal={() => {}} />
@@ -368,7 +393,7 @@ function ApplicationsPage({
     );
   }
 
-  return (
+  return withPanel(
     <>
       <PageHeader
         title="Applications"
@@ -431,6 +456,7 @@ function ApplicationsPage({
             <button className="btn-primary" onClick={onOpenAddModal}>
               <Icon name="plus" size={13} stroke={2} /> Add
             </button>
+            {askAgentButton}
           </>
         }
       />

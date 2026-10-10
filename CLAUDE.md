@@ -36,12 +36,13 @@ Agents (Meta Muse, Claude, Codex…) submit **observations** to `POST /api/agent
 
 ## Local agents run on the user's computer (`apps/daemon`)
 
-Like Multica: the user pairs a computer (Agents → Your computer), runs `pnpm landed connect …` there, and the daemon executes Landed's tasks with locally installed agent CLIs (Claude Code today) on the user's own subscription — no API cost for anyone.
+Like Multica: the user pairs a computer (Applications → **Ask Agent** panel → setup, or its gear → Your computer), runs `pnpm landed connect …` there, and the daemon executes Landed's tasks with locally installed agent CLIs (Claude Code today) on the user's own subscription — no API cost for anyone.
 
 - **The server only relays** (`apps/server/src/runtime-hub.ts`): tasks and their output live in memory and are never written to the database. Keep it that way — this is the local-first story for AI work too.
 - **Tasks are a fixed set of kinds** (`chat` so far), validated on both ends. Never forward arbitrary commands, prompts-as-shell, or file paths to the daemon. New kinds get explicit input validation in `routes/runtime.ts` and a runner in `apps/daemon/src/agents.ts`.
 - **The agent is sandboxed by flags, not trust**: empty workspace dir, `--setting-sources ""` (ignore the user's own settings/hooks), and an explicit tool allowlist (`--tools`/`--allowedTools`). Widening the allowlist is a product + security decision, not a convenience.
 - Runtime tokens (`landed_rt_…`) only reach `/api/runtime/*`; they are not sessions.
+- **Agent UI lives on the Applications page**, Feishu-Bitable style: the **Ask Agent** button opens a side panel (`components/agent-panel.tsx`) — chat when a computer is online, setup when not, settings behind the gear (`?agent=chat|settings`). Don't add separate pages/tabs for agent features; `/agents` only redirects into the panel.
 
 ## Landed Cloud backend: `apps/server` + Postgres (no Supabase)
 

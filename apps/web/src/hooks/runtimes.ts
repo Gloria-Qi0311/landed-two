@@ -31,6 +31,10 @@ export function useRuntimes(opts: { poll?: boolean } = {}) {
     enabled: online,
     queryFn: () => api.get<Runtime[]>('/runtimes'),
     refetchInterval: opts.poll ? 3000 : 15_000,
+    // While pairing, the user is in a terminal running the command — keep
+    // polling even though the page isn't focused, so it flips to "connected"
+    // by the time they come back.
+    refetchIntervalInBackground: !!opts.poll,
   })
 }
 

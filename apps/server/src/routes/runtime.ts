@@ -47,6 +47,11 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
     const userId = c.get('user').id
     const body = await jsonBody<Row>(c)
     const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 80) : 'My computer'
+    // Pairings whose command was never run are useless (the key was shown
+    // once); clear old ones so abandoned attempts don't pile up.
+    await sql`
+      delete from runtimes
+      where user_id = ${userId} and last_seen_at is null and created_at < now() - interval '10 minutes'`
     const [{ active }] = await sql<{ active: number }[]>`
       select count(*)::int as active from runtimes where user_id = ${userId} and revoked_at is null`
     if (active >= MAX_RUNTIMES) fail(409, `at most ${MAX_RUNTIMES} connected computers — remove one first`)

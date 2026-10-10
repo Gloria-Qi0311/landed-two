@@ -95,7 +95,6 @@ export const Sidebar = ({ apps, account, onProfileClick, navCounts = {} }) => {
         <NavItem to="/sync" icon={<Icon name="refresh" size={14} />} label="Sync" />
         <NavItem to="/resume-match" icon={<Icon name="sparkle" size={14} />} label="Resume Match" />
         <NavItem to="/jd-breakdown" icon={<Icon name="target" size={14} />} label="JD Breakdown" />
-        <NavItem to="/agents" icon={<Icon name="wand" size={14} />} label="Agents" />
       </div>
 
       {/* Design-only references — easy access for reviewer */}
@@ -206,7 +205,7 @@ export const StatsBanner = ({ apps }) => {
   }, [apps]);
 
   const Stat = ({ label, value, sub, accent }) => (
-    <div style={{ flex: 1, padding: '0 18px', borderLeft: '0.5px solid var(--border)' }}>
+    <div style={{ flex: 1, minWidth: 0, padding: '0 18px', borderLeft: '0.5px solid var(--border)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
       <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span style={{ fontSize: 17, fontWeight: 600, color: accent || 'var(--fg)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>{value}</span>
@@ -217,7 +216,7 @@ export const StatsBanner = ({ apps }) => {
 
   return (
     <div style={{ display: 'flex', padding: '10px 28px 12px', borderBottom: '0.5px solid var(--border)', background: 'var(--bg)' }}>
-      <div style={{ paddingLeft: 0, paddingRight: 18, flex: 1 }}>
+      <div style={{ paddingLeft: 0, paddingRight: 18, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>In flight</div>
         <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>
           {stats.active} <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 400 }}>active applications</span>
@@ -231,19 +230,22 @@ export const StatsBanner = ({ apps }) => {
   );
 };
 // Unified page header — used on every top-level page so the design language stays consistent.
+/**
+ * @param {{ title: import('react').ReactNode, subtitle?: import('react').ReactNode, actions?: import('react').ReactNode }} props
+ */
 export const PageHeader = ({ title, subtitle, actions }) => (
   <div style={{
     padding: '12px 28px 10px',
-    display: 'flex', alignItems: 'center', gap: 10,
+    display: 'flex', alignItems: 'center', gap: 10, rowGap: 8, flexWrap: 'wrap',
     borderBottom: '0.5px solid var(--border)', background: 'var(--bg)',
     flexShrink: 0,
   }}>
-    <div style={{ minWidth: 0 }}>
+    <div style={{ minWidth: 0, flex: '1 1 160px' }}>
       <div style={{ fontSize: 15.5, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>
         {title}
       </div>
       {subtitle && (
-        <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginTop: 1 }}>
+        <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {subtitle}
         </div>
       )}

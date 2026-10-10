@@ -858,6 +858,17 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
     daemon.close()
   })
 
+  test('abandoned pairings (command never run) are cleared on the next pairing', async () => {
+    const owner = await signup('runtime-stale@example.com', undefined, { cloud: false })
+    const stale = await call('POST', '/api/runtimes', { token: owner, body: { name: 'old attempt' } })
+    const used = await call('POST', '/api/runtimes', { token: owner, body: { name: 'connected' } })
+    await call('POST', '/api/runtime/hello', { token: used.body.token, body: { agents: [{ id: 'claude' }] } })
+    await sql`update runtimes set created_at = now() - interval '1 hour' where id in (${stale.body.runtime.id}, ${used.body.runtime.id})`
+    await call('POST', '/api/runtimes', { token: owner, body: { name: 'new attempt' } })
+    const names = (await call('GET', '/api/runtimes', { token: owner })).body.map((r: any) => r.name).sort()
+    assert.deepEqual(names, ['connected', 'new attempt'])
+  })
+
   test('a daemon dropping mid-task fails the task instead of hanging', async () => {
     const owner = await signup('runtime-drop@example.com', undefined, { cloud: false })
     const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })

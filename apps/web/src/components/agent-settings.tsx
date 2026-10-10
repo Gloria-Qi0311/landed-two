@@ -1,9 +1,9 @@
-// Agents — connect external agents (Meta Muse, Claude, Codex…) that find
-// jobs and read status emails, revoke them, choose whether email updates
-// apply automatically, and see the raw reports.
+// Agent settings — the gear view of the Ask Agent panel: your computer
+// (local agents via the Landed daemon), cloud agents (Meta Muse, …) that
+// report over the agent protocol, whether email updates apply
+// automatically, and the raw reports.
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from './primitives'
-import { PageHeader } from './shell'
 import { useAuth } from '../lib/auth'
 import { formatRelative } from '../lib/time'
 import { AGENT_PROVIDERS, agentSetupPrompt, isPrivateOrigin, summarizeObservation } from '../lib/agent-prompt'
@@ -40,7 +40,7 @@ function ErrorText({ message }: { message: string }) {
   return <div role="alert" style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)' }}>{message}</div>
 }
 
-export function AgentsPage() {
+export function AgentSettings() {
   const user = useAuth((s) => s.user)!
   const connections = useAgentConnections()
   const observations = useAgentObservations(50)
@@ -50,12 +50,7 @@ export function AgentsPage() {
   const active = (connections.data ?? []).filter((c) => !c.revoked_at)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <PageHeader
-        title="Agents"
-        subtitle="Let Muse, Claude or Codex find jobs and read status emails. Landed checks, dedupes and stores what they report."
-      />
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px 28px 28px', display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 980 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{
           flexShrink: 0,
           display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.55,
@@ -71,11 +66,15 @@ export function AgentsPage() {
 
         <RuntimePanel />
 
+        <AutoApplySetting />
+
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>
+          Cloud agents (Meta Muse, …)
+        </div>
+
         {created
           ? <SetupPanel created={created} onDone={() => setCreated(null)} />
           : <ConnectForm onCreated={setCreated} />}
-
-        <AutoApplySetting />
 
         <Card title={`Connections${active.length ? ` (${active.length} active)` : ''}`}>
           {connections.isLoading && <Muted>Loading…</Muted>}
@@ -116,7 +115,6 @@ export function AgentsPage() {
           )}
         </Card>
       </div>
-    </div>
   )
 }
 

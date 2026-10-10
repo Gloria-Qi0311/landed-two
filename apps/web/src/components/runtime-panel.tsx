@@ -1,10 +1,10 @@
-// "Your computer" on the Agents page: pair the Landed daemon, see which local
-// agents it found, and talk to one to check the whole path works. Tasks run
-// on the user's machine with their own subscription; Landed only relays.
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+// "Your computer": pair the Landed daemon and see which local agents it
+// found. Used by the Ask Agent panel (setup state + settings). Tasks run on
+// the user's machine with their own subscription; Landed only relays.
+import { useEffect, useState } from 'react'
 import { Icon } from './primitives'
 import { formatRelative } from '../lib/time'
-import { runOnComputer, usePairRuntime, useRemoveRuntime, useRuntimes, type Runtime } from '../hooks/runtimes'
+import { usePairRuntime, useRemoveRuntime, useRuntimes, type Runtime } from '../hooks/runtimes'
 
 const muted = { fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 } as const
 
@@ -14,7 +14,6 @@ export function RuntimePanel() {
   const pair = usePairRuntime()
   const list = (runtimes.data ?? []).filter((r) => !r.revoked_at)
   const pairedNow = pairing && list.find((r) => r.id === pairing.runtime.id && r.online)
-  const online = list.filter((r) => r.online && r.agents.length > 0)
 
   useEffect(() => {
     if (pairedNow) setPairing(null)
@@ -44,7 +43,6 @@ export function RuntimePanel() {
             {list.map((r, i) => <RuntimeRow key={r.id} runtime={r} first={i === 0} />)}
           </div>
         )}
-        {online.length > 0 && <TryIt runtime={online[0]} />}
       </div>
     </section>
   )
@@ -99,62 +97,6 @@ function RuntimeRow({ runtime: r, first }: { runtime: Runtime; first: boolean })
                 style={{ background: 'oklch(0.5 0.16 30)', borderColor: 'oklch(0.5 0.16 30)' }}>Disconnect</button>
             </>}
       </div>
-    </div>
-  )
-}
-
-type Turn = { role: 'user' | 'agent'; text: string; tools?: string[]; error?: boolean; pending?: boolean }
-
-/** A tiny chat to prove the round trip: browser → Landed → your computer → Claude Code → back. */
-function TryIt({ runtime }: { runtime: Runtime }) {
-  const agent = runtime.agents[0]
-  const [conversationId] = useState(() => crypto.randomUUID())
-  const [turns, setTurns] = useState<Turn[]>([])
-  const [draft, setDraft] = useState('')
-  const busy = turns.some((t) => t.pending)
-  const stop = useRef<() => void>(() => {})
-  useEffect(() => () => stop.current(), [])
-
-  const send = async (e: FormEvent) => {
-    e.preventDefault()
-    const message = draft.trim()
-    if (!message || busy) return
-    setDraft('')
-    setTurns((t) => [...t, { role: 'user', text: message }, { role: 'agent', text: '', pending: true }])
-    const update = (fn: (t: Turn) => Turn) => setTurns((all) => all.map((t, i) => (i === all.length - 1 ? fn(t) : t)))
-    stop.current = await runOnComputer(runtime.id, agent.id, 'chat', { conversation_id: conversationId, message }, (ev) => {
-      if (ev.type === 'delta') update((t) => ({ ...t, text: t.text + ev.text }))
-      if (ev.type === 'tool') update((t) => ({ ...t, tools: [...(t.tools ?? []), ev.name] }))
-      if (ev.type === 'done') update((t) => ({ ...t, text: ev.text || t.text, pending: false }))
-      if (ev.type === 'error') update((t) => ({ ...t, text: ev.message, error: true, pending: false }))
-    })
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '0.5px solid var(--border)', paddingTop: 12 }}>
-      <div style={{ fontSize: 12, fontWeight: 500 }}>Try it — talk to {agent.label} on {runtime.name}</div>
-      {turns.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-          {turns.map((t, i) => (
-            <div key={i} style={{
-              alignSelf: t.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '7px 10px', borderRadius: 8,
-              fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap',
-              background: t.role === 'user' ? 'var(--surface-3)' : t.error ? 'oklch(0.97 0.03 30)' : 'var(--surface-2)',
-              color: t.error ? 'oklch(0.45 0.15 30)' : 'var(--fg)', border: '0.5px solid var(--border)',
-            }}>
-              {t.tools?.length ? <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginBottom: 3 }}>used {[...new Set(t.tools)].join(', ')}</div> : null}
-              {t.text || (t.pending ? '…' : '')}
-            </div>
-          ))}
-        </div>
-      )}
-      <form onSubmit={send} style={{ display: 'flex', gap: 8 }}>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="e.g. I'm a PM looking for AI roles in SF — where should I start?"
-          style={{ flex: 1, padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }} />
-        <button type="submit" className="btn-primary" disabled={busy || !draft.trim()} style={{ opacity: busy || !draft.trim() ? 0.6 : 1 }}>
-          {busy ? 'Thinking…' : 'Send'}
-        </button>
-      </form>
     </div>
   )
 }
