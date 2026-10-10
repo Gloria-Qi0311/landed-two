@@ -12,6 +12,7 @@ import {
   type AgentConnection,
 } from '../hooks/agents'
 import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
+import { RuntimePanel } from './runtime-panel'
 
 const TYPE_LABEL: Record<string, string> = {
   job_discovered: 'Job found',
@@ -21,7 +22,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 function Card({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
   return (
-    <section style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+    <section style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
       <div style={{ padding: '10px 14px', borderBottom: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600 }}>{title}</div>
         <div style={{ marginLeft: 'auto' }}>{right}</div>
@@ -56,6 +57,7 @@ export function AgentsPage() {
       />
       <div style={{ flex: 1, overflow: 'auto', padding: '16px 28px 28px', display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 980 }}>
         <div style={{
+          flexShrink: 0,
           display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.55,
           background: 'var(--surface-2)', border: '0.5px solid var(--border)', color: 'var(--fg-muted)',
         }}>
@@ -66,6 +68,8 @@ export function AgentsPage() {
               : "Your data stays on this device. Agents run in the cloud, so Landed's server holds their reports only until this browser picks them up — at most 7 days — then deletes them."}
           </span>
         </div>
+
+        <RuntimePanel />
 
         {created
           ? <SetupPanel created={created} onDone={() => setCreated(null)} />

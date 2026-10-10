@@ -9,6 +9,7 @@ import type { Config } from '../src/config.ts'
 import { connect, type Sql } from '../src/db.ts'
 import { migrate } from '../src/migrate.ts'
 import { PortalEventsHub } from '../src/realtime.ts'
+import { RuntimeHub } from '../src/runtime-hub.ts'
 import { purgeAgentRelay } from '../src/routes/agent.ts'
 import { decryptSecret } from '../src/secrets.ts'
 
@@ -64,7 +65,7 @@ before(async () => {
   await migrate(sql)
   hub = new PortalEventsHub(sql)
   await hub.start()
-  app = createApp(sql, baseConfig, hub)
+  app = createApp(sql, baseConfig, hub, new RuntimeHub())
 })
 
 after(async () => {
@@ -74,7 +75,7 @@ after(async () => {
 
 describe('auth', () => {
   test('first-only signup closes after the first account', async () => {
-    const closed = createApp(sql, { ...baseConfig, signup: 'first-only' }, hub)
+    const closed = createApp(sql, { ...baseConfig, signup: 'first-only' }, hub, new RuntimeHub())
     const req = (email: string) => closed.request('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -777,5 +778,97 @@ describe('observation processing storage (Cloud)', () => {
     const [{ n }] = await sql`select (select count(*) from job_leads l join users u on u.id = l.user_id where u.email = 'proc-snap@example.com')
       + (select count(*) from status_suggestions s join users u on u.id = s.user_id where u.email = 'proc-snap@example.com') as n`
     assert.equal(Number(n), 0)
+  })
+})
+
+describe('runtimes: the user\'s own computer runs local agents', () => {
+  function sse(path: string, token: string) {
+    const ac = new AbortController()
+    const res = app.request(path, { headers: { Authorization: `Bearer ${token}` }, signal: ac.signal })
+    let buf = ''
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    const decoder = new TextDecoder()
+    return {
+      async until(needle: string) {
+        if (!reader) reader = (await res).body!.getReader()
+        while (!buf.includes(needle)) {
+          const { value, done } = await reader.read()
+          if (done) throw new Error(`stream ended before ${needle}; got: ${buf}`)
+          buf += decoder.decode(value)
+        }
+        return buf
+      },
+      async status() { return (await res).status },
+      close() { ac.abort(); reader?.cancel().catch(() => {}) },
+    }
+  }
+  const jobFrom = (buf: string) => JSON.parse(buf.split('event: job\ndata: ')[1].split('\n')[0])
+
+  test('pair → hello → online → task round-trip → revoke', async () => {
+    const owner = await signup('runtime-owner@example.com', undefined, { cloud: false })
+    const other = await signup('runtime-other@example.com', undefined, { cloud: false })
+    const paired = await call('POST', '/api/runtimes', { token: owner, body: { name: 'MacBook Pro' } })
+    assert.equal(paired.status, 201)
+    assert.match(paired.body.token, /^landed_rt_/)
+    const rt = paired.body.token as string
+    const id = paired.body.runtime.id as string
+    assert.equal((await call('GET', '/api/applications', { token: rt })).status, 401, 'runtime token is not a session')
+
+    const hello = await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', version: '2.1.284' }], daemon_version: '0.1.0' } })
+    assert.equal(hello.status, 200)
+    assert.deepEqual(hello.body.agents, [{ id: 'claude', label: 'Claude Code', version: '2.1.284' }])
+
+    const send = (token: string, body: Record<string, unknown>) => call('POST', '/api/runtime-jobs', { token, body })
+    const chat = { runtime_id: id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), message: 'hi' } }
+    const offline = await send(owner, chat)
+    assert.equal(offline.status, 409)
+    assert.equal(offline.body.code, 'runtime_offline')
+
+    const daemon = sse('/api/runtime/stream', rt)
+    await daemon.until('event: ready')
+    assert.equal((await call('GET', '/api/runtimes', { token: owner })).body[0].online, true)
+    assert.equal((await send(owner, { ...chat, agent: 'codex' })).status, 400, 'agent not installed there')
+    assert.equal((await send(other, chat)).status, 404, "can't use someone else's computer")
+
+    const started = await send(owner, chat)
+    assert.equal(started.status, 202)
+    const job = jobFrom(await daemon.until('event: job'))
+    assert.deepEqual([job.id, job.agent, job.kind, job.input.message], [started.body.job_id, 'claude', 'chat', 'hi'])
+    assert.equal(job.user_id, undefined, 'daemon never sees user ids')
+
+    // the daemon streams output back; the web replays + follows it
+    await call('POST', `/api/runtime/jobs/${job.id}/events`, { token: rt, body: { events: [{ type: 'started', agent: 'claude' }, { type: 'delta', text: 'po' }] } })
+    const web = sse(`/api/runtime-jobs/${job.id}/stream`, owner)
+    await web.until('"text":"po"')
+    await call('POST', `/api/runtime/jobs/${job.id}/events`, { token: rt, body: { events: [{ type: 'delta', text: 'ng' }, { type: 'done', text: 'pong', session_id: 's1' }] } })
+    const out = await web.until('"type":"done"')
+    assert.ok(out.includes('"text":"ng"'))
+    web.close()
+
+    assert.equal((await call('POST', `/api/runtime/jobs/${job.id}/events`, { token: rt, body: { events: [{ type: 'delta', text: 'late' }] } })).status, 404, 'finished')
+    const snoop = sse(`/api/runtime-jobs/${job.id}/stream`, other)
+    assert.ok((await snoop.until('Task not found')).includes('error'))
+    snoop.close()
+
+    // revoking cuts the daemon off and kills its token
+    const revoked = await call('POST', `/api/runtimes/${id}/revoke`, { token: owner })
+    assert.equal(revoked.body.online, false)
+    await assert.rejects(daemon.until('never'), /stream ended/)
+    assert.equal((await call('POST', '/api/runtime/hello', { token: rt, body: {} })).status, 401)
+    daemon.close()
+  })
+
+  test('a daemon dropping mid-task fails the task instead of hanging', async () => {
+    const owner = await signup('runtime-drop@example.com', undefined, { cloud: false })
+    const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude' }] } })
+    const daemon = sse('/api/runtime/stream', rt)
+    await daemon.until('event: ready')
+    const { body: { job_id } } = await call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), message: 'hi' } } })
+    await daemon.until('event: job')
+    const web = sse(`/api/runtime-jobs/${job_id}/stream`, owner)
+    daemon.close()
+    assert.ok((await web.until('"type":"error"')).includes('disconnected'))
+    web.close()
   })
 })

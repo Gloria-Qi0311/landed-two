@@ -34,6 +34,15 @@ Agents (Meta Muse, Claude, Codex…) submit **observations** to `POST /api/agent
 - **Schema changes** (new `observation_type`, new fields) go in three places together: the validators in `agent.ts`, `AGENT_PROTOCOL.md`, and the setup prompt in `apps/web/src/lib/agent-prompt.ts`. Bump `schema_version` for breaking changes.
 - Every agent write is idempotent on `(connection_id, Idempotency-Key)`; same key + different body is a 409. Agents retry and reuse stale bodies — never rely on "called once".
 
+## Local agents run on the user's computer (`apps/daemon`)
+
+Like Multica: the user pairs a computer (Agents → Your computer), runs `pnpm landed connect …` there, and the daemon executes Landed's tasks with locally installed agent CLIs (Claude Code today) on the user's own subscription — no API cost for anyone.
+
+- **The server only relays** (`apps/server/src/runtime-hub.ts`): tasks and their output live in memory and are never written to the database. Keep it that way — this is the local-first story for AI work too.
+- **Tasks are a fixed set of kinds** (`chat` so far), validated on both ends. Never forward arbitrary commands, prompts-as-shell, or file paths to the daemon. New kinds get explicit input validation in `routes/runtime.ts` and a runner in `apps/daemon/src/agents.ts`.
+- **The agent is sandboxed by flags, not trust**: empty workspace dir, `--setting-sources ""` (ignore the user's own settings/hooks), and an explicit tool allowlist (`--tools`/`--allowedTools`). Widening the allowlist is a product + security decision, not a convenience.
+- Runtime tokens (`landed_rt_…`) only reach `/api/runtime/*`; they are not sessions.
+
 ## Landed Cloud backend: `apps/server` + Postgres (no Supabase)
 
 Supabase was removed. The API server (`apps/server`, Hono + postgres.js) owns Cloud auth, every table, realtime, and portal-ingest; it also serves the built web app. See `apps/server/README.md` for setup and deployment.

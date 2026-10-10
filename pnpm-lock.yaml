@@ -8,6 +8,15 @@ importers:
 
   .: {}
 
+  apps/daemon:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.8.0
+        version: 25.8.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   apps/extension:
     dependencies:
       react:

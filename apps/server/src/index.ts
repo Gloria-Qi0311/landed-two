@@ -8,6 +8,7 @@ import { loadConfig } from './config.ts'
 import { connect } from './db.ts'
 import { migrate } from './migrate.ts'
 import { PortalEventsHub } from './realtime.ts'
+import { RuntimeHub } from './runtime-hub.ts'
 import { purgeAgentRelay } from './routes/agent.ts'
 
 const config = loadConfig()
@@ -17,7 +18,7 @@ await migrate(sql, (m) => console.log('[migrate]', m))
 const hub = new PortalEventsHub(sql)
 await hub.start()
 
-const app = createApp(sql, config, hub)
+const app = createApp(sql, config, hub, new RuntimeHub())
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(`[landed] listening on http://${info.address}:${info.port}` +
     (config.webDist ? ` (web: ${config.webDist})` : ''))

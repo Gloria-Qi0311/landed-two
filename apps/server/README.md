@@ -62,6 +62,8 @@ All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` 
 | `GET /ai-keys`, `PUT /ai-keys/:provider`, `DELETE /ai-keys/:id` | Write-only provider keys |
 | `POST /agent/observations` | External agents (agent token, not a session). See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) |
 | `GET/POST /agent-connections`, `POST /agent-connections/:id/revoke`, `GET /agent-observations`, `GET /agent-inbox`, `POST /agent-inbox/ack` | Manage agents, review reports, relay pull for sync-off accounts. These work with sync off. |
+| `GET/POST /runtimes`, `POST /runtimes/:id/revoke`, `POST /runtime-jobs`, `GET /runtime-jobs/:id/stream` | Pair the user's computers (Landed daemon), run a task on one, stream its output. Relayed in memory, never stored. |
+| `POST /runtime/hello`, `GET /runtime/stream`, `POST /runtime/jobs/:id/events` | Daemon side (runtime token, not a session). See [apps/daemon](../daemon/README.md). |
 | `GET /job-leads`, `PUT/PATCH /job-leads/:id`, `GET /status-suggestions`, `PUT/PATCH /status-suggestions/:id`, `GET /agent-observations/pending`, `PATCH /agent-observations/:id` | Cloud storage for the observation processor's output (it runs in the browser) |
 
 ## Production (Mac mini)

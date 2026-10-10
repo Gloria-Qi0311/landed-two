@@ -1,0 +1,22 @@
+{
+  "name": "@landed/daemon",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Landed daemon: connects your computer to Landed and runs its tasks with the agent CLIs you already have (Claude Code, Codex, Gemini CLI) — on your own subscriptions.",
+  "type": "module",
+  "bin": {
+    "landed": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "node src/cli.ts start",
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "typescript": "^6.0.3"
+  }
+}

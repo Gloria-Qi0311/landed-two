@@ -17,6 +17,8 @@ import { dataRoutes } from './routes/data.ts'
 import { inboxRoutes } from './routes/inbox.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
+import { runtimeAccountRoutes, runtimeDaemonRoutes } from './routes/runtime.ts'
+import type { RuntimeHub } from './runtime-hub.ts'
 
 const tooLarge = (c: Context) => c.json({ error: 'request body too large' }, 413)
 const smallBody = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooLarge })
@@ -25,7 +27,7 @@ const uploadBody = bodyLimit({ maxSize: 50 * 1024 * 1024, onError: tooLarge })
 // One agent observation is small; a large body is a misbehaving agent.
 const agentBody = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge })
 
-export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
+export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtimes: RuntimeHub) {
   const app = new Hono<AppEnv>()
 
   // The extension calls the API from chrome-extension://<id> with a Bearer
@@ -50,6 +52,9 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
   // External agents authenticate with a narrow connection token, never a
   // browser/extension session token.
   app.route('/api/agent', agentIngestRoutes(sql))
+  // The user's own computers (Landed daemon) authenticate with a runtime
+  // token, never a session.
+  app.route('/api/runtime', runtimeDaemonRoutes(sql, runtimes))
 
   // Signed-in routes. Account routes work for everyone; data routes only
   // for accounts with Landed Cloud sync on (Landed is local-first).
@@ -57,6 +62,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
   api.use('*', requireUser(sql))
   api.route('/', accountRoutes(sql))
   api.route('/', agentAccountRoutes(sql))
+  api.route('/', runtimeAccountRoutes(sql, runtimes))
   const cloud = new Hono<AppEnv>()
   cloud.use('*', requireCloud)
   cloud.route('/', dataRoutes(sql, config))
