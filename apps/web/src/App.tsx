@@ -4,7 +4,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
 import { useExtensionBridge } from './hooks/extension-bridge';
 import { useAgentRelay } from './hooks/agents';
+import { useJobLeads, useObservationProcessor, useSuggestions } from './hooks/inbox';
 import { AgentsPage } from './components/agents-page';
+import { LeadsPage } from './components/leads-page';
+import { ReviewPage } from './components/review-page';
 
 import { useAuth } from './lib/auth';
 import {
@@ -111,6 +114,11 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   const appsQuery = useApplications();
   useExtensionBridge();
   useAgentRelay();
+  useObservationProcessor();
+  const sidebarCounts = {
+    leads: (useJobLeads().data ?? []).filter((l) => l.status === 'new').length,
+    review: (useSuggestions().data ?? []).filter((s) => s.state === 'pending').length,
+  };
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();
   const addApp = useAddApplication();
@@ -177,7 +185,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)' }}>
-      <Sidebar apps={apps} account={account} onProfileClick={() => setProfileOpen((o) => !o)} />
+      <Sidebar apps={apps} account={account} navCounts={sidebarCounts} onProfileClick={() => setProfileOpen((o) => !o)} />
 
       <ProfileMenu
         open={profileOpen}
@@ -243,6 +251,8 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
           <Route path="/resume-match" element={<ResumeMatchRoute />} />
           <Route path="/jd-breakdown" element={<JDBreakdownRoute />} />
           <Route path="/resumes" element={<ResumesPage />} />
+          <Route path="/leads" element={<LeadsPage />} />
+          <Route path="/review" element={<ReviewPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="*" element={<Navigate to="/applications" replace />} />
         </Routes>

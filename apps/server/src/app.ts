@@ -14,6 +14,7 @@ import type { PortalEventsHub } from './realtime.ts'
 import { accountRoutes } from './routes/account.ts'
 import { agentAccountRoutes, agentIngestRoutes } from './routes/agent.ts'
 import { dataRoutes } from './routes/data.ts'
+import { inboxRoutes } from './routes/inbox.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
 
@@ -61,6 +62,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub) {
   cloud.route('/', dataRoutes(sql, config))
   cloud.route('/', portalRoutes(sql, hub))
   cloud.route('/', syncRoutes(sql))
+  cloud.route('/', inboxRoutes(sql))
   api.route('/', cloud)
   app.route('/api', api)
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))

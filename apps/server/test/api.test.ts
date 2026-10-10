@@ -532,7 +532,7 @@ describe('sync: local device <-> Landed Cloud', () => {
     assert.equal(up.status, 201, JSON.stringify(up.body))
     assert.deepEqual(up.body, {
       companies: 2, companies_merged: 0, applications: 2, portal_connections: 1,
-      portal_events: 2, resumes: 1, ai_runs: 1, agent_observations: 0,
+      portal_events: 2, resumes: 1, ai_runs: 1, agent_observations: 0, job_leads: 0, status_suggestions: 0,
     })
 
     const exp = await call('GET', '/api/export', { token: erin })
@@ -660,5 +660,122 @@ describe('local-first: Cloud sync is opt-in per account', () => {
     const login = await call('POST', '/api/auth/login', { body: { email: 'mo@example.com', password: 'mo-password-1' } })
     assert.equal(login.status, 200)
     assert.equal(login.body.user.cloud_sync, false)
+  })
+})
+
+describe('observation processing storage (Cloud)', () => {
+  const lead = (over: Record<string, unknown> = {}) => ({
+    fingerprint: 'greenhouse:111', ats_key: 'greenhouse:111', canonical_url: 'boards.greenhouse.io/acme/jobs/111',
+    company_key: 'acme', title_key: 'product manager', company_name: 'Acme', title: 'Product Manager',
+    job_url: 'https://boards.greenhouse.io/acme/jobs/111', location: 'Remote', description: null,
+    sources: [{ connection_id: 'c', observation_id: 'o', provider: 'meta_muse', seen_at: '2026-10-09T12:00:00Z' }],
+    status: 'new', application_id: null, first_seen_at: '2026-10-09T12:00:00Z', last_seen_at: '2026-10-09T12:00:00Z',
+    ...over,
+  })
+  const suggestion = (over: Record<string, unknown> = {}) => ({
+    dedupe_key: 'msg:<m1>:interview', kind: 'stage_change', state: 'pending', application_id: null, candidate_ids: [],
+    company_name: 'Acme', role: 'PM', status: 'interview', proposed_stage: 'phone', previous_stage: null,
+    confidence: 0.9, evidence: { source: 'gmail', subject: 'Interview' }, observation_ids: ['o1'], provider: 'meta_muse',
+    resolved_at: null, ...over,
+  })
+
+  test('sync-off accounts keep these on the device', async () => {
+    const off = await signup('proc-off@example.com', undefined, { cloud: false })
+    for (const [method, path, body] of [
+      ['GET', '/api/job-leads'], ['PUT', `/api/job-leads/${crypto.randomUUID()}`, lead()],
+      ['GET', '/api/status-suggestions'], ['GET', '/api/agent-observations/pending'],
+    ] as const) {
+      assert.equal((await call(method, path, { token: off, body })).status, 409, `${method} ${path}`)
+    }
+  })
+
+  test('leads: full upsert, patch, uniqueness per fingerprint, ownership', async () => {
+    const owner = await signup('proc-leads@example.com')
+    const other = await signup('proc-leads-other@example.com')
+    const id = crypto.randomUUID()
+    const put = await call('PUT', `/api/job-leads/${id}`, { token: owner, body: lead() })
+    assert.equal(put.status, 200, JSON.stringify(put.body))
+    assert.deepEqual(put.body.sources[0].provider, 'meta_muse')
+    const merged = await call('PUT', `/api/job-leads/${id}`, { token: owner, body: lead({ sources: [...lead().sources, { connection_id: 'c2', observation_id: 'o2' }] }) })
+    assert.equal(merged.body.sources.length, 2)
+
+    assert.equal((await call('PUT', `/api/job-leads/${crypto.randomUUID()}`, { token: owner, body: lead() })).status, 409, 'same fingerprint, new id')
+    assert.equal((await call('PUT', `/api/job-leads/${id}`, { token: other, body: lead() })).status, 404, "can't overwrite another user's lead")
+    assert.equal((await call('PUT', `/api/job-leads/${crypto.randomUUID()}`, { token: owner, body: lead({ fingerprint: 'x', status: 'bogus' }) })).status, 400)
+
+    const app = await call('POST', '/api/applications', { token: owner, body: { company: { name: 'Acme' }, application: { role: 'PM' } } })
+    const patched = await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: { status: 'saved', application_id: app.body.id } })
+    assert.equal(patched.body.status, 'saved')
+    assert.equal(patched.body.application_id, app.body.id)
+    const foreignApp = await call('POST', '/api/applications', { token: other, body: { company: { name: 'X' }, application: { role: 'r' } } })
+    assert.equal((await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: { application_id: foreignApp.body.id } })).status, 400, 'composite FK')
+    assert.deepEqual((await call('GET', '/api/job-leads', { token: other })).body, [])
+    assert.equal((await call('GET', '/api/job-leads', { token: owner })).body.length, 1)
+  })
+
+  test('suggestions: upsert, resolve, one per dedupe key', async () => {
+    const owner = await signup('proc-sugg@example.com')
+    const id = crypto.randomUUID()
+    const put = await call('PUT', `/api/status-suggestions/${id}`, { token: owner, body: suggestion() })
+    assert.equal(put.status, 200, JSON.stringify(put.body))
+    assert.equal(put.body.proposed_stage, 'phone')
+    assert.equal((await call('PUT', `/api/status-suggestions/${crypto.randomUUID()}`, { token: owner, body: suggestion() })).status, 409)
+    assert.equal((await call('PUT', `/api/status-suggestions/${crypto.randomUUID()}`, { token: owner, body: suggestion({ dedupe_key: 'k2', proposed_stage: 'nope' }) })).status, 400)
+    const resolved = await call('PATCH', `/api/status-suggestions/${id}`, { token: owner, body: { state: 'accepted', previous_stage: 'applied', resolved_at: new Date().toISOString() } })
+    assert.equal(resolved.body.state, 'accepted')
+    assert.equal(resolved.body.previous_stage, 'applied')
+  })
+
+  test('processing queue: pending observations oldest first, then marked', async () => {
+    const owner = await signup('proc-queue@example.com')
+    const { body: { token } } = await call('POST', '/api/agent-connections', { token: owner, body: { provider: 'meta_muse', display_name: 'Muse' } })
+    const send = (key: string, title: string) => call('POST', '/api/agent/observations', {
+      token, headers: { 'Idempotency-Key': key },
+      body: { schema_version: '0.1', run_id: 'r', observation_type: 'job_discovered', observed_at: '2026-10-09T12:00:00Z', payload: { title, company: 'Acme' } },
+    })
+    const a = await send('k1', 'PM')
+    await send('k2', 'Designer')
+    const pending = await call('GET', '/api/agent-observations/pending', { token: owner })
+    assert.deepEqual(pending.body.map((o: any) => o.payload_json.payload.title), ['PM', 'Designer'])
+    assert.equal(pending.body[0].provider, 'meta_muse')
+    const marked = await call('PATCH', `/api/agent-observations/${a.body.observation_id}`, { token: owner, body: { processing_status: 'processed', processing_result: { lead_id: 'l1' } } })
+    assert.deepEqual(marked.body.processing_result, { lead_id: 'l1' })
+    assert.equal((await call('GET', '/api/agent-observations/pending', { token: owner })).body.length, 1)
+    assert.equal((await call('PATCH', `/api/agent-observations/${a.body.observation_id}`, { token: owner, body: { processing_status: 'done' } })).status, 400)
+  })
+
+  test('auto_add_applications is an account preference', async () => {
+    const owner = await signup('proc-pref@example.com', undefined, { cloud: false })
+    assert.equal((await call('GET', '/api/me', { token: owner })).body.auto_add_applications, false)
+    assert.equal((await call('PATCH', '/api/me', { token: owner, body: { auto_add_applications: true } })).body.auto_add_applications, true)
+    assert.equal((await call('PATCH', '/api/me', { token: owner, body: { auto_add_applications: 'yes' } })).status, 400)
+  })
+
+  test('leads and suggestions travel in snapshots and leave with sync off', async () => {
+    const owner = await signup('proc-snap@example.com', 'proc-snap-password')
+    const appId = crypto.randomUUID()
+    const companyId = crypto.randomUUID()
+    const snap = {
+      ...EMPTY_SNAPSHOT,
+      companies: [{ id: companyId, name: 'Acme' }],
+      applications: [{ id: appId, company_id: companyId, role: 'PM', stage: 'applied' }],
+      job_leads: [{ id: crypto.randomUUID(), ...lead({ status: 'already_applied', application_id: appId }) }, { id: crypto.randomUUID(), ...lead({ fingerprint: 'job:x', application_id: crypto.randomUUID() }) }],
+      status_suggestions: [{ id: crypto.randomUUID(), ...suggestion({ application_id: appId }) }],
+    }
+    const up = await call('POST', '/api/sync/upload', { token: owner, body: snap })
+    assert.equal(up.status, 201, JSON.stringify(up.body))
+    assert.equal(up.body.job_leads, 2)
+    assert.equal(up.body.status_suggestions, 1)
+    const leads = (await call('GET', '/api/job-leads', { token: owner })).body
+    assert.deepEqual(leads.map((l: any) => l.application_id).sort(), [appId, null].sort(), 'dangling app refs become null')
+    assert.equal((await call('POST', '/api/sync/upload', { token: owner, body: snap })).body.job_leads, 0, 'idempotent')
+
+    const exp = await call('GET', '/api/export', { token: owner })
+    assert.equal(exp.body.job_leads.length, 2)
+    assert.equal(exp.body.status_suggestions.length, 1)
+    await call('POST', '/api/cloud/disable', { token: owner, body: { password: 'proc-snap-password' } })
+    const [{ n }] = await sql`select (select count(*) from job_leads l join users u on u.id = l.user_id where u.email = 'proc-snap@example.com')
+      + (select count(*) from status_suggestions s join users u on u.id = s.user_id where u.email = 'proc-snap@example.com') as n`
+    assert.equal(Number(n), 0)
   })
 })

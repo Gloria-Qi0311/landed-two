@@ -1,6 +1,6 @@
 // Account-level routes — available whether or not Landed Cloud sync is on.
 //
-//   GET/PATCH /me        profile (onboarding flag) + cloud_sync state
+//   GET/PATCH /me        profile (onboarding flag, auto_add_applications) + cloud_sync state
 //   POST /cloud/enable   upload this device's snapshot and turn sync on, atomically
 //                        (held agent observations become Cloud data)
 //   POST /cloud/disable  { password } — delete every data row and turn sync off;
@@ -14,6 +14,8 @@ import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
 import { uploadSnapshot } from './sync.ts'
 
+const ME_COLUMNS = ['id', 'email', 'cloud_sync', 'onboarded_at', 'auto_add_applications', 'plan', 'created_at']
+
 async function checkPassword(sql: Sql, userId: string, password: unknown) {
   const [row] = await sql<{ password_hash: string }[]>`select password_hash from users where id = ${userId}`
   if (typeof password !== 'string' || !(await verifyPassword(password, row.password_hash))) {
@@ -26,18 +28,26 @@ export function accountRoutes(sql: Sql) {
 
   app.get('/me', async (c) => {
     const [row] = await sql`
-      select id, email, cloud_sync, onboarded_at, plan, created_at from users where id = ${c.get('user').id}`
+      select ${sql(ME_COLUMNS)} from users where id = ${c.get('user').id}`
     return c.json(row)
   })
 
   app.patch('/me', async (c) => {
     const body = await jsonBody(c)
-    if (!('onboarded_at' in body)) fail(400, 'nothing to update (allowed: onboarded_at)')
-    const at = body.onboarded_at
-    if (at !== null && typeof at !== 'string') fail(400, 'onboarded_at must be an ISO timestamp or null')
+    const patch: Record<string, unknown> = {}
+    if ('onboarded_at' in body) {
+      const at = body.onboarded_at
+      if (at !== null && typeof at !== 'string') fail(400, 'onboarded_at must be an ISO timestamp or null')
+      patch.onboarded_at = at
+    }
+    if ('auto_add_applications' in body) {
+      if (typeof body.auto_add_applications !== 'boolean') fail(400, 'auto_add_applications must be a boolean')
+      patch.auto_add_applications = body.auto_add_applications
+    }
+    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: onboarded_at, auto_add_applications)')
     const [row] = await sql`
-      update users set onboarded_at = ${at} where id = ${c.get('user').id}
-      returning id, email, cloud_sync, onboarded_at, plan, created_at`
+      update users set ${sql(patch)} where id = ${c.get('user').id}
+      returning ${sql(ME_COLUMNS)}`
     return c.json(row)
   })
 
@@ -65,6 +75,8 @@ export function accountRoutes(sql: Sql) {
       await tx`delete from resumes where user_id = ${userId}`
       await tx`delete from ai_runs where user_id = ${userId}`
       await tx`delete from ai_provider_keys where user_id = ${userId}`
+      await tx`delete from job_leads where user_id = ${userId}`
+      await tx`delete from status_suggestions where user_id = ${userId}`
       // Observations moved to the device with the export; keep payload-free
       // receipts so agent retries stay idempotent.
       await tx`update agent_observations set payload_json = null, delivered_at = now(), expires_at = null

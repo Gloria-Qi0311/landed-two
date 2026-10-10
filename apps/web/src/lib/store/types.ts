@@ -6,6 +6,7 @@
 // snake_case shape in both places — the server's JSON shape — so hooks and
 // components never care which backend they're talking to.
 import type { Resume } from '@landed/schema'
+import type { JobLead, Suggestion } from '@landed/observation-processor'
 
 export type DbCompany = {
   id: string
@@ -109,11 +110,17 @@ export type DbAgentObservation = {
   payload_sha256: string
   observed_at: string
   processing_status: 'pending' | 'processed' | 'needs-review' | 'rejected'
+  processing_result?: Record<string, unknown> | null
   created_at: string
   // joined from agent_connections when read from the server
   provider?: string
   display_name?: string
 }
+
+/** Processor output (packages/observation-processor): the "to apply" list
+ *  and the review queue. */
+export type DbJobLead = JobLead & { user_id: string }
+export type DbSuggestion = Suggestion & { user_id: string }
 
 /** Account-level (users row on the server, not part of either store);
  *  carried in snapshots only for backup-file compatibility. */
@@ -174,10 +181,13 @@ export type Snapshot = {
   portal_events: Owned<DbPortalEvent>[]
   ai_runs: Owned<DbAiRun>[]
   agent_observations?: Owned<DbAgentObservation>[] // absent in pre-agent backups
+  job_leads?: Owned<DbJobLead>[]
+  status_suggestions?: Owned<DbSuggestion>[]
 }
 
 export const SNAPSHOT_TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
+  'job_leads', 'status_suggestions',
 ] as const
 
 export function snapshotRowCount(s: Snapshot): number {
@@ -216,6 +226,22 @@ export interface DataStore {
 
   /** Newest first. Local: pulled from the server's relay inbox. Cloud: kept server-side. */
   listAgentObservations(limit: number): Promise<DbAgentObservation[]>
+  /** Oldest first — the processor's queue. */
+  listPendingObservations(limit: number): Promise<DbAgentObservation[]>
+  markObservation(id: string, status: DbAgentObservation['processing_status'], result: Record<string, unknown>): Promise<void>
+
+  listJobLeads(): Promise<DbJobLead[]> // last_seen_at desc
+  /** Insert or replace by id; a second lead with the same fingerprint is a 409. */
+  saveJobLead(lead: Owned<DbJobLead>): Promise<DbJobLead>
+  updateJobLead(id: string, patch: Partial<Pick<DbJobLead, 'status' | 'application_id'>>): Promise<DbJobLead>
+
+  listSuggestions(): Promise<DbSuggestion[]> // created_at desc
+  /** Insert or replace by id; a second suggestion with the same dedupe_key is a 409. */
+  saveSuggestion(s: Owned<DbSuggestion>): Promise<DbSuggestion>
+  updateSuggestion(
+    id: string,
+    patch: Partial<Pick<DbSuggestion, 'state' | 'application_id' | 'proposed_stage' | 'previous_stage' | 'resolved_at'>>,
+  ): Promise<DbSuggestion>
 
   exportSnapshot(): Promise<Snapshot>
 }

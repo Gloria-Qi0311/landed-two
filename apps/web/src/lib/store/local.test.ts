@@ -108,7 +108,7 @@ describe('agent observations (relay inbox)', () => {
     expect(await store.receiveAgentObservations([observation('o1', 'k1')])).toEqual(['o1'])
     const list = await store.listAgentObservations(10)
     expect(list.map((o) => o.id).sort()).toEqual(['o1', 'o2'])
-    expect(list[0]).not.toHaveProperty('provider')
+    expect(list[0].provider).toBe('meta_muse')
     expect(list[0].user_id).toBe('local')
   })
 

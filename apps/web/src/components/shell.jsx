@@ -5,7 +5,7 @@ import { LandedMark, Icon, stageColors } from './primitives';
 import { STAGES, PORTAL_STATUS } from '../data';
 import { AccountAvatar } from './auth';
 
-export const Sidebar = ({ apps, account, onProfileClick }) => {
+export const Sidebar = ({ apps, account, onProfileClick, navCounts = {} }) => {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const filter = searchParams.get('filter') || 'all';
@@ -46,7 +46,7 @@ export const Sidebar = ({ apps, account, onProfileClick }) => {
     </button>
   );
 
-  const NavItem = ({ to, icon, label }) => (
+  const NavItem = ({ to, icon, label, count }) => (
     <NavLink to={to} end={to === '/applications'} className="sidebar-item" style={({ isActive }) => ({
       width: '100%', textAlign: 'left', textDecoration: 'none',
       padding: '7px 10px', fontSize: 13,
@@ -58,6 +58,12 @@ export const Sidebar = ({ apps, account, onProfileClick }) => {
     })}>
       {icon}
       <span>{label}</span>
+      {count > 0 && (
+        <span style={{
+          marginLeft: 'auto', minWidth: 18, padding: '0 5px', borderRadius: 9, fontSize: 10.5, fontWeight: 600,
+          lineHeight: '17px', textAlign: 'center', background: 'var(--accent)', color: 'var(--bg)',
+        }}>{count}</span>
+      )}
     </NavLink>
   );
 
@@ -89,6 +95,8 @@ export const Sidebar = ({ apps, account, onProfileClick }) => {
         <NavItem to="/sync" icon={<Icon name="refresh" size={14} />} label="Sync" />
         <NavItem to="/resume-match" icon={<Icon name="sparkle" size={14} />} label="Resume Match" />
         <NavItem to="/jd-breakdown" icon={<Icon name="target" size={14} />} label="JD Breakdown" />
+        <NavItem to="/leads" icon={<Icon name="search" size={14} />} label="Job leads" count={navCounts.leads} />
+        <NavItem to="/review" icon={<Icon name="check" size={14} />} label="Review" count={navCounts.review} />
         <NavItem to="/agents" icon={<Icon name="wand" size={14} />} label="Agents" />
       </div>
 

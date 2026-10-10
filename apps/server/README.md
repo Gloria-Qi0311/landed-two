@@ -62,6 +62,7 @@ All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` 
 | `GET /ai-keys`, `PUT /ai-keys/:provider`, `DELETE /ai-keys/:id` | Write-only provider keys |
 | `POST /agent/observations` | External agents (agent token, not a session). See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) |
 | `GET/POST /agent-connections`, `POST /agent-connections/:id/revoke`, `GET /agent-observations`, `GET /agent-inbox`, `POST /agent-inbox/ack` | Manage agents, review reports, relay pull for sync-off accounts. These work with sync off. |
+| `GET /job-leads`, `PUT/PATCH /job-leads/:id`, `GET /status-suggestions`, `PUT/PATCH /status-suggestions/:id`, `GET /agent-observations/pending`, `PATCH /agent-observations/:id` | Cloud storage for the observation processor's output (it runs in the browser) |
 
 ## Production (Mac mini)
 

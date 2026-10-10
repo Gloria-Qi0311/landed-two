@@ -8,7 +8,7 @@
 import Dexie, { type Table } from 'dexie'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
-  type AiRunInput, type ApplicationInput, type DbAgentObservation, type ApplicationPatch, type CompanyInput, type ConnectionInput,
+  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbJobLead, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
   type DbPortalEvent, type DbResume, type DemoImport, type PortalEventInput, type Snapshot,
 } from './types'
@@ -67,6 +67,8 @@ class LandedDB extends Dexie {
   ai_runs!: Table<DbAiRun, string>
   meta!: Table<Meta, string>
   agent_observations!: Table<DbAgentObservation, string>
+  job_leads!: Table<DbJobLead, string>
+  status_suggestions!: Table<DbSuggestion, string>
 
   constructor(name: string) {
     super(name)
@@ -82,6 +84,12 @@ class LandedDB extends Dexie {
     // v2: raw inbox of agent reports, pulled from the server's relay.
     this.version(2).stores({
       agent_observations: 'id, created_at, &[connection_id+idempotency_key]',
+    })
+    // v3: observation processor output + a processing-status index.
+    this.version(3).stores({
+      agent_observations: 'id, created_at, &[connection_id+idempotency_key], processing_status',
+      job_leads: 'id, &fingerprint, status, last_seen_at',
+      status_suggestions: 'id, &dedupe_key, state, created_at',
     })
   }
 }
@@ -320,16 +328,67 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
     async listAgentObservations(limit) {
       return db.agent_observations.orderBy('created_at').reverse().limit(limit).toArray()
     },
+    async listPendingObservations(limit) {
+      return (await db.agent_observations.where('processing_status').equals('pending').sortBy('created_at')).slice(0, limit)
+    },
+    async markObservation(id, processing_status, processing_result) {
+      const n = await db.agent_observations.update(id, { processing_status, processing_result })
+      if (!n) throw new LocalStoreError(404, 'observation not found')
+    },
+
+    async listJobLeads() {
+      return (await db.job_leads.toArray()).sort(byDesc('last_seen_at'))
+    },
+    async saveJobLead(lead) {
+      const row = { ...lead, user_id: LOCAL_USER }
+      return db.transaction('rw', db.job_leads, async () => {
+        const clash = await db.job_leads.where('fingerprint').equals(row.fingerprint).first()
+        if (clash && clash.id !== row.id) throw new LocalStoreError(409, 'a lead with this fingerprint already exists')
+        await db.job_leads.put(row)
+        return row
+      })
+    },
+    async updateJobLead(id, patch) {
+      return db.transaction('rw', db.job_leads, async () => {
+        const row = await db.job_leads.get(id)
+        if (!row) throw new LocalStoreError(404, 'lead not found')
+        const next = { ...row, ...patch }
+        await db.job_leads.put(next)
+        return next
+      })
+    },
+
+    async listSuggestions() {
+      return (await db.status_suggestions.toArray()).sort(byDesc('created_at'))
+    },
+    async saveSuggestion(s) {
+      const row = { ...s, user_id: LOCAL_USER }
+      return db.transaction('rw', db.status_suggestions, async () => {
+        const clash = await db.status_suggestions.where('dedupe_key').equals(row.dedupe_key).first()
+        if (clash && clash.id !== row.id) throw new LocalStoreError(409, 'a suggestion for this email already exists')
+        await db.status_suggestions.put(row)
+        return row
+      })
+    },
+    async updateSuggestion(id, patch) {
+      return db.transaction('rw', db.status_suggestions, async () => {
+        const row = await db.status_suggestions.get(id)
+        if (!row) throw new LocalStoreError(404, 'suggestion not found')
+        const next = { ...row, ...patch }
+        await db.status_suggestions.put(next)
+        return next
+      })
+    },
+
     async receiveAgentObservations(rows) {
       return db.transaction('rw', db.agent_observations, async () => {
         const stored: string[] = []
         for (const r of rows) {
           const dup = await db.agent_observations
             .where('[connection_id+idempotency_key]').equals([r.connection_id, r.idempotency_key]).first()
-          if (!dup) {
-            const { provider: _p, display_name: _d, ...row } = r
-            await db.agent_observations.add({ ...row, user_id: LOCAL_USER })
-          }
+          // provider/display_name are kept: leads and the review queue show
+          // which agent reported what.
+          if (!dup) await db.agent_observations.add({ ...r, user_id: LOCAL_USER })
           stored.push(r.id)
         }
         return stored
@@ -349,6 +408,8 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         portal_events: (await db.portal_events.toArray()).map(strip),
         ai_runs: (await db.ai_runs.toArray()).map(strip),
         agent_observations: (await db.agent_observations.toArray()).map(strip),
+        job_leads: (await db.job_leads.toArray()).map(strip),
+        status_suggestions: (await db.status_suggestions.toArray()).map(strip),
       }))
     },
 
@@ -368,6 +429,8 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         await db.portal_events.bulkAdd(own(snapshot.portal_events) as DbPortalEvent[])
         await db.ai_runs.bulkAdd(own(snapshot.ai_runs) as DbAiRun[])
         await db.agent_observations.bulkAdd(own(snapshot.agent_observations) as DbAgentObservation[])
+        await db.job_leads.bulkAdd(own(snapshot.job_leads) as DbJobLead[])
+        await db.status_suggestions.bulkAdd(own(snapshot.status_suggestions) as DbSuggestion[])
       })
     },
     async clearAll() {

@@ -2,7 +2,7 @@
 // server (apps/server). Active for accounts with Landed Cloud sync on.
 import { api } from '../api'
 import type {
-  DataStore, DbAgentObservation, DbApplication, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
+  DataStore, DbAgentObservation, DbApplication, DbJobLead, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
 } from './types'
 
 export function createCloudStore(): DataStore {
@@ -42,6 +42,18 @@ export function createCloudStore(): DataStore {
     addAiRun: (row) => api.post<{ id: string }>('/ai-runs', row),
 
     listAgentObservations: (limit) => api.get<DbAgentObservation[]>(`/agent-observations?limit=${limit}`),
+    listPendingObservations: (limit) => api.get<DbAgentObservation[]>(`/agent-observations/pending?limit=${limit}`),
+    markObservation: async (id, processing_status, processing_result) => {
+      await api.patch(`/agent-observations/${id}`, { processing_status, processing_result })
+    },
+
+    listJobLeads: () => api.get<DbJobLead[]>('/job-leads'),
+    saveJobLead: (lead) => api.put<DbJobLead>(`/job-leads/${lead.id}`, lead),
+    updateJobLead: (id, patch) => api.patch<DbJobLead>(`/job-leads/${id}`, patch),
+
+    listSuggestions: () => api.get<DbSuggestion[]>('/status-suggestions'),
+    saveSuggestion: (s) => api.put<DbSuggestion>(`/status-suggestions/${s.id}`, s),
+    updateSuggestion: (id, patch) => api.patch<DbSuggestion>(`/status-suggestions/${id}`, patch),
 
     exportSnapshot: () => api.get<Snapshot>('/export'),
   }

@@ -1,4 +1,6 @@
-# Observation 处理程序设计（草案 v0.1）
+# Observation 处理程序设计（v0.1，已实现）
+
+> 状态：已按本文实现。规则在 `packages/observation-processor`（纯函数 + 测试），浏览器里的运行和用户操作在 `apps/web/src/lib/inbox.ts`，界面是 Job leads 和 Review 两个页面。第 10 节的三个问题按建议方案落地。
 
 外部 Agent（Muse、Claude、Codex）通过 [Agent 协议](../apps/server/AGENT_PROTOCOL.md) 把 observation 交给 Landed。目前这些数据只是原样存着。处理程序负责把它们变成用户能直接用的两样东西：
 
@@ -46,10 +48,10 @@
 
 | ATS | 链接形态 | 职位键 |
 |---|---|---|
-| Greenhouse | `boards.greenhouse.io/{co}/jobs/{id}`，或任意链接带 `gh_jid={id}` | `greenhouse:{co}:{id}` |
-| Lever | `jobs.lever.co/{co}/{uuid}` | `lever:{co}:{uuid}` |
-| Ashby | `jobs.ashbyhq.com/{co}/{uuid}` | `ashby:{co}:{uuid}` |
-| Workday | `…myworkdayjobs.com/…/job/…_{reqid}` | `workday:{tenant}:{reqid}` |
+| Greenhouse | `boards.greenhouse.io/{co}/jobs/{id}`，或任意链接带 `gh_jid={id}` | `greenhouse:{id}`（职位 id 在整个 Greenhouse 全局唯一，所以招聘板和公司官网的链接能对上） |
+| Lever | `jobs.lever.co/{co}/{uuid}` | `lever:{uuid}` |
+| Ashby | `jobs.ashbyhq.com/{co}/{uuid}` | `ashby:{uuid}` |
+| Workday | `…myworkdayjobs.com/…/job/…_{reqid}` | `workday:{tenant}:{reqid}`（编号只在公司内唯一） |
 
 ---
 
@@ -57,7 +59,7 @@
 
 按顺序判断，命中第一条就停：
 
-1. **ATS 职位键相同**：是同一个职位。
+1. **ATS 职位键相同**：是同一个职位。如果两边都有 ATS 职位键但不相同，就是不同的职位（比如重新发布的同名职位），不再往下比较。
 2. **标准化后的链接相同**：是同一个职位。
 3. **公司相同 + 职位名相同 + 地点兼容**，并且 60 天内出现过：是同一个职位。地点兼容指同一城市，或者有一方是 Remote，或者有一方没写地点。
 4. 都不满足：是一个新职位。
@@ -158,7 +160,7 @@
 
 ---
 
-## 10. 需要你定的问题
+## 10. 需要你定的问题（已按建议决定）
 
 1. **待投递清单是单独一张表，还是直接创建 Saved 状态的投递记录？**
    我建议单独一张表。Agent 一次可能找到几十个职位，直接塞进投递流水线会把看板淹没。用户点"加入投递"之后才变成真正的投递记录。

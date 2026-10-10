@@ -18,6 +18,7 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
 import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
+import { LEAD_COLUMNS, SUGGESTION_COLUMNS } from './inbox.ts'
 
 // Loosely-typed JSON row (request bodies, jsonb values) for the sql() helpers.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -26,7 +27,10 @@ type Row = Record<string, any>
 export const BACKUP_FORMAT = 'landed-backup'
 export const BACKUP_VERSION = 1
 
-const TABLES = ['companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations'] as const
+const TABLES = [
+  'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
+  'job_leads', 'status_suggestions',
+] as const
 const MAX_ROWS_PER_TABLE = 20_000
 const CHUNK = 500
 
@@ -48,8 +52,10 @@ const COLUMNS = {
   // snapshot (receipts are server bookkeeping, not user data).
   agent_observations: [
     'id', 'connection_id', 'idempotency_key', 'schema_version', 'run_id', 'observation_type',
-    'payload_json', 'payload_sha256', 'observed_at', 'processing_status', 'created_at',
+    'payload_json', 'payload_sha256', 'observed_at', 'processing_status', 'processing_result', 'created_at',
   ],
+  job_leads: LEAD_COLUMNS,
+  status_suggestions: SUGGESTION_COLUMNS,
 } as const
 
 // NOT NULL columns get their DB default when a snapshot row omits them, so
@@ -58,10 +64,13 @@ function defaults(now: string): Row {
   return {
     created_at: now, last_activity_at: now, referral: false, starred: false, stage: 'saved',
     status: 'active', payload_json: {}, is_current: false, processing_status: 'pending',
+    sources: [], candidate_ids: [], evidence: {}, observation_ids: [], state: 'pending',
   }
 }
 
-const JSON_COLUMNS = new Set(['payload_json', 'parsed_json'])
+const JSON_COLUMNS = new Set([
+  'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
+])
 
 function chunks<T>(rows: T[]): T[][] {
   const out: T[][] = []
@@ -92,11 +101,14 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
   }
 
   // Insert in chunks; rows whose id already exists are skipped, which is
-  // what makes a retried upload a no-op.
-  const insertRows = async (table: string, rows: Row[]) => {
+  // what makes a retried upload a no-op. `anyConflict` also skips rows that
+  // collide on another unique key (a lead/suggestion the account already has).
+  const insertRows = async (table: string, rows: Row[], anyConflict = false) => {
     let n = 0
     for (const chunk of chunks(rows)) {
-      const res = await tx`insert into ${tx(table)} ${tx(chunk)} on conflict (id) do nothing returning id`
+      const res = anyConflict
+        ? await tx`insert into ${tx(table)} ${tx(chunk)} on conflict do nothing returning id`
+        : await tx`insert into ${tx(table)} ${tx(chunk)} on conflict (id) do nothing returning id`
       n += res.length
     }
     return n
@@ -193,6 +205,15 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
       where user_id = ${userId} and payload_sha256 = ''`
   }
   counts.agent_observations = restored
+
+  // processor output — application refs outside the snapshot become null
+  const appRef = (id: unknown) => (typeof id === 'string' && appIds.has(id) ? id : null)
+  counts.job_leads = await insertRows('job_leads', list('job_leads')
+    .filter((r) => typeof r.fingerprint === 'string')
+    .map((r) => normalize('job_leads', r, { application_id: appRef(r.application_id) })), true)
+  counts.status_suggestions = await insertRows('status_suggestions', list('status_suggestions')
+    .filter((r) => typeof r.dedupe_key === 'string')
+    .map((r) => normalize('status_suggestions', r, { application_id: appRef(r.application_id) })), true)
 
   const onboarded = snap.profile?.onboarded_at
   if (typeof onboarded === 'string') {

@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { localStoreFor, useStore, type DbAgentObservation } from '../lib/store'
+import { OBSERVATIONS_ARRIVED } from './inbox'
 
 export type AgentConnection = {
   id: string
@@ -84,6 +85,7 @@ export function useAgentRelay() {
           const ids = await device.receiveAgentObservations(held)
           await api.post('/agent-inbox/ack', { ids })
           qc.invalidateQueries({ queryKey: ['agent_observations'] })
+          window.dispatchEvent(new Event(OBSERVATIONS_ARRIVED))
           if (held.length < 200) break
         }
       } catch (e) {

@@ -71,4 +71,11 @@ Agents run in the cloud, so every observation passes through this server. What t
 | `GET /agent-observations` | Review list. Receipts come back with `payload_json: null`. |
 | `GET /agent-inbox`, `POST /agent-inbox/ack` `{ ids }` | Relay pull and ack for sync-off accounts. The web app does this automatically. |
 
-Not built yet: a processor that normalizes, deduplicates and matches observations to jobs and applications, plus a review queue for low-confidence status changes.
+## What Landed does with observations
+
+The observation processor (`packages/observation-processor`, rules in [docs/observation-processor.md](../../docs/observation-processor.md)) runs in the user's browser:
+
+- `job_discovered` observations are deduplicated into **job leads**, the "to apply" list.
+- `application_status` observations are matched to applications and become **suggestions** in the Review queue.
+  - Only a confident "applied" email with evidence changes an application automatically, and that change can be undone.
+  - Interviews, rejections and offers always wait for the user.
