@@ -8,16 +8,30 @@ import { usePairRuntime, useRemoveRuntime, useRuntimes, type Runtime } from '../
 
 const muted = { fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 } as const
 
-export function RuntimePanel() {
+/** Pair a new computer: creates the key, then polls until the daemon connects. */
+export function usePairing() {
   const [pairing, setPairing] = useState<{ runtime: Runtime; token: string } | null>(null)
   const runtimes = useRuntimes({ poll: !!pairing })
   const pair = usePairRuntime()
-  const list = (runtimes.data ?? []).filter((r) => !r.revoked_at)
-  const pairedNow = pairing && list.find((r) => r.id === pairing.runtime.id && r.online)
+  const pairedNow = pairing && runtimes.data?.find((r) => r.id === pairing.runtime.id && r.online)
 
   useEffect(() => {
     if (pairedNow) setPairing(null)
   }, [pairedNow])
+
+  return {
+    pairing,
+    start: async () => setPairing(await pair.mutateAsync(navigator.platform.startsWith('Mac') ? 'My Mac' : 'My computer')),
+    cancel: () => setPairing(null),
+    pending: pair.isPending,
+    error: pair.error as Error | null,
+  }
+}
+
+export function RuntimePanel() {
+  const { pairing, start, cancel, pending, error } = usePairing()
+  const runtimes = useRuntimes()
+  const list = (runtimes.data ?? []).filter((r) => !r.revoked_at)
 
   return (
     <section style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
@@ -25,8 +39,7 @@ export function RuntimePanel() {
         <Icon name="device" size={14} />
         <div style={{ fontSize: 12.5, fontWeight: 600 }}>Your computer</div>
         {!pairing && (
-          <button type="button" className="btn-secondary" style={{ marginLeft: 'auto' }} disabled={pair.isPending}
-            onClick={async () => setPairing(await pair.mutateAsync(navigator.platform.startsWith('Mac') ? 'My Mac' : 'My computer'))}>
+          <button type="button" className="btn-secondary" style={{ marginLeft: 'auto' }} disabled={pending} onClick={start}>
             <Icon name="plus" size={12} /> Connect this computer
           </button>
         )}
@@ -36,8 +49,8 @@ export function RuntimePanel() {
           Run Landed's AI work with the agents already on your computer — Claude Code today, Codex and Gemini CLI next.
           It uses your own subscription, so there's no extra cost, and the work happens on your machine; Landed only passes messages through.
         </div>
-        {pair.error && <div role="alert" style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)' }}>{(pair.error as Error).message}</div>}
-        {pairing && <PairingSteps token={pairing.token} onCancel={() => setPairing(null)} />}
+        {error && <PairingError error={error} />}
+        {pairing && <PairingSteps token={pairing.token} onCancel={cancel} />}
         {list.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {list.map((r, i) => <RuntimeRow key={r.id} runtime={r} first={i === 0} />)}
@@ -48,7 +61,11 @@ export function RuntimePanel() {
   )
 }
 
-function PairingSteps({ token, onCancel }: { token: string; onCancel: () => void }) {
+export function PairingError({ error }: { error: Error }) {
+  return <div role="alert" style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)' }}>{error.message}</div>
+}
+
+export function PairingSteps({ token, onCancel }: { token: string; onCancel: () => void }) {
   const command = `pnpm landed connect --server ${window.location.origin} --token ${token}`
   const [copied, setCopied] = useState(false)
   return (
@@ -65,7 +82,7 @@ function PairingSteps({ token, onCancel }: { token: string; onCancel: () => void
         <span style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginLeft: 'auto' }}>Waiting for your computer to connect…</span>
       </div>
       <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
-        The command includes this computer's key, shown only now. Needs Node 23.6+ and Claude Code installed and signed in. Keep the terminal open — or run <code>pnpm landed start</code> any time later.
+        The command includes this computer's key, shown only now. Needs Node 23.6+ and Claude Code installed and signed in. Keep the terminal open. Later, <code>pnpm landed start</code> on this same computer reconnects it.
       </div>
     </div>
   )

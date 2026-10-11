@@ -9,7 +9,7 @@ The Landed daemon connects your computer to Landed and runs Landed's AI tasks wi
 
 ## Use it
 
-1. In Landed, open **Agents → Your computer → Connect this computer** and copy the command.
+1. In Landed, open **Applications → Ask Agent → Connect this computer** and copy the command.
 2. Run it in a terminal on that computer, from the Landed repo folder:
 
    ```sh

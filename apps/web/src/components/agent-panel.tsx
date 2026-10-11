@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Icon } from './primitives'
 import { Markdown } from './markdown'
-import { RuntimePanel } from './runtime-panel'
+import { PairingError, PairingSteps, RuntimePanel, usePairing } from './runtime-panel'
 import { AgentSettings } from './agent-settings'
 import { useAuth } from '../lib/auth'
 import { useAgentChat } from '../lib/agent-chat'
@@ -104,14 +104,18 @@ function Setup() {
   )
 }
 
-/** Paired, but the daemon isn't running. */
+/** Paired, but the daemon isn't running. `start` only works on the computer
+ *  that ran `connect` (it reuses ~/.landed/config.json), so offer re-pairing
+ *  right here for every other case. */
 function Offline({ runtime }: { runtime: Runtime }) {
   const [copied, setCopied] = useState(false)
+  const { pairing, start, cancel, pending, error } = usePairing()
+  const muted = { fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.6 } as const
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: 13, fontWeight: 600 }}>{runtime.name} is offline</div>
-      <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-        Start the Landed daemon on that computer (from the Landed repo folder) and this panel connects by itself:
+      <div style={muted}>
+        On {runtime.name}, start the Landed daemon from the Landed repo folder and this panel connects by itself:
       </div>
       <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, padding: '8px 10px', borderRadius: 6, background: 'var(--surface-2)', border: '0.5px solid var(--border)' }}>
         pnpm landed start
@@ -121,7 +125,17 @@ function Offline({ runtime }: { runtime: Runtime }) {
           {copied ? 'Copied' : 'Copy command'}
         </button>
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginTop: 8 }}>Using a different computer? Connect it under Agent settings (gear icon).</div>
+      <div style={{ ...muted, marginTop: 10, paddingTop: 12, borderTop: '0.5px solid var(--border-subtle)' }}>
+        It says <b>“Not paired yet”</b>, or you're on a different computer? Connect this one instead — it takes one command.
+      </div>
+      {error && <PairingError error={error} />}
+      {pairing ? <PairingSteps token={pairing.token} onCancel={cancel} /> : (
+        <div>
+          <button type="button" className="btn-primary" disabled={pending} onClick={start}>
+            <Icon name="plus" size={12} /> Connect this computer
+          </button>
+        </div>
+      )}
     </div>
   )
 }

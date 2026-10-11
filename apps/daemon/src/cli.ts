@@ -58,7 +58,7 @@ async function run(config: Config) {
       log('connection closed, reconnecting…')
     } catch (err) {
       if (err instanceof AuthError) {
-        log(`${err.message} (Landed → Agents → Your computer).`)
+        log(`${err.message}: in Landed open Applications → Ask Agent → Connect this computer, and run the new command.`)
         process.exit(2)
       }
       log(`can't reach Landed (${(err as Error).message}); retrying in ${Math.round(backoff / 1000)}s`)
@@ -77,7 +77,7 @@ async function main() {
 
   if (command === 'connect') {
     if (!values.server || !values.token?.startsWith('landed_rt_')) {
-      console.error('Usage: landed connect --server <Landed URL> --token <landed_rt_… from the Agents page> [--name <this computer>]')
+      console.error('Usage: landed connect --server <Landed URL> --token <landed_rt_… from Landed → Applications → Ask Agent> [--name <this computer>]')
       process.exit(1)
     }
     const config: Config = { server: values.server, token: values.token, ...(values.name ? { name: values.name } : {}) }
@@ -89,7 +89,11 @@ async function main() {
   if (command === 'start') {
     const config = loadConfig()
     if (!config) {
-      console.error('Not paired yet. In Landed open Agents → Your computer → Connect this computer, then run the command it shows.')
+      console.error(
+        `Not paired yet — this computer has no saved connection (${join(home(), 'config.json')}).\n` +
+          'In Landed open Applications → Ask Agent → Connect this computer, then run the `pnpm landed connect …` command it shows.\n' +
+          'After that, `pnpm landed start` reconnects.',
+      )
       process.exit(1)
     }
     return run(config)

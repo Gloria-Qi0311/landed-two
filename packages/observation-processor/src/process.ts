@@ -293,7 +293,7 @@ export function processObservation(o: Observation, ctx: Context, opts: ProcessOp
   switch (o.observation_type) {
     case 'job_discovered': return processJob(o, ctx, opts)
     case 'application_status': return processStatus(o, ctx, opts)
-    // Shown as connection health on the Agents page; nothing to change.
+    // Shown as connection health in Agent settings; nothing to change.
     case 'sync_error': return { status: 'processed', result: { connection_error: true }, effects: [] }
     default: return { status: 'rejected', result: { reason: `unknown observation_type ${o.observation_type}` }, effects: [] }
   }
