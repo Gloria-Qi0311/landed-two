@@ -100,7 +100,7 @@ export function EmailWatchSetting() {
     return (
       <div style={muted}>
         Your agent can't read email yet. To let it keep your board up to date from application emails, connect Gmail in
-        Claude (claude.ai → Settings → Connectors → Gmail), then restart the Landed daemon with <code>pnpm landed start</code>.
+        Claude (claude.ai → Settings → Connectors → Gmail); the daemon picks it up within 30 minutes (or right away if you restart it with <code>pnpm landed start</code>).
         Landed only ever asks it to read — never to send, label or delete.
       </div>
     )

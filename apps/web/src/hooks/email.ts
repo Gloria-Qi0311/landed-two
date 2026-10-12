@@ -13,6 +13,7 @@ import { canRun, useRuntimes, type Runtime } from './runtimes'
 
 const CHECK_EVERY_MS = 4 * 3_600_000
 const TICK_MS = 5 * 60_000
+const RETRY_MS = 30 * 60_000
 const FIRST_LOOKBACK_DAYS = 30
 /** Re-read a little before the last check so nothing slips between checks;
  *  emails already seen dedupe on their message id. */
@@ -96,8 +97,11 @@ export function useEmailWatcher() {
     const tick = async () => {
       const { check } = useEmailCheck.getState()
       if (check?.status === 'running') return
-      const last = Math.max(checkedAt ? Date.parse(checkedAt) : 0, check ? Date.parse(check.started_at) : 0)
-      if (Date.now() - last < CHECK_EVERY_MS) return
+      // Due every 4 hours since the last check that actually read mail; a
+      // failed attempt (e.g. the connector didn't load) is retried sooner.
+      if (checkedAt && Date.now() - Date.parse(checkedAt) < CHECK_EVERY_MS) return
+      const attempt = check ? Date.now() - Date.parse(check.started_at) : Infinity
+      if (attempt < (check?.status === 'error' ? RETRY_MS : CHECK_EVERY_MS)) return
       try {
         await useEmailCheck.getState().start(target, await checkInput(store, checkedAt))
       } catch (e) {

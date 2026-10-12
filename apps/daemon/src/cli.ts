@@ -10,19 +10,24 @@
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
-import { detectAgents, runTask, type Task } from './agents.ts'
+import { detectAgents, runTask, type AgentInfo, type Task } from './agents.ts'
 import { home, loadConfig, saveConfig, type Config } from './config.ts'
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 
 const VERSION = '0.2.0'
 const MAX_PARALLEL = 2
 
+const describe = (agents: AgentInfo[]) =>
+  agents.map((a) => `${a.label} ${a.version ?? ''}${a.mail ? `, reads ${a.mail}` : ''}${a.browser ? `, uses ${a.browser}` : ''}`.trim()).join(', ')
+
 function log(msg: string) {
   console.log(`[landed ${new Date().toLocaleTimeString()}] ${msg}`)
 }
 
+const REDETECT_MS = 30 * 60_000
+
 async function run(config: Config) {
-  const agents = await detectAgents()
+  let agents = await detectAgents({ quick: true })
   if (agents.length === 0) {
     log('No supported agent found. Install Claude Code (https://claude.com/claude-code) and sign in, then run `landed start` again.')
     process.exit(1)
@@ -47,13 +52,30 @@ async function run(config: Config) {
       })
   }
 
+  // Full detection (mailbox lookup) in the background, then every 30
+  // minutes: connectors come and go, and claude.ai's load unreliably.
+  const redetect = async () => {
+    try {
+      const next = await detectAgents()
+      if (JSON.stringify(next) !== JSON.stringify(agents)) {
+        agents = next
+        await client.hello({ name, agents, daemon_version: VERSION })
+        log(`agents updated: ${describe(agents)}`)
+      }
+    } catch (err) {
+      log(`couldn't refresh what the agents can do (${(err as Error).message})`)
+    }
+  }
+  void redetect()
+  setInterval(redetect, REDETECT_MS).unref()
+
   let backoff = 1000
   for (;;) {
     try {
       await client.hello({ name, agents, daemon_version: VERSION })
       await client.stream(work, () => {
         backoff = 1000
-        log(`connected to ${config.server} as "${name}" — agents: ${agents.map((a) => `${a.label} ${a.version ?? ''}${a.mail ? `, reads ${a.mail}` : ''}`.trim()).join(', ')}`)
+        log(`connected to ${config.server} as "${name}" — agents: ${describe(agents)}`)
       })
       log('connection closed, reconnecting…')
     } catch (err) {
@@ -107,7 +129,10 @@ async function main() {
     for (const a of agents) {
       console.log(a.mail
         ? `${a.label} can read your ${a.mail} (read-only), so Landed can check your email for application updates.`
-        : `${a.label} has no mail connector, so email checks are off. To turn them on, connect Gmail in Claude (claude.ai → Settings → Connectors) and restart the daemon.`)
+        : `${a.label} has no mail connector, so email checks are off. To turn them on, connect Gmail in Claude (claude.ai → Settings → Connectors); a running daemon picks it up within 30 minutes.`)
+      console.log(a.browser
+        ? `${a.label} can look at candidate portals in ${a.browser} (read-only: it can navigate and read, never click or type).`
+        : `${a.label} can't reach Chrome, so portal checks are off. Open Chrome with the Claude in Chrome extension connected; a running daemon picks it up within 30 minutes.`)
     }
     return
   }

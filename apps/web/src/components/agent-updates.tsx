@@ -7,7 +7,7 @@ import { useState, type ReactNode } from 'react'
 import { Icon, StageBadge } from './primitives'
 import { formatRelative } from '../lib/time'
 import { AGENT_PROVIDERS } from '../lib/agent-prompt'
-import { canUndo, isClickQuestion } from '../lib/inbox'
+import { canUndo, isPanelQuestion } from '../lib/inbox'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { useSuggestionActions, useSuggestions } from '../hooks/inbox'
 import type { DbSuggestion } from '../lib/store'
@@ -32,7 +32,11 @@ function Evidence({ s }: { s: DbSuggestion }) {
   return (
     <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
       <Icon name="inbox" size={11} />
-      <span>{providerLabel(s.provider)} read {e.source ? `a ${e.source} email` : 'an email'}{parts.length ? ': ' : ''}{parts.join(' · ')}</span>
+      <span>
+        {e.source === 'portal'
+          ? <>{providerLabel(s.provider)} looked at the candidate portal{e.sender_domain ? ` (${e.sender_domain})` : ''}{e.subject ? `: “${e.subject}”` : ''}</>
+          : <>{providerLabel(s.provider)} read {e.source ? `a ${e.source} email` : 'an email'}{parts.length ? ': ' : ''}{parts.join(' · ')}</>}
+      </span>
       {s.confidence != null && <span style={{ fontFamily: 'var(--font-mono)' }}>· {Math.round(s.confidence * 100)}% sure</span>}
       {s.observation_ids.length > 1 && <span>· reported {s.observation_ids.length}×</span>}
     </div>
@@ -155,8 +159,8 @@ const RECENT_DAYS = 7
 
 /** Top-of-Applications strip. Renders nothing when there's nothing to show. */
 export function AgentUpdatesBar() {
-  // "Did you apply?" questions are asked in the Ask Agent panel instead.
-  const suggestions = (useSuggestions().data ?? []).filter((s) => !isClickQuestion(s))
+  // Landed's own questions are asked in the Ask Agent panel instead.
+  const suggestions = (useSuggestions().data ?? []).filter((s) => !isPanelQuestion(s))
   const apps = (useApplications().data ?? []) as AppShape[]
   const companies = (useCompanies().data ?? []) as CompanyShape[]
   const [open, setOpen] = useState(false)
@@ -203,8 +207,8 @@ export function AgentUpdatesBar() {
 }
 
 /** Count for the sidebar badge. */
-/** Sidebar count: updates waiting in "Needs your input" ("did you apply?"
+/** Sidebar count: updates waiting in "Needs your input" (the panel's own
  *  questions are counted on the Ask Agent button instead). */
 export function usePendingUpdateCount() {
-  return (useSuggestions().data ?? []).filter((s) => s.state === 'pending' && !isClickQuestion(s)).length
+  return (useSuggestions().data ?? []).filter((s) => s.state === 'pending' && !isPanelQuestion(s)).length
 }

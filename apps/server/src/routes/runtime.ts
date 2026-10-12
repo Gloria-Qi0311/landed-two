@@ -13,10 +13,12 @@
 // Task kinds: `chat` (one Ask Agent turn), `job_search` (search the web for
 // jobs matching a confirmed brief; the result carries `jobs`) and
 // `email_check` (read the user's mailbox through their agent's mail
-// connector; the result carries `findings`). Each agent reports the kinds
-// its daemon can run.
+// connector; the result carries `findings`) and `portal_check` (look at
+// candidate portals in the user's Chrome, read-only; the result carries
+// `results`). Each agent reports the kinds its daemon can run.
 import { createHash, randomBytes } from 'node:crypto'
 import { parseEmailCheckInput, parseEmailFindings } from '@landed/schema/email-check'
+import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'
 import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -31,7 +33,7 @@ type Row = Record<string, any>
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex')
 const UUID = /^[0-9a-f-]{36}$/i
 const RUNTIME_COLUMNS = ['id', 'name', 'agents', 'daemon_version', 'last_seen_at', 'revoked_at', 'created_at']
-const JOB_KINDS = new Set(['chat', 'job_search', 'email_check'])
+const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'portal_check'])
 /** Daemons from before agents reported their kinds can only chat. */
 const LEGACY_KINDS = ['chat']
 const MAX_MESSAGE = 20_000
@@ -98,6 +100,10 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
         fail(400, 'input.conversation_id must be a uuid')
       }
       input = { message: raw.message, conversation_id: raw.conversation_id }
+    } else if (body.kind === 'portal_check') {
+      const check = parsePortalCheckInput(raw)
+      if (!check) fail(400, 'input.items needs 1–5 applications with company, role, stage and an http(s) url')
+      input = check
     } else if (body.kind === 'email_check') {
       const check = parseEmailCheckInput(raw)
       if (!check) fail(400, 'input.since must be an ISO timestamp')
@@ -189,6 +195,7 @@ function cleanAgents(raw: unknown) {
       version: typeof a.version === 'string' ? a.version.slice(0, 80) : null,
       kinds: Array.isArray(a.kinds) ? a.kinds.filter((k: unknown) => typeof k === 'string' && JOB_KINDS.has(k)) : LEGACY_KINDS,
       mail: typeof a.mail === 'string' && a.mail.trim() ? a.mail.trim().slice(0, 40) : null,
+      browser: typeof a.browser === 'string' && a.browser.trim() ? a.browser.trim().slice(0, 40) : null,
     }))
 }
 
@@ -268,6 +275,7 @@ export function runtimeDaemonRoutes(sql: Sql, hub: RuntimeHub) {
             session_id: typeof e.session_id === 'string' ? e.session_id : undefined,
             ...(Array.isArray(e.jobs) ? { jobs: parseFoundJobs(e.jobs) } : {}),
             ...(Array.isArray(e.findings) ? { findings: parseEmailFindings(e.findings) } : {}),
+            ...(Array.isArray(e.results) ? { results: parsePortalResults(e.results) } : {}),
           }
           case 'error': return { type: 'error', message: String(e.message ?? 'Task failed').slice(0, 2000) }
           default: return { type: 'started', agent: String(e.agent ?? '') }

@@ -5,7 +5,8 @@ import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/pro
 import { useExtensionBridge } from './hooks/extension-bridge';
 import { useAgentRelay } from './hooks/agents';
 import { useJobLeads, useLeadActions, useObservationProcessor, useRecordApplyClick } from './hooks/inbox';
-import { useApplyQuestions } from './components/apply-questions';
+import { usePanelQuestions } from './components/panel-questions';
+import { usePortalRunner } from './hooks/portal';
 import { useSearchRunner } from './hooks/search';
 import { useEmailWatcher } from './hooks/email';
 import { AgentPanel, type AgentPanelView } from './components/agent-panel';
@@ -120,6 +121,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useObservationProcessor();
   useSearchRunner();
   useEmailWatcher();
+  usePortalRunner();
   const sidebarCounts = { applications: usePendingUpdateCount() };
   const recordApplyClick = useRecordApplyClick();
   const companiesQuery = useCompanies();
@@ -320,8 +322,8 @@ function ApplicationsPage({
     else next.delete('agent');
     setSearchParams(next, { replace: true });
   };
-  // Badge: "did you apply?" questions waiting in the panel.
-  const questions = useApplyQuestions().length;
+  // Badge: Landed's questions waiting in the panel.
+  const questions = usePanelQuestions().count;
   const askAgentButton = (
     <button className="btn-secondary" onClick={() => setAgentView(agentView ? null : 'chat')}
       style={agentView ? { background: 'var(--surface-3)' } : undefined} aria-pressed={!!agentView}

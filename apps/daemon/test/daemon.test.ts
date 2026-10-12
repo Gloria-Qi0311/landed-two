@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  claudeChatArgs, claudeEmailArgs, claudeSearchArgs, emailPrompt, mailServer, parseClaudeLine, parseMcpList, readOnlyMailTools,
-  searchPrompt, toolReferences,
+  CHROME_READ_TOOLS, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeSearchArgs, emailPrompt, mailServer,
+  parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
 
@@ -87,12 +87,31 @@ test('mail access: only a connected mail server, only its read tools', () => {
 })
 
 test('email check: mailbox read tools only (+ ToolSearch); findings come back as done.findings', () => {
-  const args = claudeEmailArgs({ label: 'Gmail', tools: ['mcp__claude_ai_Gmail__search_threads'] })
+  const args = claudeEmailArgs({ server: 'claude.ai Gmail', label: 'Gmail', tools: ['mcp__claude_ai_Gmail__search_threads'] })
   assert.deepEqual(args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools')), ['ToolSearch'], 'no web, files or shell')
   assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--setting-sources')), ['ToolSearch', 'mcp__claude_ai_Gmail__search_threads'])
   assert.match(emailPrompt({ since: '2026-10-01T00:00:00.000Z', applications: [{ company: 'Figma', role: 'APM', stage: 'applied' }] }), /since 2026-10-01[\s\S]*- Figma — APM \(applied\)/)
   assert.deepEqual(parseClaudeLine('{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"summary":"1 update","findings":[{"company":"Figma","status":"assessment"}]}}'), [
     { type: 'done', text: '1 update', session_id: undefined, findings: [{ company: 'Figma', status: 'assessment' }] },
+  ])
+})
+
+test('portal check: Chrome only, read-only by construction', () => {
+  const args = claudePortalArgs()
+  assert.ok(args.includes('--chrome') && args.includes('--strict-mcp-config'), 'Claude in Chrome and no other MCP server')
+  const allowed = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))
+  assert.deepEqual(allowed, ['ToolSearch', ...CHROME_READ_TOOLS])
+  for (const t of ['computer', 'form_input', 'javascript_tool', 'file_upload', 'browser_batch']) {
+    assert.ok(!allowed.some((a) => a.endsWith(`__${t}`)), `${t} is not allowed`)
+  }
+  const denied = args.slice(args.indexOf('--disallowedTools') + 1, args.indexOf('--setting-sources'))
+  assert.ok(denied.includes('mcp__claude-in-chrome__computer') && denied.includes('mcp__claude-in-chrome__form_input'))
+  assert.match(portalPrompt([{ ref: '1', company: 'Databricks', role: 'APM', stage: 'applied', url: 'https://x.wd1.myworkdayjobs.com/j' }]), /1\. Databricks — APM \(Landed has it at "applied"\)\. Job link: https:/)
+  assert.equal(chromeFromInit({ mcp_servers: [{ name: 'claude-in-chrome', status: 'connected' }] }), true)
+  assert.equal(chromeFromInit({ mcp_servers: [{ name: 'claude-in-chrome', status: 'failed' }] }), false)
+  assert.equal(chromeFromInit(null), false)
+  assert.deepEqual(parseClaudeLine('{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"summary":"ok","results":[{"ref":"1","outcome":"login_required"}]}}'), [
+    { type: 'done', text: 'ok', session_id: undefined, results: [{ ref: '1', outcome: 'login_required' }] },
   ])
 })
 

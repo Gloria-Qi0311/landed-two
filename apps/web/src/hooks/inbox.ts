@@ -7,13 +7,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import {
-  acceptSuggestion, addLeadToPipeline, dismissLead, processPending, recordApplyClick, rejectSuggestion, restoreLead,
-  settleClickQuestions, undoSuggestion, type ClickTarget,
+  acceptSuggestion, addLeadToPipeline, dismissLead, flagQuietApplications, processPending, recordApplyClick, rejectSuggestion,
+  restoreLead, settleQuestions, undoSuggestion, type ClickTarget,
 } from '../lib/inbox'
 import { useStore, type DbJobLead, type DbSuggestion } from '../lib/store'
 import type { Stage } from '@landed/observation-processor'
 
 const RUN_INTERVAL_MS = 30_000
+const QUIET_SCAN_MS = 10 * 60_000
+let lastQuietScan = 0
 /** Fired by useAgentRelay when new observations land in this browser. */
 export const OBSERVATIONS_ARRIVED = 'landed:observations-arrived'
 
@@ -65,9 +67,14 @@ export function useObservationProcessor() {
       running = true
       try {
         const handled = await processPending(store, { autoApply })
-        // "Did you apply?" questions an email or a manual move already answered.
-        const settled = await settleClickQuestions(store)
-        if (handled + settled > 0) for (const key of AFFECTED) qc.invalidateQueries({ queryKey: [key] })
+        // Panel questions an email or a manual move already answered.
+        let changed = handled + (await settleQuestions(store))
+        // Applications that went quiet (checked every few minutes, not every run).
+        if (Date.now() - lastQuietScan > QUIET_SCAN_MS) {
+          lastQuietScan = Date.now()
+          changed += await flagQuietApplications(store)
+        }
+        if (changed > 0) for (const key of AFFECTED) qc.invalidateQueries({ queryKey: [key] })
       } catch (e) {
         console.warn('[landed] processing agent reports failed', e)
       } finally {

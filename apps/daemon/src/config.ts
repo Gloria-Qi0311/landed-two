@@ -10,6 +10,7 @@ export type Config = { server: string; token: string; name?: string }
 export const home = () => process.env.LANDED_HOME ?? join(homedir(), '.landed')
 const configPath = () => join(home(), 'config.json')
 const sessionsPath = () => join(home(), 'sessions.json')
+const capabilitiesPath = () => join(home(), 'capabilities.json')
 
 function ensureHome() {
   mkdirSync(home(), { recursive: true, mode: 0o700 })
@@ -32,6 +33,24 @@ export function workspace() {
   const dir = join(home(), 'workspace')
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   return dir
+}
+
+/** Last successful mailbox detection: claude.ai connectors don't always load,
+ *  so a lookup that comes back empty falls back to what worked before. */
+export type MailCache = { server: string; label: string; tools: string[] }
+
+export function loadMailCache(): MailCache | null {
+  try {
+    const c = JSON.parse(readFileSync(capabilitiesPath(), 'utf8')).mail
+    return c && typeof c.server === 'string' && Array.isArray(c.tools) ? c : null
+  } catch {
+    return null
+  }
+}
+
+export function saveMailCache(mail: MailCache | null) {
+  ensureHome()
+  writeFileSync(capabilitiesPath(), JSON.stringify({ mail }, null, 2) + '\n')
 }
 
 /** Conversation ids that already have an agent session (so the next turn resumes it). */

@@ -14,6 +14,8 @@ import {
 import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
 import { RuntimePanel } from './runtime-panel'
 import { EmailWatchSetting } from './email-watch'
+import { browserAgent } from '../hooks/portal'
+import { useRuntimes } from '../hooks/runtimes'
 
 const TYPE_LABEL: Record<string, string> = {
   job_discovered: 'Job found',
@@ -68,6 +70,8 @@ export function AgentSettings() {
         <RuntimePanel />
 
         <Card title="Email watching"><EmailWatchSetting /></Card>
+
+        <Card title="Portal checks"><PortalCheckSetting /></Card>
 
         <AutoApplySetting />
 
@@ -226,6 +230,30 @@ function ConnectionRow({ connection: c, first }: { connection: AgentConnection; 
             {revoke.isPending ? 'Revoking…' : 'Revoke token'}
           </button>
         </>}
+      </div>
+    </div>
+  )
+}
+
+/** The fallback when email is silent: what portal checks do, and how to enable them. */
+function PortalCheckSetting() {
+  const agent = browserAgent(useRuntimes().data)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, lineHeight: 1.55, color: 'var(--fg-muted)' }}>
+      <div>
+        When an application has had no news for 3 weeks, Landed asks you about it in this panel. From there you can have
+        your agent open each job's candidate portal (Workday, LinkedIn, Handshake, …) in {agent?.browser ?? 'Chrome'} and read the
+        status. It only runs when you click. It is <b>read-only by design</b>: it can open tabs, navigate and read pages, but it has no
+        tool to click, type, fill in forms, run scripts or sign in. Anything it finds waits for you to confirm.
+      </div>
+      <div>
+        {agent
+          ? <>Ready: {agent.agent.label} on {agent.runtime.name} can use {agent.browser}.</>
+          : <>Not set up: install the Claude in Chrome extension and connect it to Claude Code; the daemon picks it up within 30 minutes (or right away if you restart it with <code>pnpm landed start</code>).</>}
+      </div>
+      <div>
+        Tip: use a separate Chrome profile that's only signed in to job sites, and connect Claude in Chrome there. Then your agent
+        never sees your email or bank tabs, and portals it can't open just show up as "needs you to sign in".
       </div>
     </div>
   )

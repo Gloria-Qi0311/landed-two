@@ -2,14 +2,15 @@
 // actions on its output (job leads + review queue). Works the same for both
 // stores: local accounts process what the relay delivered into this
 // browser; Cloud accounts process their pending observations via the API.
-// Results of tasks on the user's own computer (job searches, email checks)
-// go through the same processor. Rules live in packages/observation-processor
+// Results of tasks on the user's own computer (job searches, email checks,
+// portal checks) go through the same processor. Rules live in packages/observation-processor
 // (docs/observation-processor.md).
 import {
   applyToContext, atsJobKey, canonicalUrl, companyKey, processObservation, proposedStage, titleKey, titleSimilarity,
   type ApplicationRef, type CompanyRef, type Context, type Effect, type Outcome, type Settings, type Stage,
 } from '@landed/observation-processor'
 import type { EmailFinding } from '@landed/schema/email-check'
+import type { PortalResult } from '@landed/schema/portal-check'
 import type { FoundJob } from '@landed/schema/search-brief'
 import type { DataStore, DbApplication, DbJobLead, DbSuggestion } from './store/types'
 
@@ -167,7 +168,7 @@ export async function ingestEmailFindings(
     else if (outcome.effects.some((e) => e.type === 'save_suggestion' && e.suggestion.kind === 'note') && !outcome.result.merged) result.notes++
     else result.unchanged++
   }
-  await settleClickQuestions(store)
+  await settleQuestions(store)
   return result
 }
 
@@ -262,8 +263,12 @@ export const restoreLead = (store: DataStore, id: string) => store.updateJobLead
 
 const CLICK_LEAD = 'click:lead:'
 const CLICK_APP = 'click:app:'
+const QUIET = 'quiet:'
 export const isClickQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) =>
   s.dedupe_key.startsWith(CLICK_LEAD) || s.dedupe_key.startsWith(CLICK_APP)
+export const isQuietQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) => s.dedupe_key.startsWith(QUIET)
+/** Asked in the Ask Agent panel, not in "Needs your input". */
+export const isPanelQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) => isClickQuestion(s) || isQuietQuestion(s)
 
 export type ClickTarget =
   | { kind: 'lead'; lead: Pick<DbJobLead, 'id' | 'company_name' | 'title' | 'status'> }
@@ -322,25 +327,183 @@ function clickResolution(s: DbSuggestion, leads: DbJobLead[], apps: ApplicationR
   return app ? { state: 'accepted', application_id: app.id, link_lead: lead.id } : null
 }
 
-/** Click questions still worth asking (for the panel and its badge). */
-export function openClickQuestions(suggestions: DbSuggestion[], leads: DbJobLead[], apps: ApplicationRef[], companies: CompanyRef[]) {
-  return suggestions.filter((s) => s.state === 'pending' && isClickQuestion(s) && !clickResolution(s, leads, apps, companies))
+// ── "no news for three weeks" ─────────────────────────────────────────────
+// An application in progress with no signal (no update, no email, no portal
+// check) for QUIET_DAYS gets one question in the panel: check its portal,
+// call it ghosted, or keep waiting (asks again QUIET_DAYS later).
+
+export const QUIET_DAYS = 21
+const DAY = 86_400_000
+const IN_PROGRESS = new Set(['applied', 'oa', 'phone', 'onsite'])
+
+/** Latest sign of life: an edit/move, the applied date, or any agent update about it. */
+function lastSignal(app: Pick<DbApplication, 'id' | 'last_activity_at' | 'applied_at'>, suggestions: DbSuggestion[]) {
+  let t = Math.max(Date.parse(app.last_activity_at) || 0, app.applied_at ? Date.parse(app.applied_at) || 0 : 0)
+  for (const s of suggestions) {
+    if (s.application_id === app.id && !isPanelQuestion(s)) t = Math.max(t, Date.parse(s.created_at) || 0)
+  }
+  return t
 }
 
-/** Close click questions that were answered some other way. Returns how many. */
-export async function settleClickQuestions(store: DataStore): Promise<number> {
-  const pending = (await store.listSuggestions()).filter((s) => s.state === 'pending' && isClickQuestion(s))
+export const quietDays = (s: DbSuggestion, now = Date.now()) =>
+  Math.floor((now - (Date.parse(s.evidence?.received_at ?? s.created_at) || now)) / DAY)
+
+/** Ask about applications that went quiet. Returns how many new questions. */
+export async function flagQuietApplications(store: DataStore, now = Date.now()): Promise<number> {
+  const [apps, companies, suggestions] = await Promise.all([store.listApplications(), store.listCompanies(), store.listSuggestions()])
+  const name = new Map(companies.map((c) => [c.id, c.name]))
+  let n = 0
+  for (const app of apps) {
+    if (!IN_PROGRESS.has(app.stage)) continue
+    const last = lastSignal(app, suggestions)
+    if (now - last < QUIET_DAYS * DAY) continue
+    const existing = suggestions.find((s) => s.dedupe_key === QUIET + app.id)
+    if (existing?.state === 'pending') continue
+    // "Keep waiting" (or a ghosted call that was undone): ask again later.
+    if (existing && now - (Date.parse(existing.resolved_at ?? existing.created_at) || 0) < QUIET_DAYS * DAY) continue
+    await store.saveSuggestion({
+      id: existing?.id ?? crypto.randomUUID(),
+      dedupe_key: QUIET + app.id,
+      kind: 'stage_change',
+      state: 'pending',
+      application_id: app.id,
+      candidate_ids: [],
+      company_name: name.get(app.company_id) ?? 'Unknown company',
+      role: app.role,
+      status: 'other',
+      proposed_stage: 'ghosted',
+      previous_stage: null,
+      confidence: null,
+      evidence: { source: 'quiet', received_at: new Date(last).toISOString(), summary: `No news for ${Math.floor((now - last) / DAY)} days.` },
+      observation_ids: [],
+      provider: 'landed',
+      created_at: new Date(now).toISOString(),
+      resolved_at: null,
+    })
+    n++
+  }
+  return n
+}
+
+type Resolution = { state: 'accepted' | 'rejected'; application_id: string | null; link_lead?: string }
+
+/** Whether a pending panel question has been answered some other way. */
+function resolution(
+  s: DbSuggestion, leads: DbJobLead[], apps: (ApplicationRef & { last_activity_at?: string; applied_at?: string | null })[],
+  companies: CompanyRef[], suggestions: DbSuggestion[],
+): Resolution | null {
+  if (isQuietQuestion(s)) {
+    // Moot once it moves on, or something new happened since we asked.
+    const app = apps.find((a) => a.id === s.application_id)
+    if (!app || !IN_PROGRESS.has(app.stage)) return { state: 'rejected', application_id: app?.id ?? null }
+    if (app.last_activity_at && lastSignal({ id: app.id, last_activity_at: app.last_activity_at, applied_at: app.applied_at ?? null }, suggestions) > Date.parse(s.created_at)) {
+      return { state: 'rejected', application_id: app.id }
+    }
+    return null
+  }
+  return clickResolution(s, leads, apps, companies)
+}
+
+/** Questions still worth asking in the panel (and counted on its badge). */
+export function openPanelQuestions(
+  suggestions: DbSuggestion[], leads: DbJobLead[],
+  apps: (ApplicationRef & { last_activity_at?: string; applied_at?: string | null })[], companies: CompanyRef[],
+) {
+  return suggestions.filter((s) => s.state === 'pending' && isPanelQuestion(s) && !resolution(s, leads, apps, companies, suggestions))
+}
+
+/** Close panel questions that were answered some other way. Returns how many. */
+export async function settleQuestions(store: DataStore): Promise<number> {
+  const suggestions = await store.listSuggestions()
+  const pending = suggestions.filter((s) => s.state === 'pending' && isPanelQuestion(s))
   if (pending.length === 0) return 0
   const [leads, apps, companies] = await Promise.all([store.listJobLeads(), store.listApplications(), store.listCompanies()])
+  const refs = apps.map((a) => ({ ...toRef(a), last_activity_at: a.last_activity_at, applied_at: a.applied_at }))
   let n = 0
   for (const s of pending) {
-    const r = clickResolution(s, leads, apps.map(toRef), companies.map((c) => ({ id: c.id, name: c.name })))
+    const r = resolution(s, leads, refs, companies.map((c) => ({ id: c.id, name: c.name })), suggestions)
     if (!r) continue
     if (r.link_lead && r.application_id) await store.updateJobLead(r.link_lead, { status: 'saved', application_id: r.application_id })
     await store.updateSuggestion(s.id, { state: r.state, application_id: r.application_id, resolved_at: new Date().toISOString() })
     n++
   }
   return n
+}
+
+// ── portal check results → status updates ─────────────────────────────────
+
+export type PortalIngestResult = {
+  checked: number
+  /** waiting on the user ("Needs your input") */
+  needs_input: number
+  /** applied right away (only "the portal shows it as submitted") */
+  updated: number
+  /** the portal shows it's still in process */
+  in_process: number
+  login_required: string[]
+  not_found: string[]
+}
+
+/**
+ * What the agent saw on candidate portals → status updates. Always in
+ * "ask first" mode: a portal read by an agent changes nothing on its own
+ * (except confirming a submission). "Still in process" counts as news, so the
+ * quiet question for that application is put off.
+ */
+export async function ingestPortalResults(
+  store: DataStore,
+  items: { ref: string; application_id: string }[],
+  results: PortalResult[],
+  source: { run_id: string; runtime_id: string; agent: string },
+): Promise<PortalIngestResult> {
+  let ctx = await loadContext(store, { autoApply: false })
+  const [apps, companies] = await Promise.all([store.listApplications(), store.listCompanies()])
+  const name = new Map(companies.map((c) => [c.id, c.name]))
+  const out: PortalIngestResult = { checked: results.length, needs_input: 0, updated: 0, in_process: 0, login_required: [], not_found: [] }
+  const now = new Date().toISOString()
+  for (const r of results) {
+    const app = apps.find((a) => a.id === items.find((i) => i.ref === r.ref)?.application_id)
+    if (!app) continue
+    const company = name.get(app.company_id) ?? 'Unknown company'
+    if (r.outcome === 'login_required') { out.login_required.push(company); continue }
+    if (r.outcome !== 'status_found' || !r.status) { out.not_found.push(company); continue }
+    let host: string | undefined
+    try {
+      host = new URL(r.page_url ?? app.portal_application_url ?? '').hostname
+    } catch {
+      host = undefined
+    }
+    const said = (r.status_text ?? r.status).toLowerCase().replace(/\s+/g, ' ').slice(0, 80)
+    const outcome = processObservation({
+      id: `${source.run_id}:${r.ref}`,
+      connection_id: `runtime:${source.runtime_id}`,
+      observation_type: 'application_status',
+      observed_at: now,
+      provider: source.agent,
+      payload_json: { payload: {
+        status: r.status, company, role: app.role, job_url: app.portal_application_url, confidence: r.confidence ?? 0.9,
+        evidence: {
+          source: 'portal', message_id: `portal:${app.id}:${said}`, ...(host ? { sender_domain: host } : {}),
+          subject: r.status_text ?? r.status, received_at: now, ...(r.note ? { summary: r.note } : {}),
+        },
+      } },
+    }, ctx, { now, newId: () => crypto.randomUUID() })
+    try {
+      ctx = await applyOutcome(store, outcome, ctx)
+    } catch (err) {
+      if (isConflict(err)) continue
+      throw err
+    }
+    if (outcome.effects.some((e) => e.type === 'set_stage')) out.updated++
+    else if (outcome.status === 'needs-review') out.needs_input++
+    else {
+      out.in_process++
+      // Still in process: that's news — put off the "no news" question.
+      const quiet = (await store.listSuggestions()).find((s) => s.dedupe_key === QUIET + app.id && s.state === 'pending')
+      if (quiet) await store.updateSuggestion(quiet.id, { state: 'rejected', resolved_at: now })
+    }
+  }
+  return out
 }
 
 // ── user actions: review queue ────────────────────────────────────────────
