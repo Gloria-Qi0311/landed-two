@@ -6,6 +6,7 @@
 // snake_case shape in both places — the server's JSON shape — so hooks and
 // components never care which backend they're talking to.
 import type { Resume } from '@landed/schema'
+import type { SearchBrief } from '@landed/schema/search-brief'
 import type { JobLead, Suggestion } from '@landed/observation-processor'
 
 export type DbCompany = {
@@ -122,6 +123,30 @@ export type DbAgentObservation = {
 export type DbJobLead = JobLead & { user_id: string }
 export type DbSuggestion = Suggestion & { user_id: string }
 
+/** How a search run went (stored on the search for "last run …"). */
+export type SearchRunResult = {
+  found: number
+  added: number
+  merged: number
+  already_applied: number
+  /** "Claude Code on MacBook Pro", one per agent that ran */
+  agents: string[]
+  failed?: string[]
+}
+
+/** The job search direction the user confirmed in the Ask Agent chat. One
+ *  is active at a time; confirming a new brief archives the previous one. */
+export type DbJobSearch = {
+  id: string
+  user_id: string
+  brief: SearchBrief
+  status: 'active' | 'archived'
+  last_run_at: string | null
+  last_run_result: SearchRunResult | null
+  created_at: string
+  updated_at: string
+}
+
 /** Account-level (users row on the server, not part of either store);
  *  carried in snapshots only for backup-file compatibility. */
 export type Profile = { onboarded_at: string | null }
@@ -183,11 +208,12 @@ export type Snapshot = {
   agent_observations?: Owned<DbAgentObservation>[] // absent in pre-agent backups
   job_leads?: Owned<DbJobLead>[]
   status_suggestions?: Owned<DbSuggestion>[]
+  job_searches?: Owned<DbJobSearch>[]
 }
 
 export const SNAPSHOT_TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
-  'job_leads', 'status_suggestions',
+  'job_leads', 'status_suggestions', 'job_searches',
 ] as const
 
 export function snapshotRowCount(s: Snapshot): number {
@@ -242,6 +268,14 @@ export interface DataStore {
     id: string,
     patch: Partial<Pick<DbSuggestion, 'state' | 'application_id' | 'proposed_stage' | 'previous_stage' | 'resolved_at'>>,
   ): Promise<DbSuggestion>
+
+  listJobSearches(): Promise<DbJobSearch[]> // created_at desc
+  /** Confirm a brief: it becomes the active search, the previous one is archived. */
+  addJobSearch(brief: SearchBrief): Promise<DbJobSearch>
+  updateJobSearch(
+    id: string,
+    patch: Partial<Pick<DbJobSearch, 'status' | 'last_run_at' | 'last_run_result'>>,
+  ): Promise<DbJobSearch>
 
   exportSnapshot(): Promise<Snapshot>
 }

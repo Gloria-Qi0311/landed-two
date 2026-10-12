@@ -22,7 +22,11 @@ You need Node 23.6+ and at least one supported agent CLI, installed and signed i
 
 ## What an agent can do here
 
-- Tasks come from a fixed set of kinds. Today that's `chat`; job search and status checks come next.
+- Tasks come from a fixed set of kinds:
+  - `chat`: one Ask Agent turn. Once your direction is clear, the agent proposes a search brief, which Landed shows as a card.
+  - `job_search`: after you confirm a brief, the agent searches the web for open postings that match it. It returns them as schema-checked JSON, and they land in your Leads column.
+
+  Status checks come next. After updating Landed, restart the daemon (`pnpm landed start`) so it picks up new task kinds.
 - Your message reaches the agent on stdin and never passes through a shell.
 - The agent runs in an empty `~/.landed/workspace`. It ignores your own Claude Code settings and hooks (`--setting-sources ""`).
 - It only gets read-only web tools (WebSearch, WebFetch). It has no file access and no shell.

@@ -534,6 +534,7 @@ describe('sync: local device <-> Landed Cloud', () => {
     assert.deepEqual(up.body, {
       companies: 2, companies_merged: 0, applications: 2, portal_connections: 1,
       portal_events: 2, resumes: 1, ai_runs: 1, agent_observations: 0, job_leads: 0, status_suggestions: 0,
+      job_searches: 0,
     })
 
     const exp = await call('GET', '/api/export', { token: erin })
@@ -816,7 +817,7 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
 
     const hello = await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', version: '2.1.284' }], daemon_version: '0.1.0' } })
     assert.equal(hello.status, 200)
-    assert.deepEqual(hello.body.agents, [{ id: 'claude', label: 'Claude Code', version: '2.1.284' }])
+    assert.deepEqual(hello.body.agents, [{ id: 'claude', label: 'Claude Code', version: '2.1.284', kinds: ['chat'] }], 'old daemons can only chat')
 
     const send = (token: string, body: Record<string, unknown>) => call('POST', '/api/runtime-jobs', { token, body })
     const chat = { runtime_id: id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), message: 'hi' } }
@@ -881,5 +882,89 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
     daemon.close()
     assert.ok((await web.until('"type":"error"')).includes('disconnected'))
     web.close()
+  })
+
+  test('job_search: validated brief in, cleaned jobs out; old daemons are told to update', async () => {
+    const owner = await signup('runtime-search@example.com', undefined, { cloud: false })
+    const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
+    const brief = { summary: 'AI PM new grad in the US', roles: ['AI Product Manager', '  '], locations: ['United States'], needs_sponsorship: true, remote: 'sideways', evil: 'rm -rf /' }
+    const search = { runtime_id: runtime.id, agent: 'claude', kind: 'job_search', input: { brief, search_id: crypto.randomUUID(), extra: 'dropped' } }
+
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code' }] } })
+    const daemon = sse('/api/runtime/stream', rt)
+    await daemon.until('event: ready')
+    const outdated = await call('POST', '/api/runtime-jobs', { token: owner, body: search })
+    assert.equal(outdated.status, 409)
+    assert.equal(outdated.body.code, 'runtime_outdated')
+
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'job_search', 'shell'] }] } })
+    assert.deepEqual((await call('GET', '/api/runtimes', { token: owner })).body[0].agents[0].kinds, ['chat', 'job_search'], 'unknown kinds dropped')
+    assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: { ...search, input: { ...search.input, brief: { roles: [] } } } })).status, 400)
+    assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: { ...search, kind: 'shell' } })).status, 400)
+
+    const started = await call('POST', '/api/runtime-jobs', { token: owner, body: search })
+    assert.equal(started.status, 202)
+    const job = jobFrom(await daemon.until('event: job'))
+    assert.deepEqual(Object.keys(job.input).sort(), ['brief', 'search_id'])
+    assert.deepEqual(job.input.brief.roles, ['AI Product Manager'])
+    assert.equal(job.input.brief.remote, 'any')
+    assert.equal(job.input.brief.evil, undefined)
+
+    const web = sse(`/api/runtime-jobs/${job.id}/stream`, owner)
+    await call('POST', `/api/runtime/jobs/${job.id}/events`, { token: rt, body: { events: [{ type: 'done', text: 'Found 1', jobs: [
+      { company: 'Acme AI', title: 'Associate PM', job_url: 'https://jobs.ashbyhq.com/acme/123', location: 'SF' },
+      { company: 'Nope', title: 'PM', job_url: 'javascript:alert(1)' },
+      { company: 'No title' },
+    ] }] } })
+    const done = JSON.parse((await web.until('"type":"done"')).split('data: ').pop()!.split('\n')[0])
+    assert.equal(done.jobs.length, 2)
+    assert.equal(done.jobs[0].job_url, 'https://jobs.ashbyhq.com/acme/123')
+    assert.equal(done.jobs[1].job_url, null, 'non-http link dropped')
+    web.close()
+    daemon.close()
+  })
+})
+
+describe('job searches (Cloud)', () => {
+  const brief = { summary: 'AI PM, US', roles: ['AI Product Manager'], locations: ['United States'], needs_sponsorship: true }
+
+  test('sync-off accounts keep searches on the device', async () => {
+    const off = await signup('search-off@example.com', undefined, { cloud: false })
+    assert.equal((await call('GET', '/api/job-searches', { token: off })).status, 409)
+    assert.equal((await call('POST', '/api/job-searches', { token: off, body: { brief } })).status, 409)
+  })
+
+  test('confirming a brief archives the previous one; runs are recorded; ownership', async () => {
+    const owner = await signup('search-owner@example.com')
+    const other = await signup('search-other@example.com')
+    assert.equal((await call('POST', '/api/job-searches', { token: owner, body: { brief: { roles: [] } } })).status, 400)
+
+    const first = await call('POST', '/api/job-searches', { token: owner, body: { brief } })
+    assert.equal(first.status, 201, JSON.stringify(first.body))
+    assert.equal(first.body.status, 'active')
+    assert.equal(first.body.brief.remote, 'any', 'brief is normalized')
+    const second = await call('POST', '/api/job-searches', { token: owner, body: { brief: { ...brief, roles: ['APM'] } } })
+    const list = (await call('GET', '/api/job-searches', { token: owner })).body
+    assert.deepEqual(list.map((s: any) => [s.id, s.status]), [[second.body.id, 'active'], [first.body.id, 'archived']])
+
+    const ran = await call('PATCH', `/api/job-searches/${second.body.id}`, { token: owner, body: { last_run_at: '2026-10-11T10:00:00Z', last_run_result: { found: 12, added: 9 } } })
+    assert.equal(ran.status, 200)
+    assert.deepEqual(ran.body.last_run_result, { found: 12, added: 9 })
+    assert.equal((await call('PATCH', `/api/job-searches/${second.body.id}`, { token: owner, body: { status: 'paused' } })).status, 400)
+    assert.equal((await call('PATCH', `/api/job-searches/${second.body.id}`, { token: other, body: { status: 'archived' } })).status, 404)
+    assert.equal((await call('GET', '/api/job-searches', { token: other })).body.length, 0)
+
+    // snapshots carry searches; an uploaded active one yields to the current one
+    const snap = (await call('GET', '/api/export', { token: owner })).body
+    assert.equal(snap.job_searches.length, 2)
+    const fresh = await signup('search-fresh@example.com')
+    await call('POST', '/api/job-searches', { token: fresh, body: { brief } })
+    // (as from a device: ids are the device's own)
+    const device = { ...snap, job_searches: snap.job_searches.map((s: any) => ({ ...s, id: crypto.randomUUID() })) }
+    const up = await call('POST', '/api/sync/upload', { token: fresh, body: device })
+    assert.equal(up.status, 201, JSON.stringify(up.body))
+    assert.equal(up.body.job_searches, 2)
+    const statuses = (await call('GET', '/api/job-searches', { token: fresh })).body.map((s: any) => s.status).sort()
+    assert.deepEqual(statuses, ['active', 'archived', 'archived'])
   })
 })

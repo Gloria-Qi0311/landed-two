@@ -160,3 +160,31 @@ describe('snapshots', () => {
     expect(await bob.isEmpty()).toBe(true)
   })
 })
+
+describe('job searches', () => {
+  const brief = { summary: 'AI PM, US', roles: ['AI Product Manager'], locations: ['United States'], needs_sponsorship: true }
+
+  test('confirming a brief archives the previous one; runs are recorded; snapshots carry them', async () => {
+    const store = fresh()
+    // @ts-expect-error — untrusted input is validated like the server does
+    await expect(store.addJobSearch({ roles: [] })).rejects.toThrow(/role/)
+    const first = await store.addJobSearch(brief as never)
+    expect(first).toMatchObject({ status: 'active', last_run_at: null })
+    expect(first.brief.remote).toBe('any')
+    const second = await store.addJobSearch({ ...brief, roles: ['APM'] } as never)
+    expect((await store.listJobSearches()).map((s) => [s.id, s.status])).toEqual([[second.id, 'active'], [first.id, 'archived']])
+
+    const ran = await store.updateJobSearch(second.id, {
+      last_run_at: '2026-10-11T10:00:00Z',
+      last_run_result: { found: 12, added: 9, merged: 2, already_applied: 1, agents: ['Claude Code on Mac'] },
+    })
+    expect(ran.last_run_result?.added).toBe(9)
+    await expect(store.updateJobSearch('nope', { status: 'archived' })).rejects.toThrow(/not found/)
+
+    const snap = await store.exportSnapshot()
+    expect(snap.job_searches).toHaveLength(2)
+    const copy = fresh()
+    await copy.replaceWith(snap)
+    expect(await copy.listJobSearches()).toHaveLength(2)
+  })
+})

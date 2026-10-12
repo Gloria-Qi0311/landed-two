@@ -9,7 +9,12 @@
 //     say hello, receive tasks over SSE, post output events.
 // Both work whether or not Cloud sync is on: tasks and output are relayed in
 // memory, never stored.
+//
+// Task kinds: `chat` (one Ask Agent turn) and `job_search` (search the web
+// for jobs matching a confirmed brief; the result carries `jobs`). Each
+// agent reports the kinds its daemon can run.
 import { createHash, randomBytes } from 'node:crypto'
+import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppEnv } from '../auth.ts'
@@ -21,8 +26,11 @@ import type { Job, JobEvent, RuntimeHub } from '../runtime-hub.ts'
 type Row = Record<string, any>
 
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex')
+const UUID = /^[0-9a-f-]{36}$/i
 const RUNTIME_COLUMNS = ['id', 'name', 'agents', 'daemon_version', 'last_seen_at', 'revoked_at', 'created_at']
-const JOB_KINDS = new Set(['chat'])
+const JOB_KINDS = new Set(['chat', 'job_search'])
+/** Daemons from before agents reported their kinds can only chat. */
+const LEGACY_KINDS = ['chat']
 const MAX_MESSAGE = 20_000
 const MAX_RUNTIMES = 10
 const HEARTBEAT_MS = 25_000
@@ -77,18 +85,30 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
     const userId = c.get('user').id
     const body = await jsonBody<Row>(c)
     if (!JOB_KINDS.has(body.kind)) fail(400, `kind must be one of: ${[...JOB_KINDS].join(', ')}`)
-    const input = body.input && typeof body.input === 'object' ? body.input : {}
+    const raw = body.input && typeof body.input === 'object' ? body.input : {}
+    // Only validated fields reach the daemon — never the raw body.
+    let input: Record<string, unknown>
     if (body.kind === 'chat') {
-      if (typeof input.message !== 'string' || !input.message.trim()) fail(400, 'input.message is required')
-      if (input.message.length > MAX_MESSAGE) fail(400, `input.message is too long (max ${MAX_MESSAGE})`)
-      if (typeof input.conversation_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(input.conversation_id)) {
+      if (typeof raw.message !== 'string' || !raw.message.trim()) fail(400, 'input.message is required')
+      if (raw.message.length > MAX_MESSAGE) fail(400, `input.message is too long (max ${MAX_MESSAGE})`)
+      if (typeof raw.conversation_id !== 'string' || !UUID.test(raw.conversation_id)) {
         fail(400, 'input.conversation_id must be a uuid')
       }
+      input = { message: raw.message, conversation_id: raw.conversation_id }
+    } else {
+      const brief = parseBrief(raw.brief)
+      if (!brief) fail(400, 'input.brief needs at least one role')
+      if (typeof raw.search_id !== 'string' || !UUID.test(raw.search_id)) fail(400, 'input.search_id must be a uuid')
+      input = { brief, search_id: raw.search_id }
     }
-    const [runtime] = await sql<{ id: string; agents: { id: string }[]; revoked_at: string | null }[]>`
+    const [runtime] = await sql<{ id: string; agents: { id: string; kinds?: string[] }[]; revoked_at: string | null }[]>`
       select id, agents, revoked_at from runtimes where id = ${String(body.runtime_id ?? '')} and user_id = ${userId}`
     if (!runtime || runtime.revoked_at) fail(404, 'computer not found')
-    if (!runtime.agents.some((a) => a.id === body.agent)) fail(400, `that computer doesn't have ${String(body.agent)} installed`)
+    const agent = runtime.agents.find((a) => a.id === body.agent)
+    if (!agent) fail(400, `that computer doesn't have ${String(body.agent)} installed`)
+    if (!(agent.kinds ?? LEGACY_KINDS).includes(body.kind)) {
+      fail(409, "The Landed daemon on that computer is out of date. Stop it and run `pnpm landed start` again.", { code: 'runtime_outdated' })
+    }
 
     const job: Job = {
       id: crypto.randomUUID(), user_id: userId, runtime_id: runtime.id,
@@ -160,6 +180,7 @@ function cleanAgents(raw: unknown) {
       id: String(a.id).slice(0, 40),
       label: typeof a.label === 'string' ? a.label.slice(0, 80) : String(a.id),
       version: typeof a.version === 'string' ? a.version.slice(0, 80) : null,
+      kinds: Array.isArray(a.kinds) ? a.kinds.filter((k: unknown) => typeof k === 'string' && JOB_KINDS.has(k)) : LEGACY_KINDS,
     }))
 }
 
@@ -233,7 +254,12 @@ export function runtimeDaemonRoutes(sql: Sql, hub: RuntimeHub) {
         switch (e.type) {
           case 'delta': return { type: 'delta', text: String(e.text ?? '').slice(0, 20_000) }
           case 'tool': return { type: 'tool', name: String(e.name ?? '').slice(0, 80) }
-          case 'done': return { type: 'done', text: String(e.text ?? '').slice(0, 200_000), session_id: typeof e.session_id === 'string' ? e.session_id : undefined }
+          case 'done': return {
+            type: 'done',
+            text: String(e.text ?? '').slice(0, 200_000),
+            session_id: typeof e.session_id === 'string' ? e.session_id : undefined,
+            ...(Array.isArray(e.jobs) ? { jobs: parseFoundJobs(e.jobs) } : {}),
+          }
           case 'error': return { type: 'error', message: String(e.message ?? 'Task failed').slice(0, 2000) }
           default: return { type: 'started', agent: String(e.agent ?? '') }
         }

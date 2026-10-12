@@ -5,6 +5,7 @@ import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/pro
 import { useExtensionBridge } from './hooks/extension-bridge';
 import { useAgentRelay } from './hooks/agents';
 import { useJobLeads, useLeadActions, useObservationProcessor } from './hooks/inbox';
+import { useSearchRunner } from './hooks/search';
 import { AgentPanel, type AgentPanelView } from './components/agent-panel';
 import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
@@ -115,6 +116,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useExtensionBridge();
   useAgentRelay();
   useObservationProcessor();
+  useSearchRunner();
   const sidebarCounts = { applications: usePendingUpdateCount() };
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();

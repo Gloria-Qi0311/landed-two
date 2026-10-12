@@ -189,6 +189,7 @@ function DraggableLeadCard({ lead, onDismiss }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: LEAD_PREFIX + lead.id });
   return (
     <div ref={setNodeRef} {...attributes} {...listeners} className="kanban-card"
+      title={lead.description || undefined}
       style={{ ...leadCardStyle, cursor: isDragging ? 'grabbing' : 'grab', visibility: isDragging ? 'hidden' : 'visible' }}>
       <LeadCardContent lead={lead} onDismiss={onDismiss} />
     </div>

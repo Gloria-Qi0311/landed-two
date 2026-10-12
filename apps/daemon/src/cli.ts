@@ -14,7 +14,7 @@ import { detectAgents, runTask, type Task } from './agents.ts'
 import { home, loadConfig, saveConfig, type Config } from './config.ts'
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 
-const VERSION = '0.1.0'
+const VERSION = '0.2.0'
 const MAX_PARALLEL = 2
 
 function log(msg: string) {

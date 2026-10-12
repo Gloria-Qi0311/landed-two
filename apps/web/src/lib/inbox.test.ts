@@ -2,7 +2,7 @@
 // delivery → processPending → leads / review queue → user actions.
 import 'fake-indexeddb/auto'
 import { describe, expect, test } from 'vitest'
-import { acceptSuggestion, addLeadToPipeline, canUndo, dismissLead, processPending, rejectSuggestion, undoSuggestion } from './inbox'
+import { acceptSuggestion, addLeadToPipeline, canUndo, dismissLead, ingestFoundJobs, processPending, rejectSuggestion, undoSuggestion } from './inbox'
 import { createLocalStore, type LocalStore } from './store/local'
 import type { DbAgentObservation } from './store/types'
 
@@ -186,5 +186,40 @@ describe('lead actions', () => {
     const b = fresh()
     await b.replaceWith(snap)
     expect(await b.listJobLeads()).toHaveLength(1)
+  })
+})
+
+describe('ingestFoundJobs (search runs on the user\'s computer)', () => {
+  const job = (over: Record<string, unknown> = {}) => ({
+    company: 'Acme AI', title: 'Associate Product Manager', job_url: 'https://jobs.ashbyhq.com/acme/1b2c3d4e-0000-4000-8000-000000000001',
+    location: 'San Francisco, CA', posted: '3 days ago', salary: '$130k–$150k', sponsorship: 'Sponsors H-1B', why: 'New grad APM on an AI product',
+    ...over,
+  })
+  const source = (run: string) => ({ run_id: run, runtime_id: 'rt-1', agent: 'claude' })
+
+  test('new jobs become leads with the details; re-ingesting a run is a no-op', async () => {
+    const store = fresh()
+    const jobs = [job(), job({ company: 'Globex', title: 'PM, New Grad', job_url: 'https://boards.greenhouse.io/globex/jobs/42' })]
+    expect(await ingestFoundJobs(store, jobs, source('run-a'))).toEqual({ found: 2, added: 2, merged: 0, already_applied: 0 })
+    const leads = await store.listJobLeads()
+    expect(leads).toHaveLength(2)
+    const acme = leads.find((l) => l.company_name === 'Acme AI')!
+    expect(acme.status).toBe('new')
+    expect(acme.description).toContain('Sponsorship: Sponsors H-1B')
+    expect(acme.sources[0]).toMatchObject({ connection_id: 'runtime:rt-1', provider: 'claude', observation_id: 'run-a:0' })
+
+    expect(await ingestFoundJobs(store, jobs, source('run-a'))).toMatchObject({ added: 0, merged: 2 })
+    expect((await store.listJobLeads())[0].sources).toHaveLength(1)
+  })
+
+  test('a later run finding the same job merges; jobs already in the pipeline are marked', async () => {
+    const store = fresh()
+    await ingestFoundJobs(store, [job()], source('run-a'))
+    await store.addApplication({ name: 'Globex' }, { role: 'PM, New Grad', stage: 'applied', portal_application_url: 'https://boards.greenhouse.io/globex/jobs/42' })
+    const second = await ingestFoundJobs(store, [job(), job({ company: 'Globex', title: 'PM, New Grad', job_url: 'https://boards.greenhouse.io/globex/jobs/42' })], source('run-b'))
+    expect(second).toEqual({ found: 2, added: 0, merged: 1, already_applied: 1 })
+    const leads = await store.listJobLeads()
+    expect(leads.find((l) => l.company_name === 'Acme AI')!.sources).toHaveLength(2)
+    expect(leads.find((l) => l.company_name === 'Globex')!.status).toBe('already_applied')
   })
 })

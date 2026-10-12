@@ -14,11 +14,13 @@
 // same snapshot inserts nothing new. Companies merge by name and portal
 // connections by (company, provider), so signing in on a second device that
 // has its own data merges rather than duplicates.
+import { parseBrief } from '@landed/schema/search-brief'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
 import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
 import { LEAD_COLUMNS, SUGGESTION_COLUMNS } from './inbox.ts'
+import { SEARCH_COLUMNS } from './searches.ts'
 
 // Loosely-typed JSON row (request bodies, jsonb values) for the sql() helpers.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -29,7 +31,7 @@ export const BACKUP_VERSION = 1
 
 const TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
-  'job_leads', 'status_suggestions',
+  'job_leads', 'status_suggestions', 'job_searches',
 ] as const
 const MAX_ROWS_PER_TABLE = 20_000
 const CHUNK = 500
@@ -56,6 +58,7 @@ const COLUMNS = {
   ],
   job_leads: LEAD_COLUMNS,
   status_suggestions: SUGGESTION_COLUMNS,
+  job_searches: SEARCH_COLUMNS,
 } as const
 
 // NOT NULL columns get their DB default when a snapshot row omits them, so
@@ -64,12 +67,13 @@ function defaults(now: string): Row {
   return {
     created_at: now, last_activity_at: now, referral: false, starred: false, stage: 'saved',
     status: 'active', payload_json: {}, is_current: false, processing_status: 'pending',
-    sources: [], candidate_ids: [], evidence: {}, observation_ids: [], state: 'pending',
+    sources: [], candidate_ids: [], evidence: {}, observation_ids: [], state: 'pending', updated_at: now,
   }
 }
 
 const JSON_COLUMNS = new Set([
   'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
+  'brief', 'last_run_result',
 ])
 
 function chunks<T>(rows: T[]): T[][] {
@@ -214,6 +218,19 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
   counts.status_suggestions = await insertRows('status_suggestions', list('status_suggestions')
     .filter((r) => typeof r.dedupe_key === 'string')
     .map((r) => normalize('status_suggestions', r, { application_id: appRef(r.application_id) })), true)
+
+  // searches — an uploaded active search loses to the account's current one
+  // (one active per account), so it arrives archived instead.
+  const [{ has_active }] = await tx<{ has_active: boolean }[]>`
+    select exists (select 1 from job_searches where user_id = ${userId} and status = 'active') as has_active`
+  let activeTaken = has_active
+  counts.job_searches = await insertRows('job_searches', list('job_searches')
+    .filter((r) => parseBrief(r.brief))
+    .map((r) => {
+      const active = r.status === 'active' && !activeTaken
+      if (active) activeTaken = true
+      return normalize('job_searches', r, { brief: parseBrief(r.brief), status: active ? 'active' : 'archived' })
+    }), true)
 
   const onboarded = snap.profile?.onboarded_at
   if (typeof onboarded === 'string') {

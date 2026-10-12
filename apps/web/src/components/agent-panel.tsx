@@ -1,11 +1,15 @@
 // Ask Agent — a side panel on Applications (like Feishu Bitable's AI panel):
 // chat with your own agent, running on your computer through the Landed
 // daemon. Not set up yet → the panel walks you through connecting a
-// computer; computer offline → how to start it; ready → just chat.
+// computer; computer offline → how to start it; ready → just chat. When
+// the agent proposes a search brief, it shows as a card: confirm it and
+// every connected agent searches; results land in the Leads column.
 // The gear switches to agent settings (computer, cloud agents, email updates).
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { extractBrief } from '@landed/schema/search-brief'
 import { Icon } from './primitives'
 import { Markdown } from './markdown'
+import { BriefCard, SearchStatus } from './search-brief'
 import { PairingError, PairingSteps, RuntimePanel, usePairing } from './runtime-panel'
 import { AgentSettings } from './agent-settings'
 import { useAuth } from '../lib/auth'
@@ -146,6 +150,11 @@ function Chat({ runtime, agentId, agentLabel }: { runtime: Runtime; agentId: str
   const busy = turns.some((t) => t.pending)
   const scroller = useRef<HTMLDivElement>(null)
   const last = turns[turns.length - 1]
+  // Only the newest brief in the conversation can be confirmed.
+  let latestBrief = -1
+  turns.forEach((t, i) => {
+    if (t.role === 'agent' && !t.error && !t.pending && extractBrief(t.text).brief) latestBrief = i
+  })
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight })
@@ -166,6 +175,7 @@ function Chat({ runtime, agentId, agentLabel }: { runtime: Runtime; agentId: str
 
   return (
     <>
+      <SearchStatus />
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {turns.length === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
@@ -192,7 +202,7 @@ function Chat({ runtime, agentId, agentLabel }: { runtime: Runtime; agentId: str
                 <Icon name="search" size={10} /> {[...new Set(t.tools)].map((n) => (n === 'WebSearch' ? 'searched the web' : n === 'WebFetch' ? 'read a page' : n)).join(' · ')}
               </div>
             ) : null}
-            {t.role === 'agent' && !t.error ? (t.text ? <Markdown text={t.text} /> : <span style={{ color: 'var(--fg-muted)' }}>Thinking…</span>) : t.text}
+            {t.role === 'agent' && !t.error ? <AgentReply text={t.text} latest={i === latestBrief} /> : t.text}
           </div>
         ))}
       </div>
@@ -205,6 +215,19 @@ function Chat({ runtime, agentId, agentLabel }: { runtime: Runtime; agentId: str
           {busy ? '…' : 'Send'}
         </button>
       </div>
+    </>
+  )
+}
+
+/** An agent reply: Markdown, with a proposed search brief shown as a card. */
+function AgentReply({ text, latest }: { text: string; latest: boolean }) {
+  if (!text) return <span style={{ color: 'var(--fg-muted)' }}>Thinking…</span>
+  const reply = extractBrief(text)
+  return (
+    <>
+      {reply.text && <Markdown text={reply.text} />}
+      {reply.drafting && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Writing up your search brief…</div>}
+      {reply.brief && <BriefCard brief={reply.brief} latest={latest} />}
     </>
   )
 }

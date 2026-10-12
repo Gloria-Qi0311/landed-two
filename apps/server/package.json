@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@landed/schema": "workspace:*",
     "@hono/node-server": "^2.1.4",
     "hono": "^4.13.13",
     "postgres": "^3.4.9"

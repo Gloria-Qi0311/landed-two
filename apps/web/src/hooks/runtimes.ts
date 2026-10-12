@@ -2,10 +2,13 @@
 // list (with live online status), remove, and run a task on one with its
 // output streamed back. Account-level: works with or without Cloud sync.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { FoundJob } from '@landed/schema/search-brief'
 import { ApiError, api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
-export type RuntimeAgent = { id: string; label: string; version: string | null }
+export type TaskKind = 'chat' | 'job_search'
+/** `kinds`: the tasks this agent's daemon can run (older daemons: chat only). */
+export type RuntimeAgent = { id: string; label: string; version: string | null; kinds?: TaskKind[] }
 export type Runtime = {
   id: string
   name: string
@@ -21,8 +24,10 @@ export type JobEvent =
   | { type: 'started'; agent: string }
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string }
-  | { type: 'done'; text: string; session_id?: string }
+  | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[] }
   | { type: 'error'; message: string }
+
+export const canRun = (a: RuntimeAgent, kind: TaskKind) => (a.kinds ?? ['chat']).includes(kind)
 
 export function useRuntimes(opts: { poll?: boolean } = {}) {
   const online = useAuth((s) => s.ready && !s.offline && !s.unreachable)
@@ -54,21 +59,14 @@ export function useRemoveRuntime() {
   })
 }
 
-/** Start a task on a computer and follow its output. Returns a stop function. */
-export async function runOnComputer(
-  runtimeId: string,
-  agent: string,
-  kind: 'chat',
-  input: Record<string, unknown>,
-  onEvent: (e: JobEvent) => void,
-): Promise<() => void> {
-  let jobId: string
-  try {
-    jobId = (await api.post<{ job_id: string }>('/runtime-jobs', { runtime_id: runtimeId, agent, kind, input })).job_id
-  } catch (e) {
-    onEvent({ type: 'error', message: e instanceof ApiError ? e.message : String(e) })
-    return () => {}
-  }
+/** Start a task on a computer; returns its id (the server relays it, in memory). */
+export async function startJob(runtimeId: string, agent: string, kind: TaskKind, input: Record<string, unknown>): Promise<string> {
+  return (await api.post<{ job_id: string }>('/runtime-jobs', { runtime_id: runtimeId, agent, kind, input })).job_id
+}
+
+/** Follow a task's output: replays what happened so far, then streams the
+ *  rest until done/error. Returns a stop function. */
+export function followJob(jobId: string, onEvent: (e: JobEvent) => void): () => void {
   const source = new EventSource(`/api/runtime-jobs/${jobId}/stream`)
   source.addEventListener('job_event', (msg) => {
     const e = JSON.parse((msg as MessageEvent).data) as JobEvent
@@ -79,4 +77,20 @@ export async function runOnComputer(
     if (source.readyState === EventSource.CLOSED) onEvent({ type: 'error', message: 'Lost the connection to Landed.' })
   }
   return () => source.close()
+}
+
+/** Start a task on a computer and follow its output. Returns a stop function. */
+export async function runOnComputer(
+  runtimeId: string,
+  agent: string,
+  kind: TaskKind,
+  input: Record<string, unknown>,
+  onEvent: (e: JobEvent) => void,
+): Promise<() => void> {
+  try {
+    return followJob(await startJob(runtimeId, agent, kind, input), onEvent)
+  } catch (e) {
+    onEvent({ type: 'error', message: e instanceof ApiError ? e.message : String(e) })
+    return () => {}
+  }
 }

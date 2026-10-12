@@ -65,6 +65,9 @@ importers:
       '@hono/node-server':
         specifier: ^2.1.4
         version: 2.1.4(hono@4.13.13)
+      '@landed/schema':
+        specifier: workspace:*
+        version: link:../../packages/schema
       hono:
         specifier: ^4.13.13
         version: 4.13.13

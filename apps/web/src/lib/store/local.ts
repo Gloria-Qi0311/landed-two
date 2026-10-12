@@ -6,9 +6,10 @@
 // same defaults, same enum checks, same "reference must exist" rules — so a
 // device's data always uploads cleanly when the user turns Cloud on.
 import Dexie, { type Table } from 'dexie'
+import { parseBrief } from '@landed/schema/search-brief'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
-  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbJobLead, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
+  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
   type DbPortalEvent, type DbResume, type DemoImport, type PortalEventInput, type Snapshot,
 } from './types'
@@ -69,6 +70,7 @@ class LandedDB extends Dexie {
   agent_observations!: Table<DbAgentObservation, string>
   job_leads!: Table<DbJobLead, string>
   status_suggestions!: Table<DbSuggestion, string>
+  job_searches!: Table<DbJobSearch, string>
 
   constructor(name: string) {
     super(name)
@@ -90,6 +92,10 @@ class LandedDB extends Dexie {
       agent_observations: 'id, created_at, &[connection_id+idempotency_key], processing_status',
       job_leads: 'id, &fingerprint, status, last_seen_at',
       status_suggestions: 'id, &dedupe_key, state, created_at',
+    })
+    // v4: job search briefs confirmed in the Ask Agent chat.
+    this.version(4).stores({
+      job_searches: 'id, status, created_at',
     })
   }
 }
@@ -380,6 +386,36 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       })
     },
 
+    async listJobSearches() {
+      return (await db.job_searches.toArray()).sort(byDesc('created_at'))
+    },
+    async addJobSearch(input) {
+      askPersist()
+      const brief = parseBrief(input)
+      if (!brief) throw new LocalStoreError(400, 'brief needs at least one role')
+      return db.transaction('rw', db.job_searches, async () => {
+        const at = now()
+        const active = await db.job_searches.where('status').equals('active').toArray()
+        for (const s of active) await db.job_searches.put({ ...s, status: 'archived', updated_at: at })
+        const row: DbJobSearch = {
+          id: uuid(), user_id: LOCAL_USER, brief, status: 'active',
+          last_run_at: null, last_run_result: null, created_at: now(), updated_at: at,
+        }
+        await db.job_searches.add(row)
+        return row
+      })
+    },
+    async updateJobSearch(id, patch) {
+      oneOf(patch.status, ['active', 'archived'], 'status')
+      return db.transaction('rw', db.job_searches, async () => {
+        const row = await db.job_searches.get(id)
+        if (!row) throw new LocalStoreError(404, 'search not found')
+        const next: DbJobSearch = { ...row, ...patch, updated_at: now() }
+        await db.job_searches.put(next)
+        return next
+      })
+    },
+
     async receiveAgentObservations(rows) {
       return db.transaction('rw', db.agent_observations, async () => {
         const stored: string[] = []
@@ -410,6 +446,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         agent_observations: (await db.agent_observations.toArray()).map(strip),
         job_leads: (await db.job_leads.toArray()).map(strip),
         status_suggestions: (await db.status_suggestions.toArray()).map(strip),
+        job_searches: (await db.job_searches.toArray()).map(strip),
       }))
     },
 
@@ -431,6 +468,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         await db.agent_observations.bulkAdd(own(snapshot.agent_observations) as DbAgentObservation[])
         await db.job_leads.bulkAdd(own(snapshot.job_leads) as DbJobLead[])
         await db.status_suggestions.bulkAdd(own(snapshot.status_suggestions) as DbSuggestion[])
+        await db.job_searches.bulkAdd(own(snapshot.job_searches) as DbJobSearch[])
       })
     },
     async clearAll() {

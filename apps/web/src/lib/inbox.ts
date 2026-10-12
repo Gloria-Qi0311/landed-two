@@ -7,6 +7,7 @@ import {
   applyToContext, processObservation, proposedStage,
   type ApplicationRef, type Context, type Effect, type Settings, type Stage,
 } from '@landed/observation-processor'
+import type { FoundJob } from '@landed/schema/search-brief'
 import type { DataStore, DbApplication, DbJobLead, DbSuggestion } from './store/types'
 
 const strip = <T extends { user_id: string }>({ user_id: _, ...rest }: T) => rest
@@ -95,6 +96,68 @@ export async function processPending(store: DataStore, settings: Settings, limit
     handled++
   }
   return handled
+}
+
+// ── search results → job leads ────────────────────────────────────────────
+
+/** Fit, pay, sponsorship and age in one line under the lead (Leads card tooltip). */
+function describe(j: FoundJob): string | null {
+  const parts = [j.why, j.salary && `Salary: ${j.salary}`, j.sponsorship && `Sponsorship: ${j.sponsorship}`, j.posted && `Posted: ${j.posted}`]
+  const text = parts.filter(Boolean).join('\n')
+  return text || null
+}
+
+export type IngestResult = { found: number; added: number; merged: number; already_applied: number }
+
+/**
+ * Jobs a search run on the user's computer found → job leads. Each job goes
+ * through the observation processor as a `job_discovered` observation, so
+ * deduplication and "already applied" use the same rules as external
+ * agents. Idempotent: observation ids derive from the run (`<job id>:<n>`),
+ * so ingesting the same run twice changes nothing.
+ */
+export async function ingestFoundJobs(
+  store: DataStore,
+  jobs: FoundJob[],
+  source: { run_id: string; runtime_id: string; agent: string },
+): Promise<IngestResult> {
+  const [leads, apps, companies] = await Promise.all([store.listJobLeads(), store.listApplications(), store.listCompanies()])
+  let ctx: Context = {
+    leads: leads.map(strip),
+    applications: apps.map(toRef),
+    companies: companies.map((c) => ({ id: c.id, name: c.name })),
+    suggestions: [],
+    settings: { autoApply: false },
+  }
+  const result: IngestResult = { found: jobs.length, added: 0, merged: 0, already_applied: 0 }
+  const observedAt = new Date().toISOString()
+  for (const [i, job] of jobs.entries()) {
+    const outcome = processObservation({
+      id: `${source.run_id}:${i}`,
+      connection_id: `runtime:${source.runtime_id}`,
+      observation_type: 'job_discovered',
+      observed_at: observedAt,
+      provider: source.agent,
+      payload_json: { payload: { company: job.company, title: job.title, job_url: job.job_url, location: job.location, description: describe(job) } },
+    }, ctx, { now: observedAt, newId: () => crypto.randomUUID() })
+    const applied: Effect[] = []
+    try {
+      for (const e of outcome.effects) {
+        if (e.type === 'save_lead') {
+          await store.saveJobLead(e.lead)
+          applied.push(e)
+        }
+      }
+    } catch (err) {
+      if (isConflict(err)) continue // another tab saved it first
+      throw err
+    }
+    if (outcome.result.already_applied) result.already_applied++
+    else if (outcome.result.merged) result.merged++
+    else if (outcome.status === 'processed') result.added++
+    ctx = applyToContext(ctx, applied)
+  }
+  return result
 }
 
 // ── user actions: job leads ───────────────────────────────────────────────

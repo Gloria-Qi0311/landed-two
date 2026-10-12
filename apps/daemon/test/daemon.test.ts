@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { claudeChatArgs, parseClaudeLine } from '../src/agents.ts'
+import { claudeChatArgs, claudeSearchArgs, parseClaudeLine, searchPrompt } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
 
 test('parses Claude Code stream-json into task events', () => {
@@ -30,6 +30,31 @@ test('chat args: new sessions are created, later turns resume; only web tools', 
   const tools = first.slice(first.indexOf('--tools') + 1, first.indexOf('--allowedTools'))
   assert.deepEqual(tools, ['WebSearch', 'WebFetch'])
   assert.equal(first[first.indexOf('--setting-sources') + 1], '', "ignores the user's own settings and hooks")
+})
+
+test('job search: structured result becomes done + jobs; the result tool is not a step', () => {
+  const lines = [
+    '{"type":"assistant","message":{"content":[{"type":"server_tool_use","name":"WebSearch"},{"type":"tool_use","name":"StructuredOutput","input":{}}]}}',
+    '{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"summary":"找到 1 个","jobs":[{"company":"Acme","title":"APM","job_url":"https://x.test/1"}]}}',
+  ]
+  assert.deepEqual(lines.flatMap(parseClaudeLine), [
+    { type: 'tool', name: 'WebSearch' },
+    { type: 'done', text: '找到 1 个', session_id: undefined, jobs: [{ company: 'Acme', title: 'APM', job_url: 'https://x.test/1' }] },
+  ])
+})
+
+test('job search args + prompt: web tools only, no saved session, schema-bound output', () => {
+  const args = claudeSearchArgs()
+  assert.deepEqual(args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools')), ['WebSearch', 'WebFetch'])
+  assert.ok(args.includes('--no-session-persistence'))
+  assert.ok(!args.includes('--resume') && !args.includes('--session-id'))
+  assert.equal(JSON.parse(args[args.indexOf('--json-schema') + 1]).required.join(), 'summary,jobs')
+  const prompt = searchPrompt({ roles: ['AI Product Manager'], locations: [], needs_sponsorship: true, exclude_companies: ['Initech'] }, new Date('2026-10-11T12:00:00Z'))
+  assert.match(prompt, /Roles: AI Product Manager/)
+  assert.match(prompt, /Locations: anywhere/)
+  assert.match(prompt, /Needs visa sponsorship: yes/)
+  assert.match(prompt, /Companies to exclude: Initech/)
+  assert.match(prompt, /Today is 2026-10-11/)
 })
 
 test('SSE parser handles split chunks, comments and multi-line data', () => {
