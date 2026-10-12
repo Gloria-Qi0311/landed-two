@@ -20,7 +20,7 @@ function toRef(a: DbApplication): ApplicationRef {
   return { id: a.id, company_id: a.company_id, role: a.role, stage: a.stage, location: a.location, portal_application_url: a.portal_application_url }
 }
 
-/** Activity entry for the Sync feed / audit trail when an agent's report
+/** Activity log entry (audit trail) when an agent's report
  *  changes an application. */
 async function logStageChange(store: DataStore, s: Pick<DbSuggestion, 'application_id' | 'provider' | 'evidence' | 'observation_ids'>, from: string, to: string, how: 'auto' | 'accepted' | 'undone') {
   if (!s.application_id) return

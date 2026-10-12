@@ -1,4 +1,4 @@
-// Sidebar + stats banner + Resume Match page + JD Breakdown page
+// Sidebar + stats banner + page header
 import React, { useMemo } from 'react';
 import { NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import { LandedMark, Icon, stageColors } from './primitives';
@@ -92,29 +92,7 @@ export const Sidebar = ({ apps, account, onProfileClick, navCounts = {} }) => {
       {/* Nav */}
       <div style={{ padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
         <NavItem to="/applications" icon={<Icon name="inbox" size={14} />} label="Applications" count={navCounts.applications} />
-        <NavItem to="/sync" icon={<Icon name="refresh" size={14} />} label="Sync" />
-        <NavItem to="/resume-match" icon={<Icon name="sparkle" size={14} />} label="Resume Match" />
-        <NavItem to="/jd-breakdown" icon={<Icon name="target" size={14} />} label="JD Breakdown" />
-      </div>
-
-      {/* Design-only references — easy access for reviewer */}
-      <div style={{ padding: '8px 10px 0', display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
-        <a href="how-it-works.html" target="_blank" rel="noopener" style={{
-          textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 9,
-          padding: '6px 10px', fontSize: 12, color: 'var(--fg-muted)',
-          borderRadius: 6,
-        }} className="sidebar-item">
-          <Icon name="external" size={13} />
-          <span style={{ flex: 1 }}>How it works</span>
-        </a>
-        <a href="design-system.html" target="_blank" rel="noopener" style={{
-          textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 9,
-          padding: '6px 10px', fontSize: 12, color: 'var(--fg-muted)',
-          borderRadius: 6,
-        }} className="sidebar-item">
-          <Icon name="adjust" size={13} />
-          <span style={{ flex: 1 }}>Design system</span>
-        </a>
+        <NavItem to="/resumes" icon={<Icon name="doc" size={14} />} label="My Resume" />
       </div>
 
       {/* Scrollable filters region — keeps the bottom strip always visible */}

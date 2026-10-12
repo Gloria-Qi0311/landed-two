@@ -33,14 +33,8 @@ import { TimelineView, CardsView, MapView } from './components/other-views';
 import { DetailDrawer } from './components/drawer';
 import { AddApplicationModal } from './components/add-application-modal';
 import { ResumesPage } from './components/resumes-page';
-import { SyncPage } from './components/sync-page';
-import { ResumeMatchPage } from './components/resume-match-page';
-import { JDBreakdownPage } from './components/jd-breakdown-page';
 import {
   EmptyApplicationsView,
-  EmptySyncView,
-  EmptyResumeMatchView,
-  EmptyJDBreakdownView,
 } from './components/empty-states';
 import { STAGES, COMPANIES as COMPANY_CATALOG } from './data';
 
@@ -253,10 +247,11 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
               />
             }
           />
-          <Route path="/sync" element={<SyncRoute />} />
-          <Route path="/resume-match" element={<ResumeMatchRoute />} />
-          <Route path="/jd-breakdown" element={<JDBreakdownRoute />} />
           <Route path="/resumes" element={<ResumesPage />} />
+          {/* Removed pages: old links land somewhere useful. */}
+          <Route path="/resume-match" element={<Navigate to="/resumes" replace />} />
+          <Route path="/sync" element={<Navigate to="/applications" replace />} />
+          <Route path="/jd-breakdown" element={<Navigate to="/applications" replace />} />
           {/* Agent settings moved into the Ask Agent panel on Applications. */}
           <Route path="/agents" element={<Navigate to="/applications?agent=settings" replace />} />
           <Route path="*" element={<Navigate to="/applications" replace />} />
@@ -495,39 +490,6 @@ function ApplicationsPage({
         />
       </div>
     </>
-  );
-}
-
-function SyncRoute() {
-  return usePreviewEmpty() ? (
-    <>
-      <PageHeader title="Sync" subtitle="Install the browser extension to enable auto-sync" />
-      <EmptySyncView onInstall={() => {}} />
-    </>
-  ) : (
-    <SyncPage />
-  );
-}
-
-function ResumeMatchRoute() {
-  return usePreviewEmpty() ? (
-    <>
-      <PageHeader title="Resume Match" subtitle="Upload a resume and add JDs to compare your fit" />
-      <EmptyResumeMatchView onUploadResume={() => {}} onAddJD={() => {}} />
-    </>
-  ) : (
-    <ResumeMatchPage />
-  );
-}
-
-function JDBreakdownRoute() {
-  return usePreviewEmpty() ? (
-    <>
-      <PageHeader title="JD Breakdown" subtitle="Paste a job description to extract requirements" />
-      <EmptyJDBreakdownView onPasteJD={() => {}} />
-    </>
-  ) : (
-    <JDBreakdownPage />
   );
 }
 

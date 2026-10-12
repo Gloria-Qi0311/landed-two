@@ -58,12 +58,12 @@ export function ResumesPage() {
   return (
     <>
       <PageHeader
-        title="Resumes"
+        title="My Resume"
         subtitle={
           resumesQuery.isLoading
             ? 'Loading…'
             : resumes.length === 0
-            ? 'Add your first resume to enable Resume Match + extension auto-fill'
+            ? 'Add your first resume to enable extension auto-fill'
             : `${resumes.length} saved${resumes.find((r) => r.is_current) ? ' · 1 current' : ''}`
         }
         actions={
