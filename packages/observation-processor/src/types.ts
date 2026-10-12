@@ -4,7 +4,8 @@
 
 export type Stage = 'saved' | 'applied' | 'oa' | 'phone' | 'onsite' | 'offer' | 'rejected' | 'ghosted'
 
-export type EmailStatus = 'applied' | 'recruiter_response' | 'interview' | 'rejected' | 'offer' | 'other'
+/** `assessment` = an online assessment / take-home invitation (stage `oa`). */
+export type EmailStatus = 'applied' | 'recruiter_response' | 'assessment' | 'interview' | 'rejected' | 'offer' | 'other'
 
 export type Observation = {
   id: string

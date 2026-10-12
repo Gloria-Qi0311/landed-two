@@ -1,19 +1,22 @@
 // Agent CLIs the daemon can drive, and how to run a Landed task with one.
 //
-// Safety: tasks are a fixed set of kinds (`chat`, `job_search`). Input goes
-// to the agent on stdin (never through a shell), the agent runs in an empty
-// workspace directory, ignores the user's own Claude Code settings/hooks,
-// and only gets read-only web tools — no files, no shell.
+// Safety: tasks are a fixed set of kinds (`chat`, `job_search`,
+// `email_check`). Input goes to the agent on stdin (never through a shell),
+// the agent runs in an empty workspace directory, ignores the user's own
+// Claude Code settings/hooks, and gets an explicit tool allowlist: read-only
+// web tools for chat and search (with every MCP server switched off), and
+// only the mailbox's read tools for email checks — no files, no shell.
 import { spawn, spawnSync } from 'node:child_process'
 import { knownSessions, rememberSession, workspace } from './config.ts'
 
-export type AgentInfo = { id: string; label: string; version: string | null; kinds: string[] }
+/** `mail`: the mailbox the agent can read (e.g. "Gmail"), if any. */
+export type AgentInfo = { id: string; label: string; version: string | null; kinds: string[]; mail: string | null }
 
 export type TaskEvent =
   | { type: 'started'; agent: string }
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string }
-  | { type: 'done'; text: string; session_id?: string; jobs?: unknown[] }
+  | { type: 'done'; text: string; session_id?: string; jobs?: unknown[]; findings?: unknown[] }
   | { type: 'error'; message: string }
 
 export type Task = { id: string; agent: string; kind: string; input: Record<string, unknown> }
@@ -22,16 +25,117 @@ export type Task = { id: string; agent: string; kind: string; input: Record<stri
 // with the task kinds they can run (the server only sends those).
 const SUPPORTED = [{ id: 'claude', label: 'Claude Code', bin: 'claude', kinds: ['chat', 'job_search'] }]
 
-export function detectAgents(): AgentInfo[] {
+const WEB_TOOLS = ['WebSearch', 'WebFetch']
+
+// ── mailbox access ────────────────────────────────────────────────────────
+// Email checks use a mail connector the user already gave Claude Code (e.g.
+// claude.ai's Gmail connector). We only allow its read tools: names that
+// look like reads and nothing that looks like a write.
+//
+// Detection, at daemon start: `claude mcp list` says whether a mail server
+// is connected (no model call). Only then do we ask Claude Code, once, to
+// look up that server's tools with ToolSearch — connectors connect
+// asynchronously, so its init event can't be relied on for tool names.
+
+export type MailAccess = { label: string; tools: string[] }
+
+const MAIL_SERVER = /\b(gmail|outlook|e?mail)\b/i
+const READ_TOOL = /(search|read|get|list|fetch|find|query|view)/i
+const WRITE_TOOL = /(send|create|draft|delete|trash|modify|update|move|archive|mark|add|remove|reply|forward|batch|label_)/i
+
+/** `claude mcp list` output → servers and whether they're connected. */
+export function parseMcpList(out: string): { name: string; connected: boolean }[] {
+  const servers: { name: string; connected: boolean }[] = []
+  for (const line of out.split('\n')) {
+    const m = line.match(/^(.+?): .* - (.+)$/)
+    if (m) servers.push({ name: m[1].trim(), connected: /✔|\bconnected\b/i.test(m[2]) && !/fail|needs|error/i.test(m[2]) })
+  }
+  return servers
+}
+
+/** The connected mail server, and the word to look its tools up by. */
+export function mailServer(servers: { name: string; connected: boolean }[]): { name: string; keyword: string } | null {
+  for (const s of servers) {
+    const m = s.connected && s.name.match(MAIL_SERVER)
+    if (m) return { name: s.name, keyword: m[1].toLowerCase() }
+  }
+  return null
+}
+
+/** Of a server's tools, the ones safe for a read-only email check. */
+export function readOnlyMailTools(serverName: string, toolNames: string[]): string[] {
+  const prefix = `mcp__${serverName.replace(/[^a-zA-Z0-9_-]/g, '_')}__`
+  return [...new Set(toolNames)].filter((t) => {
+    if (!t.startsWith(prefix)) return false
+    const name = t.slice(prefix.length)
+    return READ_TOOL.test(name) && !WRITE_TOOL.test(name)
+  })
+}
+
+/** Tool names in a ToolSearch result (stream-json `user` event). */
+export function toolReferences(line: string): string[] {
+  try {
+    const e = JSON.parse(line)
+    if (e.type !== 'user' || !Array.isArray(e.message?.content)) return []
+    return e.message.content.flatMap((c: any) => (c?.type === 'tool_result' && Array.isArray(c.content)
+      ? c.content.filter((r: any) => r?.type === 'tool_reference' && typeof r.tool_name === 'string').map((r: any) => r.tool_name)
+      : []))
+  } catch {
+    return []
+  }
+}
+
+function collect(args: string[], timeoutMs: number, onLine?: (line: string) => void): Promise<string> {
+  return new Promise((resolve) => {
+    const child = spawn('claude', args, { cwd: workspace(), stdio: ['ignore', 'pipe', 'ignore'] })
+    let out = ''
+    let buf = ''
+    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs)
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      out += chunk
+      buf += chunk
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      lines.forEach((l) => onLine?.(l))
+    })
+    child.on('error', () => resolve(''))
+    child.on('close', () => {
+      clearTimeout(timer)
+      resolve(out)
+    })
+  })
+}
+
+export async function detectMail(): Promise<MailAccess | null> {
+  const server = mailServer(parseMcpList(await collect(['mcp', 'list'], 45_000)))
+  if (!server) return null
+  const found: string[] = []
+  await collect([
+    '-p', `Call the ToolSearch tool exactly once with {"query": "+${server.keyword}", "max_results": 50}. Then reply DONE.`,
+    '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--setting-sources', '',
+    '--tools', 'ToolSearch', '--allowedTools', 'ToolSearch',
+  ], 90_000, (line) => found.push(...toolReferences(line)))
+  const tools = readOnlyMailTools(server.name, found)
+  return tools.length ? { label: server.name.replace(/^claude\.ai\s+/i, ''), tools } : null
+}
+
+let claudeMail: MailAccess | null = null
+
+export async function detectAgents(): Promise<AgentInfo[]> {
   const found: AgentInfo[] = []
   for (const a of SUPPORTED) {
     const r = spawnSync(a.bin, ['--version'], { encoding: 'utf8', timeout: 15_000 })
-    if (r.status === 0) found.push({ id: a.id, label: a.label, version: r.stdout.trim().split('\n')[0] || null, kinds: a.kinds })
+    if (r.status !== 0) continue
+    claudeMail = await detectMail()
+    found.push({
+      id: a.id, label: a.label, version: r.stdout.trim().split('\n')[0] || null,
+      kinds: claudeMail ? [...a.kinds, 'email_check'] : a.kinds,
+      mail: claudeMail?.label ?? null,
+    })
   }
   return found
 }
-
-const WEB_TOOLS = ['WebSearch', 'WebFetch']
 
 // ── chat ──────────────────────────────────────────────────────────────────
 
@@ -68,6 +172,7 @@ export function claudeChatArgs(conversationId: string, resume: boolean): string[
     '--tools', ...WEB_TOOLS,
     '--allowedTools', ...WEB_TOOLS,
     '--setting-sources', '',
+    '--strict-mcp-config', // no MCP servers, not even the user's claude.ai connectors
     '--append-system-prompt', CHAT_SYSTEM_PROMPT,
   ]
 }
@@ -137,6 +242,7 @@ export function claudeSearchArgs(): string[] {
     '--tools', ...WEB_TOOLS,
     '--allowedTools', ...WEB_TOOLS,
     '--setting-sources', '',
+    '--strict-mcp-config',
     '--json-schema', JSON.stringify(SEARCH_RESULT_SCHEMA),
     '--append-system-prompt', SEARCH_SYSTEM_PROMPT,
   ]
@@ -167,6 +273,89 @@ export function searchPrompt(brief: Brief, today: Date): string {
   ].join('\n')
 }
 
+// ── email check ───────────────────────────────────────────────────────────
+
+export type EmailCheckInput = { since: string; applications: { company: string; role: string; stage: string }[] }
+
+const EMAIL_SYSTEM_PROMPT = [
+  "You are Landed's email assistant, running on the user's own computer with read-only access to their",
+  'mailbox. Find emails about the user\'s own job applications and report what each one means.',
+  '- Read only. Never send, draft, label, archive or delete anything.',
+  '- Look for: application confirmations, recruiter replies, online assessment / coding test / take-home',
+  '  invitations, interview invitations or scheduling, rejections, offers.',
+  '- Ignore job alerts, newsletters, marketing, and anything that is not about one of the user\'s applications.',
+  '- One finding per email; when several emails in a thread say the same thing, report the newest.',
+  '- status: applied (application received), recruiter_response (a person replied, no decision yet),',
+  '  assessment (OA / coding test / take-home), interview (invitation or scheduling), rejected, offer, other.',
+  '- company is the employer, not the hiring software (Greenhouse, Workday, Lever, …). role is the job title if stated.',
+  '- confidence (0–1) is how sure you are of company and status. Use 0.8 or more only when the email says it plainly.',
+  '- evidence: the message id and thread id exactly as your mail tool returns them, the sender domain, the subject,',
+  '  when it was received (ISO 8601), and a one-sentence summary in English.',
+  'When you are done, return the findings with the structured output tool.',
+].join('\n')
+
+const EVIDENCE_SCHEMA = {
+  type: 'object',
+  properties: {
+    message_id: { type: 'string' }, thread_id: { type: 'string' }, sender_domain: { type: 'string' },
+    subject: { type: 'string' }, received_at: { type: 'string' }, summary: { type: 'string' },
+  },
+  required: ['message_id', 'subject'],
+}
+
+export const EMAIL_RESULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string', description: 'One or two sentences on what you checked and found.' },
+    findings: {
+      type: 'array',
+      maxItems: 100,
+      items: {
+        type: 'object',
+        properties: {
+          company: { type: 'string' },
+          role: { type: 'string' },
+          status: { type: 'string', enum: ['applied', 'recruiter_response', 'assessment', 'interview', 'rejected', 'offer', 'other'] },
+          confidence: { type: 'number' },
+          job_url: { type: 'string' },
+          evidence: EVIDENCE_SCHEMA,
+        },
+        required: ['company', 'status', 'confidence', 'evidence'],
+      },
+    },
+  },
+  required: ['summary', 'findings'],
+}
+
+export function claudeEmailArgs(mail: MailAccess): string[] {
+  return [
+    '-p',
+    '--output-format', 'stream-json', '--verbose',
+    '--no-session-persistence',
+    // No web, files or shell. ToolSearch only loads tool definitions — the
+    // connector's tools are deferred behind it.
+    '--tools', 'ToolSearch',
+    '--allowedTools', 'ToolSearch', ...mail.tools, // + the mailbox's read tools only
+    '--setting-sources', '',
+    '--json-schema', JSON.stringify(EMAIL_RESULT_SCHEMA),
+    '--append-system-prompt', EMAIL_SYSTEM_PROMPT,
+  ]
+}
+
+export function emailPrompt(input: EmailCheckInput): string {
+  const apps = input.applications.length
+    ? input.applications.map((a) => `- ${a.company} — ${a.role} (${a.stage})`).join('\n')
+    : '(none yet)'
+  return [
+    `Check the emails I received since ${input.since}.`,
+    '',
+    'My applications in Landed, to help you recognize companies and roles:',
+    apps,
+    '',
+    'Report every job-application email, including ones for companies that are not on this list.',
+  ].join('\n')
+}
+
 // ── Claude Code output ────────────────────────────────────────────────────
 
 /** One line of `claude --output-format stream-json` → task events. */
@@ -191,8 +380,12 @@ export function parseClaudeLine(line: string): TaskEvent[] {
       return [{ type: 'error', message: String(e.result ?? e.subtype ?? 'Claude Code reported an error') }]
     }
     const out = e.structured_output
+    const summary = typeof out?.summary === 'string' ? out.summary : ''
     if (out && typeof out === 'object' && Array.isArray(out.jobs)) {
-      return [{ type: 'done', text: typeof out.summary === 'string' ? out.summary : '', session_id: e.session_id, jobs: out.jobs }]
+      return [{ type: 'done', text: summary, session_id: e.session_id, jobs: out.jobs }]
+    }
+    if (out && typeof out === 'object' && Array.isArray(out.findings)) {
+      return [{ type: 'done', text: summary, session_id: e.session_id, findings: out.findings }]
     }
     return [{ type: 'done', text: String(e.result ?? ''), session_id: e.session_id }]
   }
@@ -203,6 +396,7 @@ export function parseClaudeLine(line: string): TaskEvent[] {
 
 const CHAT_TIMEOUT_MS = 5 * 60_000
 const SEARCH_TIMEOUT_MS = 20 * 60_000
+const EMAIL_TIMEOUT_MS = 10 * 60_000
 
 function runClaude(
   opts: { args: string[]; stdin: string; timeoutMs: number; onDone?: () => void },
@@ -271,6 +465,17 @@ export function runTask(task: Task, emit: (e: TaskEvent) => void): Promise<void>
     const brief = task.input.brief as Brief | undefined
     if (!brief || !Array.isArray(brief.roles) || brief.roles.length === 0) return fail(emit, 'Bad search task.')
     return runClaude({ args: claudeSearchArgs(), stdin: searchPrompt(brief, new Date()), timeoutMs: SEARCH_TIMEOUT_MS }, emit)
+  }
+
+  if (task.kind === 'email_check') {
+    if (!claudeMail) return fail(emit, "Claude Code on this computer can't read your email (no mail connector). Connect Gmail in Claude, then restart the daemon.")
+    const input = task.input as Partial<EmailCheckInput>
+    if (typeof input.since !== 'string' || !Array.isArray(input.applications)) return fail(emit, 'Bad email task.')
+    return runClaude({
+      args: claudeEmailArgs(claudeMail),
+      stdin: emailPrompt({ since: input.since, applications: input.applications }),
+      timeoutMs: EMAIL_TIMEOUT_MS,
+    }, emit)
   }
 
   return fail(emit, `Unsupported task: ${task.kind}`)

@@ -22,7 +22,7 @@ function log(msg: string) {
 }
 
 async function run(config: Config) {
-  const agents = detectAgents()
+  const agents = await detectAgents()
   if (agents.length === 0) {
     log('No supported agent found. Install Claude Code (https://claude.com/claude-code) and sign in, then run `landed start` again.')
     process.exit(1)
@@ -53,7 +53,7 @@ async function run(config: Config) {
       await client.hello({ name, agents, daemon_version: VERSION })
       await client.stream(work, () => {
         backoff = 1000
-        log(`connected to ${config.server} as "${name}" — agents: ${agents.map((a) => `${a.label} ${a.version ?? ''}`.trim()).join(', ')}`)
+        log(`connected to ${config.server} as "${name}" — agents: ${agents.map((a) => `${a.label} ${a.version ?? ''}${a.mail ? `, reads ${a.mail}` : ''}`.trim()).join(', ')}`)
       })
       log('connection closed, reconnecting…')
     } catch (err) {
@@ -102,8 +102,13 @@ async function main() {
   if (command === 'status') {
     const config = loadConfig()
     console.log(config ? `Paired with ${config.server}${config.name ? ` as "${config.name}"` : ''}` : 'Not paired.')
-    const agents = detectAgents()
+    const agents = await detectAgents()
     console.log(agents.length ? `Agents: ${agents.map((a) => `${a.label} (${a.version})`).join(', ')}` : 'No supported agents found.')
+    for (const a of agents) {
+      console.log(a.mail
+        ? `${a.label} can read your ${a.mail} (read-only), so Landed can check your email for application updates.`
+        : `${a.label} has no mail connector, so email checks are off. To turn them on, connect Gmail in Claude (claude.ai → Settings → Connectors) and restart the daemon.`)
+    }
     return
   }
 

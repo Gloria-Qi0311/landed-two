@@ -6,13 +6,14 @@
 // Nothing here is persisted: job input and output live in memory only until
 // the job finishes and its listeners have had a chance to read it (GC after
 // an hour). Single server process, so a Map is enough.
+import type { EmailFinding } from '@landed/schema/email-check'
 import type { FoundJob } from '@landed/schema/search-brief'
 
 export type JobEvent =
   | { type: 'started'; agent: string }
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string }
-  | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[] }
+  | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[]; findings?: EmailFinding[] }
   | { type: 'error'; message: string }
 
 export type Job = {

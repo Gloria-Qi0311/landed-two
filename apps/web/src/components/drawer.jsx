@@ -12,7 +12,7 @@ function buildPortalUrl(app, company) {
   return `https://www.google.com/search?q=${q}`;
 }
 
-export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate }) => {
+export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpenPosting }) => {
   // Esc to close. Listener lives on document so it works even if focus is
   // outside the drawer (e.g. user just dragged a card from below and the
   // pointer is still over the main view).
@@ -187,6 +187,7 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate }) => {
           href={buildPortalUrl(app, company)}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => app.portal_application_url && onOpenPosting?.(app, company)}
           className="btn-primary"
           style={{ flex: 1, textDecoration: 'none', justifyContent: 'center' }}
         >

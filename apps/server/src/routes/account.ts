@@ -1,6 +1,6 @@
 // Account-level routes — available whether or not Landed Cloud sync is on.
 //
-//   GET/PATCH /me        profile (onboarding flag, auto_apply_updates) + cloud_sync state
+//   GET/PATCH /me        profile (onboarding flag, auto_apply_updates, email_watch) + cloud_sync state
 //   POST /cloud/enable   upload this device's snapshot and turn sync on, atomically
 //                        (held agent observations become Cloud data)
 //   POST /cloud/disable  { password } — delete every data row and turn sync off;
@@ -14,7 +14,7 @@ import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
 import { uploadSnapshot } from './sync.ts'
 
-const ME_COLUMNS = ['id', 'email', 'cloud_sync', 'onboarded_at', 'auto_apply_updates', 'plan', 'created_at']
+const ME_COLUMNS = ['id', 'email', 'cloud_sync', 'onboarded_at', 'auto_apply_updates', 'email_watch', 'email_checked_at', 'plan', 'created_at']
 
 async function checkPassword(sql: Sql, userId: string, password: unknown) {
   const [row] = await sql<{ password_hash: string }[]>`select password_hash from users where id = ${userId}`
@@ -44,7 +44,18 @@ export function accountRoutes(sql: Sql) {
       if (typeof body.auto_apply_updates !== 'boolean') fail(400, 'auto_apply_updates must be a boolean')
       patch.auto_apply_updates = body.auto_apply_updates
     }
-    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: onboarded_at, auto_apply_updates)')
+    if ('email_watch' in body) {
+      if (typeof body.email_watch !== 'boolean') fail(400, 'email_watch must be a boolean')
+      patch.email_watch = body.email_watch
+    }
+    if ('email_checked_at' in body) {
+      const at = body.email_checked_at
+      if (at !== null && (typeof at !== 'string' || Number.isNaN(Date.parse(at)))) fail(400, 'email_checked_at must be an ISO timestamp or null')
+      patch.email_checked_at = at
+    }
+    if (Object.keys(patch).length === 0) {
+      fail(400, 'nothing to update (allowed: onboarded_at, auto_apply_updates, email_watch, email_checked_at)')
+    }
     const [row] = await sql`
       update users set ${sql(patch)} where id = ${c.get('user').id}
       returning ${sql(ME_COLUMNS)}`

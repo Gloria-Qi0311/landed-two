@@ -4,8 +4,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
 import { useExtensionBridge } from './hooks/extension-bridge';
 import { useAgentRelay } from './hooks/agents';
-import { useJobLeads, useLeadActions, useObservationProcessor } from './hooks/inbox';
+import { useJobLeads, useLeadActions, useObservationProcessor, useRecordApplyClick } from './hooks/inbox';
+import { useApplyQuestions } from './components/apply-questions';
 import { useSearchRunner } from './hooks/search';
+import { useEmailWatcher } from './hooks/email';
 import { AgentPanel, type AgentPanelView } from './components/agent-panel';
 import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
@@ -117,7 +119,9 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useAgentRelay();
   useObservationProcessor();
   useSearchRunner();
+  useEmailWatcher();
   const sidebarCounts = { applications: usePendingUpdateCount() };
+  const recordApplyClick = useRecordApplyClick();
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();
   const addApp = useAddApplication();
@@ -264,6 +268,8 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
           companies={companies}
           onClose={() => setOpenApp(null)}
           onUpdate={(id: string, patch: ApplicationPatch) => updateApp.mutate({ id, patch })}
+          onOpenPosting={(app: { id: string; role: string; stage: string }, company: { name: string }) =>
+            recordApplyClick({ kind: 'application', id: app.id, role: app.role, stage: app.stage, company_name: company.name })}
         />
       )}
 
@@ -314,10 +320,19 @@ function ApplicationsPage({
     else next.delete('agent');
     setSearchParams(next, { replace: true });
   };
+  // Badge: "did you apply?" questions waiting in the panel.
+  const questions = useApplyQuestions().length;
   const askAgentButton = (
     <button className="btn-secondary" onClick={() => setAgentView(agentView ? null : 'chat')}
-      style={agentView ? { background: 'var(--surface-3)' } : undefined} aria-pressed={!!agentView}>
+      style={agentView ? { background: 'var(--surface-3)' } : undefined} aria-pressed={!!agentView}
+      title={questions ? `${questions} question${questions === 1 ? '' : 's'} for you` : undefined}>
       <Icon name="sparkle" size={13} /> Ask Agent
+      {questions > 0 && (
+        <span style={{
+          marginLeft: 2, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, fontSize: 10.5, fontWeight: 600,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--accent)', color: 'white',
+        }}>{questions}</span>
+      )}
     </button>
   );
   const withPanel = (content: ReactNode) => (
@@ -367,6 +382,7 @@ function ApplicationsPage({
   // Jobs agents found but the user hasn't acted on — the Kanban's Leads column.
   const leads = (useJobLeads().data ?? []).filter((l) => l.status === 'new');
   const leadActions = useLeadActions();
+  const recordApplyClick = useRecordApplyClick();
 
   const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0 && leads.length === 0);
 
@@ -473,6 +489,7 @@ function ApplicationsPage({
           leads={leads}
           onAddLead={(lead: DbJobLead, stage: Stage) => leadActions.add.mutate({ lead, stage })}
           onDismissLead={(id: string) => leadActions.dismiss.mutate(id)}
+          onOpenLead={(lead: DbJobLead) => recordApplyClick({ kind: 'lead', lead })}
         />
       </div>
     </>

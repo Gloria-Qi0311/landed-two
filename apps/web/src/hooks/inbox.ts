@@ -7,7 +7,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import {
-  acceptSuggestion, addLeadToPipeline, dismissLead, processPending, rejectSuggestion, restoreLead, undoSuggestion,
+  acceptSuggestion, addLeadToPipeline, dismissLead, processPending, recordApplyClick, rejectSuggestion, restoreLead,
+  settleClickQuestions, undoSuggestion, type ClickTarget,
 } from '../lib/inbox'
 import { useStore, type DbJobLead, type DbSuggestion } from '../lib/store'
 import type { Stage } from '@landed/observation-processor'
@@ -28,7 +29,13 @@ export function useSuggestions() {
   return useQuery({ queryKey: ['suggestions', store.kind], enabled: ready, queryFn: () => store.listSuggestions() })
 }
 
-type Me = { auto_apply_updates: boolean; onboarded_at: string | null; created_at: string }
+export type Me = {
+  auto_apply_updates: boolean
+  email_watch: boolean
+  email_checked_at: string | null
+  onboarded_at: string | null
+  created_at: string
+}
 
 export function useAccountPrefs() {
   const online = useAuth((s) => s.ready && !s.offline && !s.unreachable)
@@ -58,7 +65,9 @@ export function useObservationProcessor() {
       running = true
       try {
         const handled = await processPending(store, { autoApply })
-        if (handled > 0) for (const key of AFFECTED) qc.invalidateQueries({ queryKey: [key] })
+        // "Did you apply?" questions an email or a manual move already answered.
+        const settled = await settleClickQuestions(store)
+        if (handled + settled > 0) for (const key of AFFECTED) qc.invalidateQueries({ queryKey: [key] })
       } catch (e) {
         console.warn('[landed] processing agent reports failed', e)
       } finally {
@@ -93,6 +102,17 @@ export function useLeadActions() {
     add: useInvalidating(({ lead, stage }: { lead: DbJobLead; stage: Stage }) => addLeadToPipeline(store, lead, stage)),
     dismiss: useInvalidating((id: string) => dismissLead(store, id)),
     restore: useInvalidating((id: string) => restoreLead(store, id)),
+  }
+}
+
+/** Opening a posting from Landed → "did you apply?" in the Ask Agent panel. */
+export function useRecordApplyClick() {
+  const { store } = useStore()
+  const qc = useQueryClient()
+  return (target: ClickTarget) => {
+    recordApplyClick(store, target)
+      .then((q) => q && qc.invalidateQueries({ queryKey: ['suggestions'] }))
+      .catch((e) => console.warn('[landed] recording the click failed', e))
   }
 }
 

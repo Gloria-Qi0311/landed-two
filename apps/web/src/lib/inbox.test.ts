@@ -2,7 +2,10 @@
 // delivery → processPending → leads / review queue → user actions.
 import 'fake-indexeddb/auto'
 import { describe, expect, test } from 'vitest'
-import { acceptSuggestion, addLeadToPipeline, canUndo, dismissLead, ingestFoundJobs, processPending, rejectSuggestion, undoSuggestion } from './inbox'
+import {
+  acceptSuggestion, addLeadToPipeline, canUndo, dismissLead, ingestEmailFindings, ingestFoundJobs, openClickQuestions, processPending,
+  recordApplyClick, rejectSuggestion, settleClickQuestions, undoSuggestion,
+} from './inbox'
 import { createLocalStore, type LocalStore } from './store/local'
 import type { DbAgentObservation } from './store/types'
 
@@ -221,5 +224,93 @@ describe('ingestFoundJobs (search runs on the user\'s computer)', () => {
     const leads = await store.listJobLeads()
     expect(leads.find((l) => l.company_name === 'Acme AI')!.sources).toHaveLength(2)
     expect(leads.find((l) => l.company_name === 'Globex')!.status).toBe('already_applied')
+  })
+})
+
+describe('ingestEmailFindings (email checks on the user\'s computer)', () => {
+  const source = (run: string) => ({ run_id: run, runtime_id: 'rt-1', agent: 'claude', mail: 'Gmail' })
+  const mail = (id: string, over: Record<string, unknown> = {}) => ({
+    company: 'Figma', role: 'Associate Product Manager', status: 'assessment' as const, confidence: 0.95, job_url: null,
+    evidence: { message_id: id, sender_domain: 'figma.com', subject: 'Your Figma online assessment', received_at: '2026-10-10T09:00:00.000Z' },
+    ...over,
+  })
+
+  test('confident emails move applications (OA too) and are undoable; re-reading changes nothing', async () => {
+    const store = fresh()
+    await store.addApplication({ name: 'Figma' }, { role: 'Associate Product Manager', stage: 'applied' })
+    const first = await ingestEmailFindings(store, [mail('m1'), mail('m2', { company: 'Stripe', status: 'applied', role: 'PM New Grad' })], source('run-a'), settings)
+    expect(first).toMatchObject({ found: 2, updated: 1, added: 1 })
+    const apps = await store.listApplications()
+    expect(apps.find((a) => a.role === 'Associate Product Manager')!.stage).toBe('oa')
+    expect(apps.find((a) => a.role === 'PM New Grad')!.stage).toBe('applied')
+    const s = (await store.listSuggestions()).find((x) => x.proposed_stage === 'oa')!
+    expect(s.evidence).toMatchObject({ source: 'gmail', message_id: 'm1' })
+    expect(canUndo(s)).toBe(true)
+
+    const again = await ingestEmailFindings(store, [mail('m1'), mail('m2', { company: 'Stripe', status: 'applied', role: 'PM New Grad' })], source('run-b'), settings)
+    expect(again).toMatchObject({ updated: 0, added: 0, unchanged: 2 })
+    expect(await store.listApplications()).toHaveLength(2)
+  })
+
+  test('unsure or ambiguous emails wait for the user; ids missing → stable fallback key', async () => {
+    const store = fresh()
+    await store.addApplication({ name: 'Figma' }, { role: 'APM', stage: 'applied' })
+    const noId = mail('', { confidence: 0.5, evidence: { sender_domain: 'figma.com', subject: 'Next steps', received_at: '2026-10-10T09:00:00.000Z' } })
+    expect(await ingestEmailFindings(store, [noId], source('run-a'), settings)).toMatchObject({ needs_input: 1 })
+    expect(await ingestEmailFindings(store, [noId], source('run-b'), settings)).toMatchObject({ needs_input: 0, unchanged: 1 })
+    expect((await store.listSuggestions()).filter((x) => x.state === 'pending')).toHaveLength(1)
+  })
+})
+
+describe('"did you apply?" after opening a posting', () => {
+  const lead = (store: LocalStore) => ingestFoundJobs(store, [{
+    company: 'Figma', title: 'Associate Product Manager', job_url: 'https://job-boards.greenhouse.io/figma/jobs/6180116004',
+    location: 'SF', posted: null, salary: null, sponsorship: null, why: null,
+  }], { run_id: 'run-s', runtime_id: 'rt-1', agent: 'claude' }).then(async () => (await store.listJobLeads())[0])
+  const open = async (store: LocalStore) => {
+    const [s, l, a, c] = await Promise.all([store.listSuggestions(), store.listJobLeads(), store.listApplications(), store.listCompanies()])
+    return openClickQuestions(s, l, a.map((x) => ({ ...x })), c)
+  }
+
+  test('opening a lead asks once; "yes" adds that lead as Applied', async () => {
+    const store = fresh()
+    const l = await lead(store)
+    expect(await recordApplyClick(store, { kind: 'lead', lead: l })).not.toBeNull()
+    expect(await recordApplyClick(store, { kind: 'lead', lead: l })).toBeNull()
+    const [q] = await open(store)
+    expect(q).toMatchObject({ company_name: 'Figma', state: 'pending', evidence: { source: 'click' } })
+    await acceptSuggestion(store, q, await store.listApplications())
+    const apps = await store.listApplications()
+    expect(apps).toHaveLength(1)
+    expect(apps[0]).toMatchObject({ stage: 'applied', portal_application_url: 'https://job-boards.greenhouse.io/figma/jobs/6180116004' })
+    expect((await store.listJobLeads())[0]).toMatchObject({ status: 'saved', application_id: apps[0].id })
+    expect(await open(store)).toHaveLength(0)
+  })
+
+  test('"not yet" asks again on the next open; saved applications ask too', async () => {
+    const store = fresh()
+    const app = await store.addApplication({ name: 'Stripe' }, { role: 'PM New Grad', stage: 'saved' })
+    const q = (await recordApplyClick(store, { kind: 'application', id: app.id, role: app.role, stage: app.stage, company_name: 'Stripe' }))!
+    await rejectSuggestion(store, q.id)
+    expect(await open(store)).toHaveLength(0)
+    expect(await recordApplyClick(store, { kind: 'application', id: app.id, role: app.role, stage: app.stage, company_name: 'Stripe' })).toMatchObject({ id: q.id, state: 'pending' })
+    await acceptSuggestion(store, (await open(store))[0], await store.listApplications())
+    expect((await store.listApplications())[0].stage).toBe('applied')
+    expect(await recordApplyClick(store, { kind: 'application', id: app.id, role: app.role, stage: 'applied', company_name: 'Stripe' })).toBeNull()
+  })
+
+  test('an "application received" email answers the question by itself and links the lead', async () => {
+    const store = fresh()
+    const l = await lead(store)
+    await recordApplyClick(store, { kind: 'lead', lead: l })
+    await ingestEmailFindings(store, [{
+      company: 'Figma', role: 'Associate Product Manager', status: 'applied', confidence: 0.95, job_url: null,
+      evidence: { message_id: 'm-applied', sender_domain: 'greenhouse-mail.io', subject: 'Thanks for applying to Figma' },
+    }], { run_id: 'run-e', runtime_id: 'rt-1', agent: 'claude', mail: 'Gmail' }, settings)
+    expect(await open(store)).toHaveLength(0)
+    const [app] = await store.listApplications()
+    expect((await store.listJobLeads())[0]).toMatchObject({ status: 'saved', application_id: app.id })
+    expect((await store.listSuggestions()).find((s) => s.dedupe_key.startsWith('click:'))).toMatchObject({ state: 'accepted', application_id: app.id })
+    expect(await settleClickQuestions(store)).toBe(0)
   })
 })

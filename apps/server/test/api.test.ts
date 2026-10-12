@@ -746,6 +746,17 @@ describe('observation processing storage (Cloud)', () => {
     assert.equal((await call('PATCH', `/api/agent-observations/${a.body.observation_id}`, { token: owner, body: { processing_status: 'done' } })).status, 400)
   })
 
+  test('email watching is an account preference, off until the user turns it on', async () => {
+    const owner = await signup('prefs-email@example.com', undefined, { cloud: false })
+    const me = (await call('GET', '/api/me', { token: owner })).body
+    assert.deepEqual([me.email_watch, me.email_checked_at], [false, null])
+    const on = await call('PATCH', '/api/me', { token: owner, body: { email_watch: true, email_checked_at: '2026-10-11T10:00:00Z' } })
+    assert.equal(on.body.email_watch, true)
+    assert.equal(Date.parse(on.body.email_checked_at), Date.parse('2026-10-11T10:00:00Z'))
+    assert.equal((await call('PATCH', '/api/me', { token: owner, body: { email_checked_at: 'yesterday' } })).status, 400)
+    assert.equal((await call('PATCH', '/api/me', { token: owner, body: { email_watch: 1 } })).status, 400)
+  })
+
   test('auto_apply_updates is an account preference, on by default', async () => {
     const owner = await signup('proc-pref@example.com', undefined, { cloud: false })
     assert.equal((await call('GET', '/api/me', { token: owner })).body.auto_apply_updates, true)
@@ -817,7 +828,7 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
 
     const hello = await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', version: '2.1.284' }], daemon_version: '0.1.0' } })
     assert.equal(hello.status, 200)
-    assert.deepEqual(hello.body.agents, [{ id: 'claude', label: 'Claude Code', version: '2.1.284', kinds: ['chat'] }], 'old daemons can only chat')
+    assert.deepEqual(hello.body.agents, [{ id: 'claude', label: 'Claude Code', version: '2.1.284', kinds: ['chat'], mail: null }], 'old daemons can only chat')
 
     const send = (token: string, body: Record<string, unknown>) => call('POST', '/api/runtime-jobs', { token, body })
     const chat = { runtime_id: id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), message: 'hi' } }
@@ -920,6 +931,62 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
     assert.equal(done.jobs.length, 2)
     assert.equal(done.jobs[0].job_url, 'https://jobs.ashbyhq.com/acme/123')
     assert.equal(done.jobs[1].job_url, null, 'non-http link dropped')
+    web.close()
+    daemon.close()
+  })
+})
+
+describe('email_check: the user\'s agent reads their mailbox', () => {
+  function sse(path: string, token: string) {
+    const ac = new AbortController()
+    const res = app.request(path, { headers: { Authorization: `Bearer ${token}` }, signal: ac.signal })
+    let buf = ''
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    const decoder = new TextDecoder()
+    return {
+      async until(needle: string) {
+        if (!reader) reader = (await res).body!.getReader()
+        while (!buf.includes(needle)) {
+          const { value, done } = await reader.read()
+          if (done) throw new Error(`stream ended before ${needle}; got: ${buf}`)
+          buf += decoder.decode(value)
+        }
+        return buf
+      },
+      close() { ac.abort(); reader?.cancel().catch(() => {}) },
+    }
+  }
+
+  test('only agents with a mailbox get it; input is minimal and bounded; findings are cleaned', async () => {
+    const owner = await signup('runtime-email@example.com', undefined, { cloud: false })
+    const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'job_search'], mail: null }] } })
+    const daemon = sse('/api/runtime/stream', rt)
+    await daemon.until('event: ready')
+    const check = {
+      runtime_id: runtime.id, agent: 'claude', kind: 'email_check',
+      input: { since: '2020-01-01T00:00:00Z', applications: [{ company: 'Figma', role: 'APM', stage: 'applied', notes: 'private', id: 'x' }, { company: 'Bad', role: 'r', stage: 'nope' }] },
+    }
+    const noMail = await call('POST', '/api/runtime-jobs', { token: owner, body: check })
+    assert.equal(noMail.body.code, 'runtime_outdated', 'no mailbox → kind not offered')
+
+    const hello = await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'job_search', 'email_check'], mail: 'Gmail' }] } })
+    assert.equal(hello.body.agents[0].mail, 'Gmail')
+    assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: { ...check, input: { since: 'last week' } } })).status, 400)
+    assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: check })).status, 202)
+    const job = JSON.parse((await daemon.until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
+    assert.deepEqual(job.input.applications, [{ company: 'Figma', role: 'APM', stage: 'applied' }], 'no notes or ids leave the browser')
+    assert.ok(Date.parse(job.input.since) > Date.parse('2026-01-01'), 'look-back is clamped')
+
+    const web = sse(`/api/runtime-jobs/${job.id}/stream`, owner)
+    await call('POST', `/api/runtime/jobs/${job.id}/events`, { token: rt, body: { events: [{ type: 'done', text: '2 updates', findings: [
+      { company: 'Figma', role: 'APM', status: 'assessment', confidence: 3, evidence: { message_id: 'm1', subject: 'Your Figma OA', received_at: '2026-10-10T09:00:00Z' } },
+      { company: 'Nope', status: 'promoted' },
+    ] }] } })
+    const done = JSON.parse((await web.until('"type":"done"')).split('data: ').pop()!.split('\n')[0])
+    assert.equal(done.findings.length, 1)
+    assert.equal(done.findings[0].confidence, 1, 'clamped')
+    assert.equal(done.findings[0].evidence.received_at, '2026-10-10T09:00:00.000Z')
     web.close()
     daemon.close()
   })

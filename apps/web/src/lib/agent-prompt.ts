@@ -40,7 +40,7 @@ Body (one observation per request, schema_version "0.1"):
 
 payload by observation_type:
 - job_discovered: { "title", "company", "job_url"?, "location"?, "source"?, "description"? }
-- application_status: { "status": "applied" | "recruiter_response" | "interview" | "rejected" | "offer" | "other", "company", "role"?, "job_url"?, "confidence"? (0 to 1), "evidence"?: { "source" (e.g. "gmail"), "message_id"?, "thread_id"?, "sender_domain"?, "subject"?, "received_at"?, "summary"? } }
+- application_status: { "status": "applied" | "recruiter_response" | "assessment" (online assessment / coding test / take-home invite) | "interview" | "rejected" | "offer" | "other", "company", "role"?, "job_url"?, "confidence"? (0 to 1), "evidence"?: { "source" (e.g. "gmail"), "message_id"?, "thread_id"?, "sender_domain"?, "subject"?, "received_at"?, "summary"? } }
 - sync_error: { "message", "source"? }
 
 Rules:

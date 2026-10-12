@@ -2,13 +2,15 @@
 // list (with live online status), remove, and run a task on one with its
 // output streamed back. Account-level: works with or without Cloud sync.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { EmailFinding } from '@landed/schema/email-check'
 import type { FoundJob } from '@landed/schema/search-brief'
 import { ApiError, api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
-export type TaskKind = 'chat' | 'job_search'
-/** `kinds`: the tasks this agent's daemon can run (older daemons: chat only). */
-export type RuntimeAgent = { id: string; label: string; version: string | null; kinds?: TaskKind[] }
+export type TaskKind = 'chat' | 'job_search' | 'email_check'
+/** `kinds`: the tasks this agent's daemon can run (older daemons: chat only).
+ *  `mail`: the mailbox it can read through a connector (e.g. "Gmail"). */
+export type RuntimeAgent = { id: string; label: string; version: string | null; kinds?: TaskKind[]; mail?: string | null }
 export type Runtime = {
   id: string
   name: string
@@ -24,7 +26,7 @@ export type JobEvent =
   | { type: 'started'; agent: string }
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string }
-  | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[] }
+  | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[]; findings?: EmailFinding[] }
   | { type: 'error'; message: string }
 
 export const canRun = (a: RuntimeAgent, kind: TaskKind) => (a.kinds ?? ['chat']).includes(kind)

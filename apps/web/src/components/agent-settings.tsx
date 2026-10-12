@@ -1,7 +1,7 @@
 // Agent settings — the gear view of the Ask Agent panel: your computer
 // (local agents via the Landed daemon), cloud agents (Meta Muse, …) that
-// report over the agent protocol, whether email updates apply
-// automatically, and the raw reports.
+// report over the agent protocol, email watching by your own agent, whether
+// email updates apply automatically, and the raw reports.
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from './primitives'
 import { useAuth } from '../lib/auth'
@@ -13,6 +13,7 @@ import {
 } from '../hooks/agents'
 import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
 import { RuntimePanel } from './runtime-panel'
+import { EmailWatchSetting } from './email-watch'
 
 const TYPE_LABEL: Record<string, string> = {
   job_discovered: 'Job found',
@@ -65,6 +66,8 @@ export function AgentSettings() {
         </div>
 
         <RuntimePanel />
+
+        <Card title="Email watching"><EmailWatchSetting /></Card>
 
         <AutoApplySetting />
 

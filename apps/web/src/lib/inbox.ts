@@ -2,11 +2,14 @@
 // actions on its output (job leads + review queue). Works the same for both
 // stores: local accounts process what the relay delivered into this
 // browser; Cloud accounts process their pending observations via the API.
-// Rules live in packages/observation-processor (docs/observation-processor.md).
+// Results of tasks on the user's own computer (job searches, email checks)
+// go through the same processor. Rules live in packages/observation-processor
+// (docs/observation-processor.md).
 import {
-  applyToContext, processObservation, proposedStage,
-  type ApplicationRef, type Context, type Effect, type Settings, type Stage,
+  applyToContext, atsJobKey, canonicalUrl, companyKey, processObservation, proposedStage, titleKey, titleSimilarity,
+  type ApplicationRef, type CompanyRef, type Context, type Effect, type Outcome, type Settings, type Stage,
 } from '@landed/observation-processor'
+import type { EmailFinding } from '@landed/schema/email-check'
 import type { FoundJob } from '@landed/schema/search-brief'
 import type { DataStore, DbApplication, DbJobLead, DbSuggestion } from './store/types'
 
@@ -35,6 +38,56 @@ function isConflict(e: unknown) {
   return (e as { status?: number })?.status === 409
 }
 
+/** Apply one outcome's effects to the store and return the context the next
+ *  observation should see. Throws (e.g. a 409 from another tab) part-way;
+ *  the caller decides whether to skip. */
+async function applyOutcome(store: DataStore, outcome: Outcome, start: Context): Promise<Context> {
+  let ctx = start
+  const applied: Effect[] = []
+  for (const e of outcome.effects) {
+    if (e.type === 'save_lead') await store.saveJobLead(e.lead)
+    if (e.type === 'save_suggestion') await store.saveSuggestion(e.suggestion)
+    if (e.type === 'set_stage') {
+      await store.updateApplication(e.application_id, {
+        stage: e.to,
+        ...(e.to === 'applied' && e.from === 'saved' ? { applied_at: new Date().toISOString() } : {}),
+      })
+      const s = outcome.effects.find((x) => x.type === 'save_suggestion')
+      if (s?.type === 'save_suggestion') await logStageChange(store, s.suggestion, e.from, e.to, 'auto')
+    }
+    if (e.type === 'create_application') {
+      const created = await store.addApplication({ name: e.application.company_name }, {
+        role: e.application.role, stage: e.application.stage, location: e.application.location,
+        portal_application_url: e.application.job_url, source: 'Agent (email)',
+        applied_at: new Date().toISOString(), next_step: 'Awaiting response',
+      })
+      await store.updateSuggestion(e.suggestion_id, { application_id: created.id })
+      ctx = {
+        ...ctx,
+        applications: [...ctx.applications, toRef(created)],
+        companies: ctx.companies.some((c) => c.id === created.company_id)
+          ? ctx.companies
+          : [...ctx.companies, { id: created.company_id, name: e.application.company_name }],
+      }
+    }
+    applied.push(e)
+  }
+  return applyToContext(ctx, applied)
+}
+
+async function loadContext(store: DataStore, settings: Settings): Promise<Context> {
+  const [leads, apps, companies, suggestions] = await Promise.all([
+    store.listJobLeads(), store.listApplications(), store.listCompanies(), store.listSuggestions(),
+  ])
+  return {
+    leads: leads.map(strip),
+    applications: apps.map(toRef),
+    companies: companies.map((c) => ({ id: c.id, name: c.name })),
+    suggestions: suggestions.map(strip),
+    settings,
+  }
+}
+
 /**
  * Process up to `limit` pending observations. Returns how many were handled.
  * A 409 (another tab saved the same lead/suggestion first) leaves that
@@ -43,59 +96,79 @@ function isConflict(e: unknown) {
 export async function processPending(store: DataStore, settings: Settings, limit = 100): Promise<number> {
   const pending = await store.listPendingObservations(limit)
   if (pending.length === 0) return 0
-  const [leads, apps, companies, suggestions] = await Promise.all([
-    store.listJobLeads(), store.listApplications(), store.listCompanies(), store.listSuggestions(),
-  ])
-  let ctx: Context = {
-    leads: leads.map(strip),
-    applications: apps.map(toRef),
-    companies: companies.map((c) => ({ id: c.id, name: c.name })),
-    suggestions: suggestions.map(strip),
-    settings,
-  }
-
+  let ctx = await loadContext(store, settings)
   let handled = 0
   for (const o of pending) {
     const outcome = processObservation(o, ctx, { now: new Date().toISOString(), newId: () => crypto.randomUUID() })
-    const applied: Effect[] = []
     try {
-      for (const e of outcome.effects) {
-        if (e.type === 'save_lead') await store.saveJobLead(e.lead)
-        if (e.type === 'save_suggestion') await store.saveSuggestion(e.suggestion)
-        if (e.type === 'set_stage') {
-          await store.updateApplication(e.application_id, {
-            stage: e.to,
-            ...(e.to === 'applied' && e.from === 'saved' ? { applied_at: new Date().toISOString() } : {}),
-          })
-          const s = outcome.effects.find((x) => x.type === 'save_suggestion')
-          if (s?.type === 'save_suggestion') await logStageChange(store, s.suggestion, e.from, e.to, 'auto')
-        }
-        if (e.type === 'create_application') {
-          const created = await store.addApplication({ name: e.application.company_name }, {
-            role: e.application.role, stage: e.application.stage, location: e.application.location,
-            portal_application_url: e.application.job_url, source: 'Agent (email)',
-            applied_at: new Date().toISOString(), next_step: 'Awaiting response',
-          })
-          await store.updateSuggestion(e.suggestion_id, { application_id: created.id })
-          ctx = {
-            ...ctx,
-            applications: [...ctx.applications, toRef(created)],
-            companies: ctx.companies.some((c) => c.id === created.company_id)
-              ? ctx.companies
-              : [...ctx.companies, { id: created.company_id, name: e.application.company_name }],
-          }
-        }
-        applied.push(e)
-      }
+      ctx = await applyOutcome(store, outcome, ctx)
     } catch (err) {
       if (isConflict(err)) continue
       throw err
     }
     await store.markObservation(o.id, outcome.status, outcome.result)
-    ctx = applyToContext(ctx, applied)
     handled++
   }
   return handled
+}
+
+// ── email check results → status updates ─────────────────────────────────
+
+export type EmailIngestResult = {
+  found: number
+  /** stage changes applied automatically */
+  updated: number
+  /** applications added automatically (an email for something untracked) */
+  added: number
+  /** waiting on the user ("Needs your input") */
+  needs_input: number
+  notes: number
+  /** already known (seen in an earlier check) or nothing to change */
+  unchanged: number
+}
+
+/**
+ * Emails the user's agent read (email_check task) → status updates, through
+ * the processor as `application_status` observations: same matching,
+ * same auto-apply rules (≥ 0.8 + evidence, forward only), same undo. Re-
+ * reading an email changes nothing: suggestions dedupe on the message id.
+ */
+export async function ingestEmailFindings(
+  store: DataStore,
+  findings: EmailFinding[],
+  source: { run_id: string; runtime_id: string; agent: string; mail: string },
+  settings: Settings,
+): Promise<EmailIngestResult> {
+  let ctx = await loadContext(store, settings)
+  const result: EmailIngestResult = { found: findings.length, updated: 0, added: 0, needs_input: 0, notes: 0, unchanged: 0 }
+  const observedAt = new Date().toISOString()
+  for (const [i, f] of findings.entries()) {
+    // Agents sometimes omit the id; this keeps re-reads of the same email deduped.
+    const fallback = [f.evidence.sender_domain, f.evidence.subject, f.evidence.received_at].filter(Boolean).join('|')
+    const evidence = { ...f.evidence, source: source.mail.toLowerCase(), ...(f.evidence.message_id || !fallback ? {} : { message_id: fallback }) }
+    const outcome = processObservation({
+      id: `${source.run_id}:${i}`,
+      connection_id: `runtime:${source.runtime_id}`,
+      observation_type: 'application_status',
+      observed_at: observedAt,
+      provider: source.agent,
+      payload_json: { payload: { status: f.status, company: f.company, role: f.role, job_url: f.job_url, confidence: f.confidence, evidence } },
+    }, ctx, { now: observedAt, newId: () => crypto.randomUUID() })
+    try {
+      ctx = await applyOutcome(store, outcome, ctx)
+    } catch (err) {
+      if (isConflict(err)) continue
+      throw err
+    }
+    const types = outcome.effects.map((e) => e.type)
+    if (types.includes('set_stage')) result.updated++
+    else if (types.includes('create_application')) result.added++
+    else if (outcome.status === 'needs-review' && !outcome.result.merged && outcome.effects.length) result.needs_input++
+    else if (outcome.effects.some((e) => e.type === 'save_suggestion' && e.suggestion.kind === 'note') && !outcome.result.merged) result.notes++
+    else result.unchanged++
+  }
+  await settleClickQuestions(store)
+  return result
 }
 
 // ── search results → job leads ────────────────────────────────────────────
@@ -181,11 +254,108 @@ export async function addLeadToPipeline(store: DataStore, lead: DbJobLead, stage
 export const dismissLead = (store: DataStore, id: string) => store.updateJobLead(id, { status: 'dismissed' })
 export const restoreLead = (store: DataStore, id: string) => store.updateJobLead(id, { status: 'new' })
 
+// ── "did you apply?" after opening a posting from Landed ──────────────────
+// Opening a lead's posting (or a saved application's) from Landed asks, in
+// the Ask Agent panel, whether you applied. Stored as an ordinary pending
+// suggestion (dedupe key `click:lead:<id>` / `click:app:<id>`), so it syncs
+// and backs up like everything else; email evidence answers it on its own.
+
+const CLICK_LEAD = 'click:lead:'
+const CLICK_APP = 'click:app:'
+export const isClickQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) =>
+  s.dedupe_key.startsWith(CLICK_LEAD) || s.dedupe_key.startsWith(CLICK_APP)
+
+export type ClickTarget =
+  | { kind: 'lead'; lead: Pick<DbJobLead, 'id' | 'company_name' | 'title' | 'status'> }
+  | { kind: 'application'; id: string; role: string; stage: string; company_name: string }
+
+/** Remember that the user opened a posting; null when there's nothing to ask
+ *  (already applied, dismissed, or the question is already open). */
+export async function recordApplyClick(store: DataStore, target: ClickTarget): Promise<DbSuggestion | null> {
+  if (target.kind === 'lead' ? target.lead.status !== 'new' : target.stage !== 'saved') return null
+  const key = target.kind === 'lead' ? CLICK_LEAD + target.lead.id : CLICK_APP + target.id
+  const existing = (await store.listSuggestions()).find((s) => s.dedupe_key === key)
+  // Ask again only if the last answer was "not yet" (or an undo).
+  if (existing && existing.state !== 'rejected' && existing.state !== 'undone') return null
+  const now = new Date().toISOString()
+  return store.saveSuggestion({
+    id: existing?.id ?? crypto.randomUUID(),
+    dedupe_key: key,
+    kind: target.kind === 'lead' ? 'new_application' : 'stage_change',
+    state: 'pending',
+    application_id: target.kind === 'lead' ? null : target.id,
+    candidate_ids: [],
+    company_name: target.kind === 'lead' ? target.lead.company_name : target.company_name,
+    role: target.kind === 'lead' ? target.lead.title : target.role,
+    status: 'applied',
+    proposed_stage: 'applied',
+    previous_stage: null,
+    confidence: null,
+    evidence: { source: 'click', summary: 'You opened the job posting from Landed.' },
+    observation_ids: [],
+    provider: 'landed',
+    created_at: now,
+    resolved_at: null,
+  })
+}
+
+type ClickResolution = { state: 'accepted' | 'rejected'; application_id: string | null; link_lead?: string }
+
+/** Whether a pending click question has been answered some other way: the
+ *  application moved on (by hand or from an email), or the lead was added,
+ *  dismissed or matches an application that's past Saved. */
+function clickResolution(s: DbSuggestion, leads: DbJobLead[], apps: ApplicationRef[], companies: CompanyRef[]): ClickResolution | null {
+  if (s.dedupe_key.startsWith(CLICK_APP)) {
+    const app = apps.find((a) => a.id === s.application_id)
+    if (!app) return { state: 'rejected', application_id: null }
+    return app.stage === 'saved' ? null : { state: 'accepted', application_id: app.id }
+  }
+  const lead = leads.find((l) => l.id === s.dedupe_key.slice(CLICK_LEAD.length))
+  if (!lead || lead.status === 'dismissed') return { state: 'rejected', application_id: null }
+  if (lead.status !== 'new') return { state: 'accepted', application_id: lead.application_id }
+  const companyOf = new Map(companies.map((c) => [c.id, companyKey(c.name)]))
+  const app = apps.find((a) => a.stage !== 'saved' && (
+    (lead.ats_key && atsJobKey(a.portal_application_url) === lead.ats_key) ||
+    (lead.canonical_url && canonicalUrl(a.portal_application_url) === lead.canonical_url) ||
+    (companyOf.get(a.company_id) === lead.company_key && (titleKey(a.role) === lead.title_key || titleSimilarity(a.role, lead.title) >= 0.6))
+  ))
+  return app ? { state: 'accepted', application_id: app.id, link_lead: lead.id } : null
+}
+
+/** Click questions still worth asking (for the panel and its badge). */
+export function openClickQuestions(suggestions: DbSuggestion[], leads: DbJobLead[], apps: ApplicationRef[], companies: CompanyRef[]) {
+  return suggestions.filter((s) => s.state === 'pending' && isClickQuestion(s) && !clickResolution(s, leads, apps, companies))
+}
+
+/** Close click questions that were answered some other way. Returns how many. */
+export async function settleClickQuestions(store: DataStore): Promise<number> {
+  const pending = (await store.listSuggestions()).filter((s) => s.state === 'pending' && isClickQuestion(s))
+  if (pending.length === 0) return 0
+  const [leads, apps, companies] = await Promise.all([store.listJobLeads(), store.listApplications(), store.listCompanies()])
+  let n = 0
+  for (const s of pending) {
+    const r = clickResolution(s, leads, apps.map(toRef), companies.map((c) => ({ id: c.id, name: c.name })))
+    if (!r) continue
+    if (r.link_lead && r.application_id) await store.updateJobLead(r.link_lead, { status: 'saved', application_id: r.application_id })
+    await store.updateSuggestion(s.id, { state: r.state, application_id: r.application_id, resolved_at: new Date().toISOString() })
+    n++
+  }
+  return n
+}
+
 // ── user actions: review queue ────────────────────────────────────────────
 
 /** Accept a suggestion. For `ambiguous`, `applicationId` is the user's pick. */
 export async function acceptSuggestion(store: DataStore, s: DbSuggestion, applications: DbApplication[], applicationId?: string) {
   const resolved_at = new Date().toISOString()
+
+  // "Yes, I applied" to a lead: add the lead itself (linked), not a copy.
+  if (s.dedupe_key.startsWith(CLICK_LEAD)) {
+    const lead = (await store.listJobLeads()).find((l) => l.id === s.dedupe_key.slice(CLICK_LEAD.length))
+    if (!lead) throw new Error('That job is no longer in your Leads.')
+    const app = lead.application_id ? null : await addLeadToPipeline(store, lead, 'applied')
+    return store.updateSuggestion(s.id, { state: 'accepted', application_id: app?.id ?? lead.application_id, resolved_at })
+  }
 
   if (s.kind === 'new_application') {
     const app = await store.addApplication({ name: s.company_name }, {

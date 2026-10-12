@@ -143,7 +143,7 @@ function hueOf(name) {
   return h;
 }
 
-function LeadCardContent({ lead, onDismiss }) {
+function LeadCardContent({ lead, onDismiss, onOpen }) {
   const agents = [...new Set(lead.sources.map((s) => PROVIDER_LABELS[s.provider] ?? s.provider ?? 'agent'))];
   const stop = (e) => e.stopPropagation();
   return (
@@ -155,7 +155,8 @@ function LeadCardContent({ lead, onDismiss }) {
           <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{lead.location || ''}</div>
         </div>
         {lead.job_url && (
-          <a href={lead.job_url} target="_blank" rel="noopener noreferrer" title="Open job posting" onPointerDown={stop} onClick={stop}
+          <a href={lead.job_url} target="_blank" rel="noopener noreferrer" title="Open job posting" onPointerDown={stop}
+            onClick={(e) => { stop(e); onOpen?.(lead); }}
             style={{ color: 'var(--fg-muted)', display: 'flex', padding: 2 }}>
             <Icon name="external" size={11} />
           </a>
@@ -185,18 +186,18 @@ const leadCardStyle = {
   display: 'flex', flexDirection: 'column', gap: 8,
 };
 
-function DraggableLeadCard({ lead, onDismiss }) {
+function DraggableLeadCard({ lead, onDismiss, onOpen }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: LEAD_PREFIX + lead.id });
   return (
     <div ref={setNodeRef} {...attributes} {...listeners} className="kanban-card"
       title={lead.description || undefined}
       style={{ ...leadCardStyle, cursor: isDragging ? 'grabbing' : 'grab', visibility: isDragging ? 'hidden' : 'visible' }}>
-      <LeadCardContent lead={lead} onDismiss={onDismiss} />
+      <LeadCardContent lead={lead} onDismiss={onDismiss} onOpen={onOpen} />
     </div>
   );
 }
 
-function LeadsColumn({ leads, onDismiss }) {
+function LeadsColumn({ leads, onDismiss, onOpen }) {
   return (
     <div style={{
       minWidth: 280, width: 280, flexShrink: 0, background: 'transparent', borderRadius: 10,
@@ -211,7 +212,7 @@ function LeadsColumn({ leads, onDismiss }) {
         <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: 3 }}>Found by your agents — drag into a stage to add it</div>
       </div>
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1 }}>
-        {leads.map((l) => <DraggableLeadCard key={l.id} lead={l} onDismiss={onDismiss} />)}
+        {leads.map((l) => <DraggableLeadCard key={l.id} lead={l} onDismiss={onDismiss} onOpen={onOpen} />)}
       </div>
     </div>
   );
@@ -221,7 +222,7 @@ function LeadsColumn({ leads, onDismiss }) {
 // KanbanView — wraps everything in DndContext. handleDragEnd resolves the
 // active card + over column and calls onMoveCard for optimistic update.
 // ────────────────────────────────────────────────────────────────────────
-export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead }) => {
+export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead }) => {
   const [activeId, setActiveId] = useState(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -264,7 +265,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
       onDragCancel={() => setActiveId(null)}
     >
       <div style={{ display: 'flex', gap: 12, padding: '8px 28px 24px', overflowX: 'auto', height: '100%', alignItems: 'stretch' }}>
-        {leads.length > 0 && <LeadsColumn leads={leads} onDismiss={onDismissLead} />}
+        {leads.length > 0 && <LeadsColumn leads={leads} onDismiss={onDismissLead} onOpen={onOpenLead} />}
         {pipelineStages.map(stage => (
           <DroppableColumn
             key={stage.id}

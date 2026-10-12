@@ -35,7 +35,7 @@ const sha256 = (value: string) => createHash('sha256').update(value).digest('hex
 // plus the Idempotency-Key header. Payload fields per type are below; extra
 // fields are kept (forward compatible) but never interpreted.
 
-export const APPLICATION_STATUSES = ['applied', 'recruiter_response', 'interview', 'rejected', 'offer', 'other'] as const
+export const APPLICATION_STATUSES = ['applied', 'recruiter_response', 'assessment', 'interview', 'rejected', 'offer', 'other'] as const
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/
 

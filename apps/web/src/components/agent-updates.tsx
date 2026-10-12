@@ -7,7 +7,7 @@ import { useState, type ReactNode } from 'react'
 import { Icon, StageBadge } from './primitives'
 import { formatRelative } from '../lib/time'
 import { AGENT_PROVIDERS } from '../lib/agent-prompt'
-import { canUndo } from '../lib/inbox'
+import { canUndo, isClickQuestion } from '../lib/inbox'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { useSuggestionActions, useSuggestions } from '../hooks/inbox'
 import type { DbSuggestion } from '../lib/store'
@@ -17,7 +17,8 @@ type CompanyShape = { id: string; name: string }
 
 const providerLabel = (id?: string | null) => AGENT_PROVIDERS.find((p) => p.id === id)?.label ?? id ?? 'An agent'
 const STATUS_TEXT: Record<string, string> = {
-  applied: 'application received', recruiter_response: 'recruiter replied', interview: 'interview invitation',
+  applied: 'application received', recruiter_response: 'recruiter replied', assessment: 'online assessment',
+  interview: 'interview invitation',
   rejected: 'rejection', offer: 'offer', other: 'update',
 }
 
@@ -154,7 +155,8 @@ const RECENT_DAYS = 7
 
 /** Top-of-Applications strip. Renders nothing when there's nothing to show. */
 export function AgentUpdatesBar() {
-  const suggestions = useSuggestions().data ?? []
+  // "Did you apply?" questions are asked in the Ask Agent panel instead.
+  const suggestions = (useSuggestions().data ?? []).filter((s) => !isClickQuestion(s))
   const apps = (useApplications().data ?? []) as AppShape[]
   const companies = (useCompanies().data ?? []) as CompanyShape[]
   const [open, setOpen] = useState(false)
@@ -201,6 +203,8 @@ export function AgentUpdatesBar() {
 }
 
 /** Count for the sidebar badge. */
+/** Sidebar count: updates waiting in "Needs your input" ("did you apply?"
+ *  questions are counted on the Ask Agent button instead). */
 export function usePendingUpdateCount() {
-  return (useSuggestions().data ?? []).filter((s) => s.state === 'pending').length
+  return (useSuggestions().data ?? []).filter((s) => s.state === 'pending' && !isClickQuestion(s)).length
 }

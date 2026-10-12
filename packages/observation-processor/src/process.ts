@@ -136,6 +136,12 @@ export function matchApplication(ctx: Context, company: string, role: string | n
 export function proposedStage(status: EmailStatus, current: string): Stage | null {
   switch (status) {
     case 'applied': return 'applied'
+    case 'assessment':
+      if (current === 'saved' || current === 'applied') return 'oa'
+      // Re-open proposal for a closed application (always asks); past OA
+      // it's just another test — information only.
+      if (TERMINAL.has(current)) return 'oa'
+      return null
     case 'interview':
       if (current === 'saved' || current === 'applied' || current === 'oa') return 'phone'
       if (current === 'phone') return 'onsite'

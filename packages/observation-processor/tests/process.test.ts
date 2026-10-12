@@ -121,6 +121,7 @@ describe('application_status — automatic mode (default)', () => {
 
   test.each([
     ['interview', 'phone'],
+    ['assessment', 'oa'],
     ['rejected', 'rejected'],
     ['offer', 'offer'],
     ['applied', 'applied'],
@@ -204,6 +205,12 @@ describe('application_status — manual mode (autoApply off)', () => {
       expect(out.status).toBe('needs-review')
       expect(out.effects).toEqual([expect.objectContaining({ type: 'save_suggestion', suggestion: expect.objectContaining({ kind: 'stage_change', proposed_stage: stage, state: 'pending' }) })])
     }
+  })
+
+  test('an online assessment moves applied → OA; past OA it is information only', () => {
+    const at = (stage: string) => ctx({ settings: { autoApply: false }, companies, applications: [app('a', 'co-ramp', 'Ops', stage)] })
+    expect(processObservation(status({ status: 'assessment', company: 'Ramp' }), at('applied'), opts).effects[0]).toMatchObject({ suggestion: { kind: 'stage_change', proposed_stage: 'oa' } })
+    expect(processObservation(status({ status: 'assessment', company: 'Ramp' }), at('phone'), opts).effects[0]).toMatchObject({ suggestion: { kind: 'note' } })
   })
 
   test('interview maps to the next interview stage', () => {

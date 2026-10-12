@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { claudeChatArgs, claudeSearchArgs, parseClaudeLine, searchPrompt } from '../src/agents.ts'
+import {
+  claudeChatArgs, claudeEmailArgs, claudeSearchArgs, emailPrompt, mailServer, parseClaudeLine, parseMcpList, readOnlyMailTools,
+  searchPrompt, toolReferences,
+} from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
 
 test('parses Claude Code stream-json into task events', () => {
@@ -55,6 +58,42 @@ test('job search args + prompt: web tools only, no saved session, schema-bound o
   assert.match(prompt, /Needs visa sponsorship: yes/)
   assert.match(prompt, /Companies to exclude: Initech/)
   assert.match(prompt, /Today is 2026-10-11/)
+})
+
+test('chat and search switch off every MCP server', () => {
+  assert.ok(claudeChatArgs('11111111-2222-4333-8444-555555555555', false).includes('--strict-mcp-config'))
+  assert.ok(claudeSearchArgs().includes('--strict-mcp-config'))
+})
+
+test('mail access: only a connected mail server, only its read tools', () => {
+  const list = [
+    'Checking MCP server health…', '',
+    'claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected',
+    'claude.ai Gmail: https://gmail.mcp.example/mcp - ✔ Connected',
+    'claude.ai Outlook: https://outlook.example/mcp - ! Needs authentication',
+  ].join('\n')
+  const servers = parseMcpList(list)
+  assert.deepEqual(servers.map((s) => [s.name, s.connected]), [['claude.ai Google Drive', true], ['claude.ai Gmail', true], ['claude.ai Outlook', false]])
+  assert.deepEqual(mailServer(servers), { name: 'claude.ai Gmail', keyword: 'gmail' })
+  assert.equal(mailServer([{ name: 'claude.ai Gmail', connected: false }, { name: 'Mailchimp', connected: true }]), null)
+
+  const line = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: [
+    'search_threads', 'get_thread', 'list_labels', 'create_draft', 'send_message', 'modify_thread_labels', 'batch_get',
+  ].map((n) => ({ type: 'tool_reference', tool_name: `mcp__claude_ai_Gmail__${n}` })).concat([{ type: 'tool_reference', tool_name: 'mcp__claude_ai_Google_Drive__search_files' }]) }] } })
+  assert.deepEqual(readOnlyMailTools('claude.ai Gmail', toolReferences(line)), [
+    'mcp__claude_ai_Gmail__search_threads', 'mcp__claude_ai_Gmail__get_thread', 'mcp__claude_ai_Gmail__list_labels',
+  ])
+  assert.deepEqual(toolReferences('not json'), [])
+})
+
+test('email check: mailbox read tools only (+ ToolSearch); findings come back as done.findings', () => {
+  const args = claudeEmailArgs({ label: 'Gmail', tools: ['mcp__claude_ai_Gmail__search_threads'] })
+  assert.deepEqual(args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools')), ['ToolSearch'], 'no web, files or shell')
+  assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--setting-sources')), ['ToolSearch', 'mcp__claude_ai_Gmail__search_threads'])
+  assert.match(emailPrompt({ since: '2026-10-01T00:00:00.000Z', applications: [{ company: 'Figma', role: 'APM', stage: 'applied' }] }), /since 2026-10-01[\s\S]*- Figma — APM \(applied\)/)
+  assert.deepEqual(parseClaudeLine('{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"summary":"1 update","findings":[{"company":"Figma","status":"assessment"}]}}'), [
+    { type: 'done', text: '1 update', session_id: undefined, findings: [{ company: 'Figma', status: 'assessment' }] },
+  ])
 })
 
 test('SSE parser handles split chunks, comments and multi-line data', () => {

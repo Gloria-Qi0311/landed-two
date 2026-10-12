@@ -3,13 +3,16 @@
 // daemon. Not set up yet → the panel walks you through connecting a
 // computer; computer offline → how to start it; ready → just chat. When
 // the agent proposes a search brief, it shows as a card: confirm it and
-// every connected agent searches; results land in the Leads column.
+// every connected agent searches; results land in the Leads column. The
+// panel also carries email watching and "did you apply?" questions.
 // The gear switches to agent settings (computer, cloud agents, email updates).
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { extractBrief } from '@landed/schema/search-brief'
 import { Icon } from './primitives'
 import { Markdown } from './markdown'
 import { BriefCard, SearchStatus } from './search-brief'
+import { EmailStatus } from './email-watch'
+import { ApplyQuestions } from './apply-questions'
 import { PairingError, PairingSteps, RuntimePanel, usePairing } from './runtime-panel'
 import { AgentSettings } from './agent-settings'
 import { useAuth } from '../lib/auth'
@@ -69,10 +72,12 @@ export function AgentPanel({ view, onView, onClose }: {
         <Centered>Loading…</Centered>
       ) : ready && agent ? (
         <Chat runtime={ready} agentId={agent.id} agentLabel={agent.label} />
-      ) : paired.length > 0 ? (
-        <Offline runtime={paired[0]} />
       ) : (
-        <Setup />
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {/* Questions don't need an agent — ask them in every state. */}
+          <div style={{ padding: '14px 14px 0' }}><ApplyQuestions /></div>
+          {paired.length > 0 ? <Offline runtime={paired[0]} /> : <Setup />}
+        </div>
       )}
     </aside>
   )
@@ -176,6 +181,7 @@ function Chat({ runtime, agentId, agentLabel }: { runtime: Runtime; agentId: str
   return (
     <>
       <SearchStatus />
+      <EmailStatus />
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {turns.length === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
@@ -205,6 +211,7 @@ function Chat({ runtime, agentId, agentLabel }: { runtime: Runtime; agentId: str
             {t.role === 'agent' && !t.error ? <AgentReply text={t.text} latest={i === latestBrief} /> : t.text}
           </div>
         ))}
+        <ApplyQuestions />
       </div>
       <div style={{ padding: 10, borderTop: '0.5px solid var(--border)', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
         <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} rows={2}
