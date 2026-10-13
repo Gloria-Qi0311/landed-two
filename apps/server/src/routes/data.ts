@@ -6,6 +6,7 @@
 // layer (toAppShape etc.) is unchanged. Bad enum values / foreign ids /
 // cross-user references are rejected by Postgres (see migrations/0001) and
 // mapped to 400 by the app-level error handler.
+import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { normalizeStage, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
@@ -48,6 +49,24 @@ function applicationColumns(sql: Sql, input: Row, fields: readonly string[], opt
     const rounds = parseInterviews(out.interviews)
     if (!rounds) fail(400, 'interviews must be an array of rounds')
     out.interviews = sql.json(rounds)
+  }
+  return out
+}
+
+const RESUME_KINDS = ['source', 'master', 'version']
+
+/** master_json / target_json from a request, validated (null clears). */
+function resumeExtras(sql: Sql, body: Row): Row {
+  const out: Row = {}
+  if (body.master_json !== undefined) {
+    const m = body.master_json === null ? null : parseMasterResume(body.master_json)
+    if (body.master_json !== null && !m) fail(400, 'master_json is not a master resume')
+    out.master_json = m && sql.json(m)
+  }
+  if (body.target_json !== undefined) {
+    const t = body.target_json === null ? null : parseTarget(body.target_json)
+    if (body.target_json !== null && !t) fail(400, 'target_json needs a role')
+    out.target_json = t && sql.json({ ...t, notes: parseTailorNotes((body.target_json as Row).notes) })
   }
   return out
 }
@@ -150,11 +169,17 @@ export function dataRoutes(sql: Sql, config: Config) {
     const body = await jsonBody(c)
     const name = requireString(body.name, 'name')
     const setCurrent = body.set_current === true
+    const kind = String(body.kind ?? 'source')
+    if (!RESUME_KINDS.includes(kind)) fail(400, `kind must be one of: ${RESUME_KINDS.join(', ')}`)
+    const extras = resumeExtras(sql, body)
+    if (kind === 'master' && !extras.master_json) fail(400, 'a master resume needs master_json')
     const row = await sql.begin(async (tx) => {
       if (setCurrent) await tx`update resumes set is_current = false where user_id = ${userId} and is_current`
       const [inserted] = await tx`
-        insert into resumes (user_id, name, parsed_json, is_current)
-        values (${userId}, ${name}, ${body.parsed_json == null ? null : tx.json(body.parsed_json as Row)}, ${setCurrent})
+        insert into resumes ${tx({
+          user_id: userId, name, kind, is_current: setCurrent, ...extras,
+          parsed_json: body.parsed_json == null ? null : tx.json(body.parsed_json as Row),
+        } as Row)}
         returning *`
       return inserted
     })
@@ -166,7 +191,8 @@ export function dataRoutes(sql: Sql, config: Config) {
     const patch: Row = {}
     if (body.name !== undefined) patch.name = requireString(body.name, 'name')
     if (body.parsed_json !== undefined) patch.parsed_json = body.parsed_json === null ? null : sql.json(body.parsed_json as Row)
-    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: name, parsed_json)')
+    Object.assign(patch, resumeExtras(sql, body))
+    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: name, parsed_json, master_json, target_json)')
     const [row] = await sql`
       update resumes set ${sql(patch)}
       where id = ${c.req.param('id')} and user_id = ${c.get('user').id}

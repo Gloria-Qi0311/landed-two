@@ -8,7 +8,7 @@ import type { FoundJob } from '@landed/schema/search-brief'
 import { ApiError, api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
-export type TaskKind = 'chat' | 'job_search' | 'email_check' | 'portal_check'
+export type TaskKind = 'chat' | 'job_search' | 'email_check' | 'portal_check' | 'resume_merge' | 'resume_tailor'
 /** `kinds`: the tasks this agent's daemon can run (older daemons: chat only).
  *  `mail`: the mailbox it can read through a connector (e.g. "Gmail").
  *  `browser`: "Chrome" when it can look at pages in the user's Chrome. */
@@ -30,10 +30,21 @@ export type JobEvent =
   | { type: 'started'; agent: string }
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string }
-  | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[]; findings?: EmailFinding[]; results?: PortalResult[] }
+  | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[]; findings?: EmailFinding[]; results?: PortalResult[]; output?: unknown }
   | { type: 'error'; message: string }
 
 export const canRun = (a: RuntimeAgent, kind: TaskKind) => (a.kinds ?? ['chat']).includes(kind)
+
+/** The first online agent that can run `kind`; `outdated` when computers
+ *  are online but their daemons predate it (restart to update). */
+export function agentFor(runtimes: Runtime[] | undefined, kind: TaskKind) {
+  const online = (runtimes ?? []).filter((r) => r.online && !r.revoked_at)
+  for (const runtime of online) {
+    const agent = runtime.agents.find((a) => canRun(a, kind))
+    if (agent) return { runtime, agent, outdated: false }
+  }
+  return { runtime: null, agent: null, outdated: online.some((r) => r.agents.length > 0) }
+}
 
 export function useRuntimes(opts: { poll?: boolean } = {}) {
   const online = useAuth((s) => s.ready && !s.offline && !s.unreachable)

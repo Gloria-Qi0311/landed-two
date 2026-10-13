@@ -6,6 +6,7 @@
 // same defaults, same enum checks, same "reference must exist" rules — so a
 // device's data always uploads cleanly when the user turns Cloud on.
 import Dexie, { type Table } from 'dexie'
+import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { normalizeStage, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import {
@@ -109,7 +110,31 @@ class LandedDB extends Dexie {
         if (s.previous_stage) s.previous_stage = normalizeStage(s.previous_stage)?.stage ?? s.previous_stage
       })
     })
+    // v6: My Resume kinds — everything uploaded so far is a source.
+    this.version(6).stores({}).upgrade(async (tx) => {
+      await tx.table('resumes').toCollection().modify((r: DbResume) => {
+        r.kind ??= 'source'
+        r.master_json ??= null
+        r.target_json ??= null
+      })
+    })
   }
+}
+
+/** master_json / target_json validated like the server does (null clears). */
+function resumeExtras(input: { master_json?: unknown; target_json?: unknown }) {
+  const out: Partial<Pick<DbResume, 'master_json' | 'target_json'>> = {}
+  if (input.master_json !== undefined) {
+    const m = input.master_json === null ? null : parseMasterResume(input.master_json)
+    if (input.master_json !== null && !m) throw new LocalStoreError(400, 'master_json is not a master resume')
+    out.master_json = m
+  }
+  if (input.target_json !== undefined) {
+    const t = input.target_json === null ? null : parseTarget(input.target_json)
+    if (input.target_json !== null && !t) throw new LocalStoreError(400, 'target_json needs a role')
+    out.target_json = t && { ...t, notes: parseTailorNotes((input.target_json as { notes?: unknown }).notes) }
+  }
+  return out
 }
 
 function companyRow(input: CompanyInput, at: string): DbCompany {
@@ -249,13 +274,22 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
     async listResumes() {
       return (await db.resumes.toArray()).sort(byDesc('created_at'))
     },
-    async addResume({ name, parsed_json, set_current }) {
+    async addResume(input) {
+      const { name, parsed_json, set_current } = input
+      const kind = input.kind ?? 'source'
+      oneOf(kind, ['source', 'master', 'version'], 'kind')
+      const extras = resumeExtras(input)
+      if (kind === 'master' && !extras.master_json) throw new LocalStoreError(400, 'a master resume needs master_json')
       askPersist()
       return db.transaction('rw', db.resumes, async () => {
+        if (kind === 'master' && (await db.resumes.filter((r) => r.kind === 'master').count())) {
+          throw new LocalStoreError(409, 'there is already a master resume')
+        }
         if (set_current) await db.resumes.filter((r) => r.is_current).modify({ is_current: false })
         const row: DbResume = {
           id: uuid(), user_id: LOCAL_USER, name: required(name, 'name'), file_path: null,
           parsed_json: parsed_json ?? null, is_current: !!set_current, created_at: now(),
+          kind, master_json: null, target_json: null, ...extras,
         }
         await db.resumes.add(row)
         return row
@@ -268,6 +302,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         const next = { ...row }
         if (patch.name !== undefined) next.name = required(patch.name, 'name')
         if (patch.parsed_json !== undefined) next.parsed_json = patch.parsed_json
+        Object.assign(next, resumeExtras(patch))
         await db.resumes.put(next)
         return next
       })
@@ -490,7 +525,9 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
           const n = normalizeStage(a.stage)
           return { ...a, stage: n?.stage ?? 'saved', interviews: parseInterviews(a.interviews) ?? (n?.round ? [n.round] : []) }
         }))
-        await db.resumes.bulkAdd(own(snapshot.resumes) as DbResume[])
+        await db.resumes.bulkAdd((own(snapshot.resumes) as DbResume[]).map((r) => ({
+          ...r, kind: r.kind ?? 'source', master_json: r.master_json ?? null, target_json: r.target_json ?? null,
+        })))
         await db.portal_connections.bulkAdd(own(snapshot.portal_connections) as DbPortalConnection[])
         await db.portal_events.bulkAdd(own(snapshot.portal_events) as DbPortalEvent[])
         await db.ai_runs.bulkAdd(own(snapshot.ai_runs) as DbAiRun[])

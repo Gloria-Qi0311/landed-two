@@ -6,6 +6,7 @@
 // snake_case shape in both places — the server's JSON shape — so hooks and
 // components never care which backend they're talking to.
 import type { Resume } from '@landed/schema'
+import type { MasterResume, ResumeTarget, TailorNotes } from '@landed/schema/master-resume'
 import type { InterviewRound } from '@landed/schema/pipeline'
 import type { SearchBrief } from '@landed/schema/search-brief'
 import type { JobLead, Suggestion } from '@landed/observation-processor'
@@ -46,6 +47,11 @@ export type DbApplication = {
   interviews: InterviewRound[]
 }
 
+/** My Resume: uploads (`source`) → one `master` (most complete, every
+ *  phrasing kept; parsed_json is its flattened form) → `version`s aimed at
+ *  a role. packages/schema/src/master-resume.ts. */
+export type ResumeKind = 'source' | 'master' | 'version'
+
 export type DbResume = {
   id: string
   user_id: string
@@ -54,6 +60,19 @@ export type DbResume = {
   parsed_json: Resume | null
   is_current: boolean
   created_at: string
+  kind: ResumeKind
+  master_json: MasterResume | null
+  /** what a version is aimed at, and why it picked what it did */
+  target_json: (ResumeTarget & { notes: TailorNotes }) | null
+}
+
+export type ResumeInput = {
+  name: string
+  parsed_json: Resume | null
+  set_current: boolean
+  kind?: ResumeKind
+  master_json?: MasterResume | null
+  target_json?: (ResumeTarget & { notes?: TailorNotes }) | null
 }
 
 export type PortalProvider =
@@ -237,8 +256,9 @@ export interface DataStore {
   importDemo(data: DemoImport): Promise<{ companies: number; applications: number }>
 
   listResumes(): Promise<DbResume[]> // created_at desc
-  addResume(input: { name: string; parsed_json: Resume | null; set_current: boolean }): Promise<DbResume>
-  updateResume(id: string, patch: Partial<Pick<DbResume, 'name' | 'parsed_json'>>): Promise<DbResume>
+  /** At most one `master` per account (a second is a 409). */
+  addResume(input: ResumeInput): Promise<DbResume>
+  updateResume(id: string, patch: Partial<Pick<DbResume, 'name' | 'parsed_json' | 'master_json' | 'target_json'>>): Promise<DbResume>
   deleteResume(id: string): Promise<void>
   /** Promotes one resume and demotes the previous current one atomically. */
   setCurrentResume(id: string): Promise<DbResume>

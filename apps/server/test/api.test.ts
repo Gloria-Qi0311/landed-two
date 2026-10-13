@@ -1022,6 +1022,73 @@ describe('pipeline: one interview stage with rounds', () => {
   })
 })
 
+describe('My Resume: master + versions', () => {
+  const master = {
+    basic: { name: 'Alex' },
+    entries: [{ kind: 'internship', org: 'Brightwave', title: 'PM Intern', bullets: [{ variants: [{ text: 'Led discovery', from: ['r1'] }, { text: 'Drove discovery', from: ['r2'] }] }] }],
+    education: [], skills: ['SQL'],
+  }
+
+  test('resume kinds: one master per account, validated master/target, snapshots keep them', async () => {
+    const owner = await signup('resume-kinds@example.com')
+    const src = await call('POST', '/api/resumes', { token: owner, body: { name: 'PM resume', parsed_json: { version: 2 } } })
+    assert.equal(src.body.kind, 'source')
+    const m = await call('POST', '/api/resumes', { token: owner, body: { name: 'Master resume', kind: 'master', master_json: master } })
+    assert.equal(m.status, 201, JSON.stringify(m.body))
+    assert.equal(m.body.master_json.entries[0].bullets[0].id, 'e1b1')
+    assert.ok((await call('POST', '/api/resumes', { token: owner, body: { name: 'Two', kind: 'master', master_json: master } })).status >= 400, 'one master')
+    assert.equal((await call('POST', '/api/resumes', { token: owner, body: { name: 'Bad', kind: 'master' } })).status, 400)
+    assert.equal((await call('POST', '/api/resumes', { token: owner, body: { name: 'Bad', kind: 'cv' } })).status, 400)
+    const v = await call('POST', '/api/resumes', { token: owner, body: {
+      name: 'APM · Figma', kind: 'version', parsed_json: { version: 2 },
+      target_json: { role: 'APM', company: 'Figma', job_url: 'ftp://x', notes: { summary: 'ok', picks: [{ what: 'A', why: 'B' }] } },
+    } })
+    assert.deepEqual([v.body.target_json.role, v.body.target_json.job_url, v.body.target_json.notes.picks.length], ['APM', null, 1])
+    assert.equal((await call('PATCH', `/api/resumes/${m.body.id}`, { token: owner, body: { master_json: { junk: 1 } } })).status, 400)
+
+    const snap = (await call('GET', '/api/export', { token: owner })).body
+    const other = await signup('resume-kinds-2@example.com')
+    await call('POST', '/api/resumes', { token: other, body: { name: 'Mine', kind: 'master', master_json: master } })
+    const device = { ...snap, resumes: snap.resumes.map((r: any) => ({ ...r, id: crypto.randomUUID(), is_current: false })) }
+    assert.equal((await call('POST', '/api/sync/upload', { token: other, body: device })).status, 201)
+    const kinds = (await call('GET', '/api/resumes', { token: other })).body.map((r: any) => r.kind).sort()
+    assert.deepEqual(kinds, ['master', 'source', 'version', 'version'], "the account's master wins; the uploaded one becomes a version")
+  })
+
+  test('resume_merge / resume_tailor: inputs validated, outputs cleaned per kind', async () => {
+    const owner = await signup('resume-tasks@example.com', undefined, { cloud: false })
+    const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'resume_merge', 'resume_tailor'] }] } })
+    const daemonAbort = new AbortController()
+    const reader = (await app.request('/api/runtime/stream', { headers: { Authorization: `Bearer ${rt}` }, signal: daemonAbort.signal })).body!.getReader()
+    let buf = ''
+    const until = async (needle: string) => {
+      while (!buf.includes(needle)) buf += new TextDecoder().decode((await reader.read()).value)
+      return buf
+    }
+    await until('event: ready')
+    const send = (kind: string, input: unknown) => call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind, input } })
+
+    assert.equal((await send('resume_merge', { sources: [] })).status, 400)
+    assert.equal((await send('resume_tailor', { master, target: { role: '' } })).status, 400)
+    const merge = await send('resume_merge', { sources: [{ id: 'r1', name: 'PM', resume: { basic: { name: 'Alex' }, experience: [{ company: 'X', description: 'did things' }], extra: 'dropped' } }] })
+    assert.equal(merge.status, 202)
+    const job = JSON.parse((await until('event: job')).split('event: job\ndata: ').pop()!.split('\n')[0])
+    assert.equal(job.input.sources[0].resume.extra, undefined)
+
+    const web = (await app.request(`/api/runtime-jobs/${job.id}/stream`, { headers: { Authorization: `Bearer ${owner}` } })).body!.getReader()
+    await call('POST', `/api/runtime/jobs/${job.id}/events`, { token: rt, body: { events: [{ type: 'done', text: '', output: { ...master, entries: [...master.entries, { org: '', title: '' }], hacked: true } }] } })
+    let out = ''
+    while (!out.includes('"type":"done"')) out += new TextDecoder().decode((await web.read()).value)
+    const done = JSON.parse(out.split('data: ').pop()!.split('\n')[0])
+    assert.equal(done.output.entries.length, 1, 'empty entries dropped')
+    assert.equal(done.output.hacked, undefined)
+    web.cancel().catch(() => {})
+    reader.cancel().catch(() => {})
+    daemonAbort.abort()
+  })
+})
+
 describe('portal_check: read-only look at candidate portals', () => {
   test('only agents with a browser get it; at most 5 http(s) items; results are cleaned', async () => {
     const owner = await signup('runtime-portal@example.com', undefined, { cloud: false })

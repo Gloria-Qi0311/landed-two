@@ -14,7 +14,7 @@ export type JobEvent =
   | { type: 'started'; agent: string }
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string }
-  | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[]; findings?: EmailFinding[]; results?: PortalResult[] }
+  | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[]; findings?: EmailFinding[]; results?: PortalResult[]; output?: unknown }
   | { type: 'error'; message: string }
 
 export type Job = {
@@ -50,6 +50,12 @@ export class RuntimeHub {
         }
       }
     }
+  }
+
+  /** The kind of a job dispatched to this runtime (null if unknown). */
+  kindOf(jobId: string, runtimeId: string): string | null {
+    const job = this.jobs.get(jobId)
+    return job && job.runtime_id === runtimeId ? job.kind : null
   }
 
   isOnline(runtimeId: string) {

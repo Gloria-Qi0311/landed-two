@@ -7,6 +7,7 @@ import { useAgentRelay } from './hooks/agents';
 import { useJobLeads, useLeadActions, useObservationProcessor, useRecordApplyClick } from './hooks/inbox';
 import { usePanelQuestions } from './components/panel-questions';
 import { usePortalRunner } from './hooks/portal';
+import { useResumeTaskRunner } from './hooks/resumes';
 import { useSearchRunner } from './hooks/search';
 import { useEmailWatcher } from './hooks/email';
 import { AgentPanel, type AgentPanelView } from './components/agent-panel';
@@ -116,6 +117,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useSearchRunner();
   useEmailWatcher();
   usePortalRunner();
+  useResumeTaskRunner();
   const sidebarCounts = { applications: usePendingUpdateCount() };
   const recordApplyClick = useRecordApplyClick();
   const companiesQuery = useCompanies();

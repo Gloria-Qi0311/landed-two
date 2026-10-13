@@ -15,9 +15,12 @@
 // `email_check` (read the user's mailbox through their agent's mail
 // connector; the result carries `findings`) and `portal_check` (look at
 // candidate portals in the user's Chrome, read-only; the result carries
-// `results`). Each agent reports the kinds its daemon can run.
+// `results`), `resume_merge` (uploaded resumes → one master resume) and
+// `resume_tailor` (master → a version aimed at a role); those two return
+// `output`, validated per kind. Each agent reports the kinds its daemon can run.
 import { createHash, randomBytes } from 'node:crypto'
 import { parseEmailCheckInput, parseEmailFindings } from '@landed/schema/email-check'
+import { parseLooseResume, parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'
 import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { Hono, type Context } from 'hono'
@@ -33,7 +36,8 @@ type Row = Record<string, any>
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex')
 const UUID = /^[0-9a-f-]{36}$/i
 const RUNTIME_COLUMNS = ['id', 'name', 'agents', 'daemon_version', 'last_seen_at', 'revoked_at', 'created_at']
-const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'portal_check'])
+const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'portal_check', 'resume_merge', 'resume_tailor'])
+const MAX_SOURCES = 10
 /** Daemons from before agents reported their kinds can only chat. */
 const LEGACY_KINDS = ['chat']
 const MAX_MESSAGE = 20_000
@@ -100,6 +104,17 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
         fail(400, 'input.conversation_id must be a uuid')
       }
       input = { message: raw.message, conversation_id: raw.conversation_id }
+    } else if (body.kind === 'resume_merge') {
+      const sources = (Array.isArray(raw.sources) ? raw.sources : []).slice(0, MAX_SOURCES)
+        .map((s: Row) => ({ id: String(s?.id ?? '').slice(0, 64), name: String(s?.name ?? '').slice(0, 120), resume: parseLooseResume(s?.resume) }))
+        .filter((s: Row) => s.id && s.resume)
+      if (sources.length === 0) fail(400, `input.sources needs 1–${MAX_SOURCES} resumes`)
+      input = { sources, master: raw.master == null ? null : parseMasterResume(raw.master) }
+    } else if (body.kind === 'resume_tailor') {
+      const master = parseMasterResume(raw.master)
+      const target = parseTarget(raw.target)
+      if (!master || !target) fail(400, 'input needs a master resume and a target role')
+      input = { master, target }
     } else if (body.kind === 'portal_check') {
       const check = parsePortalCheckInput(raw)
       if (!check) fail(400, 'input.items needs 1–5 applications with company, role, stage and an http(s) url')
@@ -281,6 +296,14 @@ export function runtimeDaemonRoutes(sql: Sql, hub: RuntimeHub) {
           default: return { type: 'started', agent: String(e.agent ?? '') }
         }
       })
+    // Structured output is checked against what this kind of task returns.
+    const kind = hub.kindOf(c.req.param('id'), runtime.id)
+    for (const e of events) {
+      if (e.type !== 'done') continue
+      const raw = (body.events as Row[]).find((x) => x?.type === 'done')?.output
+      if (kind === 'resume_merge') e.output = parseMasterResume(raw)
+      else if (kind === 'resume_tailor') e.output = { resume: parseLooseResume((raw as Row)?.resume), notes: parseTailorNotes(raw) }
+    }
     if (!hub.push(c.req.param('id'), runtime.id, events)) fail(404, 'unknown or finished task')
     return c.json({ ok: true })
   })

@@ -14,6 +14,7 @@
 // same snapshot inserts nothing new. Companies merge by name and portal
 // connections by (company, provider), so signing in on a second device that
 // has its own data merges rather than duplicates.
+import { parseMasterResume } from '@landed/schema/master-resume'
 import { normalizeStage, parseInterviews } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import { Hono } from 'hono'
@@ -49,7 +50,7 @@ const COLUMNS = {
     'failure_reason', 'created_at',
   ],
   portal_events: ['id', 'connection_id', 'application_id', 'type', 'payload_json', 'created_at'],
-  resumes: ['id', 'name', 'file_path', 'parsed_json', 'is_current', 'created_at'],
+  resumes: ['id', 'name', 'file_path', 'parsed_json', 'is_current', 'created_at', 'kind', 'master_json', 'target_json'],
   ai_runs: ['id', 'task', 'provider', 'prompt_text', 'response_text', 'parsed_json', 'parse_format', 'created_at'],
   // Raw agent inbox. Only rows that still carry a payload travel in a
   // snapshot (receipts are server bookkeeping, not user data).
@@ -69,13 +70,13 @@ function defaults(now: string): Row {
     created_at: now, last_activity_at: now, referral: false, starred: false, stage: 'saved',
     status: 'active', payload_json: {}, is_current: false, processing_status: 'pending',
     sources: [], candidate_ids: [], evidence: {}, observation_ids: [], state: 'pending', updated_at: now,
-    interviews: [],
+    interviews: [], kind: 'source',
   }
 }
 
 const JSON_COLUMNS = new Set([
   'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
-  'brief', 'last_run_result', 'interviews',
+  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json',
 ])
 
 function chunks<T>(rows: T[]): T[][] {
@@ -183,10 +184,19 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
   const [{ has_current }] = await tx<{ has_current: boolean }[]>`
     select exists (select 1 from resumes where user_id = ${userId} and is_current) as has_current`
   let currentTaken = has_current
+  // ...and the cloud's master wins too (one per account); an uploaded master
+  // arrives as a version so nothing is lost.
+  const [{ has_master }] = await tx<{ has_master: boolean }[]>`
+    select exists (select 1 from resumes where user_id = ${userId} and kind = 'master') as has_master`
+  let masterTaken = has_master
   counts.resumes = await insertRows('resumes', list('resumes').map((r) => {
     const isCurrent = r.is_current === true && !currentTaken
     if (isCurrent) currentTaken = true
-    return normalize('resumes', r, { is_current: isCurrent })
+    let kind = ['source', 'master', 'version'].includes(r.kind) ? r.kind : 'source'
+    const master = kind === 'master' ? parseMasterResume(r.master_json) : null
+    if (kind === 'master' && (masterTaken || !master)) kind = 'version'
+    if (kind === 'master') masterTaken = true
+    return normalize('resumes', r, { is_current: isCurrent, kind, master_json: kind === 'master' ? master : null })
   }))
 
   counts.ai_runs = await insertRows('ai_runs', list('ai_runs').map((r) => normalize('ai_runs', r, {})))

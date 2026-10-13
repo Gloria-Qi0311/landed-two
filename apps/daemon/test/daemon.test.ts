@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  CHROME_READ_TOOLS, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeSearchArgs, emailPrompt, mailServer,
+  CHROME_READ_TOOLS, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
   parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
@@ -112,6 +112,21 @@ test('portal check: Chrome only, read-only by construction', () => {
   assert.equal(chromeFromInit(null), false)
   assert.deepEqual(parseClaudeLine('{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"summary":"ok","results":[{"ref":"1","outcome":"login_required"}]}}'), [
     { type: 'done', text: 'ok', session_id: undefined, results: [{ ref: '1', outcome: 'login_required' }] },
+  ])
+})
+
+test('resume merge/tailor: text-only (no MCP, no tools); tailoring reads the posting only when asked', () => {
+  const merge = claudeResumeArgs('resume_merge')
+  assert.equal(merge[merge.indexOf('--tools') + 1], '')
+  assert.ok(merge.includes('--strict-mcp-config') && !merge.includes('--allowedTools'))
+  assert.ok(JSON.parse(merge[merge.indexOf('--json-schema') + 1]).required.includes('entries'))
+  const tailorWeb = claudeResumeArgs('resume_tailor', { web: true })
+  assert.deepEqual(tailorWeb.slice(tailorWeb.indexOf('--allowedTools') + 1, tailorWeb.indexOf('--allowedTools') + 2), ['WebFetch'])
+  assert.equal(claudeResumeArgs('resume_tailor')[claudeResumeArgs('resume_tailor').indexOf('--tools') + 1], '')
+  assert.match(mergePrompt({ sources: [{ id: 'r1', name: 'PM', resume: { a: 1 } }], master: { entries: [] } }), /resume id "r1" \(PM\)[\s\S]*current master/)
+  assert.match(tailorPrompt({ master: {}, target: { role: 'APM', company: 'Figma', job_url: null, jd_text: 'Build AI' } }), /Target role: APM at Figma[\s\S]*Build AI/)
+  assert.deepEqual(parseClaudeLine('{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"entries":[]}}'), [
+    { type: 'done', text: '', session_id: undefined, output: { entries: [] } },
   ])
 })
 

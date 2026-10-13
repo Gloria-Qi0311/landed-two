@@ -1,7 +1,7 @@
 // Agent CLIs the daemon can drive, and how to run a Landed task with one.
 //
 // Safety: tasks are a fixed set of kinds (`chat`, `job_search`,
-// `email_check`, `portal_check`). Input goes to the agent on stdin (never through a shell),
+// `email_check`, `portal_check`, `resume_merge`, `resume_tailor`). Input goes to the agent on stdin (never through a shell),
 // the agent runs in an empty workspace directory, ignores the user's own
 // Claude Code settings/hooks, and gets an explicit tool allowlist: read-only
 // web tools for chat and search (with every MCP server switched off), only
@@ -21,14 +21,14 @@ export type TaskEvent =
   | { type: 'started'; agent: string }
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string }
-  | { type: 'done'; text: string; session_id?: string; jobs?: unknown[]; findings?: unknown[]; results?: unknown[] }
+  | { type: 'done'; text: string; session_id?: string; jobs?: unknown[]; findings?: unknown[]; results?: unknown[]; output?: unknown }
   | { type: 'error'; message: string }
 
 export type Task = { id: string; agent: string; kind: string; input: Record<string, unknown> }
 
 // Codex / Gemini CLI get runners next; only agents we can run are reported,
 // with the task kinds they can run (the server only sends those).
-const SUPPORTED = [{ id: 'claude', label: 'Claude Code', bin: 'claude', kinds: ['chat', 'job_search'] }]
+const SUPPORTED = [{ id: 'claude', label: 'Claude Code', bin: 'claude', kinds: ['chat', 'job_search', 'resume_merge', 'resume_tailor'] }]
 
 const WEB_TOOLS = ['WebSearch', 'WebFetch']
 
@@ -500,6 +500,132 @@ export function portalPrompt(items: PortalItem[]): string {
   ].join('\n')
 }
 
+// ── My Resume: merge uploads into a master, tailor versions ───────────────
+// Text work only: no tools (tailoring may read the job posting), no MCP.
+// Shapes: packages/schema/src/master-resume.ts — keep the schemas in sync.
+
+const VARIANTS = { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, from: { type: 'array', items: { type: 'string' } } }, required: ['text', 'from'] } }
+
+export const MASTER_SCHEMA = {
+  type: 'object',
+  properties: {
+    basic: { type: 'object', properties: Object.fromEntries(['name', 'email', 'phone', 'location', 'linkedin', 'github', 'portfolio', 'wechat', 'englishName', 'chineseName'].map((k) => [k, { type: 'string' }])) },
+    summaries: VARIANTS,
+    education: { type: 'array', items: { type: 'object', properties: Object.fromEntries(['school', 'degree', 'major', 'gpa', 'start_date', 'end_date', 'location', 'description'].map((k) => [k, { type: 'string' }])) } },
+    entries: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['experience', 'internship', 'project'] },
+          org: { type: 'string' }, title: { type: 'string' }, location: { type: 'string' },
+          start_date: { type: 'string' }, end_date: { type: 'string' }, current: { type: 'boolean' }, link: { type: 'string' },
+          from: { type: 'array', items: { type: 'string' } },
+          bullets: { type: 'array', items: { type: 'object', properties: { variants: VARIANTS, preferred: { type: 'integer', description: 'index of the default variant' }, skills: { type: 'array', items: { type: 'string' } } }, required: ['variants'] } },
+        },
+        required: ['kind', 'org', 'title', 'bullets'],
+      },
+    },
+    skills: { type: 'array', items: { type: 'string' } },
+    languages: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['basic', 'entries', 'education', 'skills'],
+}
+
+const MERGE_SYSTEM_PROMPT = [
+  "You are Landed's resume editor, running on the user's own computer. You get several of the user's resumes (JSON,",
+  'each with an id) and maybe their current master resume. Build ONE master resume: the most complete record of their career.',
+  '- Merge entries that are the same job, internship or project (same organization, overlapping dates/title). Keep entries',
+  '  that appear in only one resume.',
+  '- Break each description into bullets, one achievement each. When resumes phrase the same achievement differently, keep',
+  '  every phrasing as a variant of that bullet — never drop one, never blend them. `from` lists the ids of the resumes a',
+  '  phrasing came from.',
+  '- Never invent facts, numbers, dates, tools or skills; only reorganize what is there (fix obvious typos only).',
+  '- If a current master is given, keep its entries, bullets, variants, preferred choices and order, and add what is new.',
+  '- kind: experience (jobs), internship, or project. org: company or project name. title: job title or project role.',
+  '- skills and languages: deduplicated. summaries: each distinct summary as a variant.',
+  'Return the master with the structured output tool.',
+].join('\n')
+
+export const TAILOR_SCHEMA = {
+  type: 'object',
+  properties: {
+    resume: {
+      type: 'object',
+      properties: {
+        basic: { type: 'object' },
+        summary: { type: 'string' },
+        education: { type: 'array', items: { type: 'object' } },
+        experience: { type: 'array', items: { type: 'object', properties: Object.fromEntries(['company', 'title', 'location', 'start_date', 'end_date', 'description'].map((k) => [k, { type: 'string' }])) } },
+        internship: { type: 'array', items: { type: 'object', properties: Object.fromEntries(['company', 'title', 'location', 'start_date', 'end_date', 'description'].map((k) => [k, { type: 'string' }])) } },
+        projects: { type: 'array', items: { type: 'object', properties: Object.fromEntries(['name', 'role', 'link', 'start_date', 'end_date', 'description'].map((k) => [k, { type: 'string' }])) } },
+        skills: { type: 'array', items: { type: 'string' } },
+        languages: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['basic', 'experience', 'education', 'skills'],
+    },
+    summary: { type: 'string', description: 'One or two sentences on how this version is aimed, in English.' },
+    picks: { type: 'array', items: { type: 'object', properties: { what: { type: 'string' }, why: { type: 'string' } }, required: ['what', 'why'] } },
+  },
+  required: ['resume', 'summary', 'picks'],
+}
+
+const TAILOR_SYSTEM_PROMPT = [
+  "You are Landed's resume tailor, running on the user's own computer. From the user's master resume (every experience,",
+  'with every phrasing of every bullet as variants), write one resume aimed at the target role.',
+  '- Choose the experiences, projects and bullets most relevant to the target; leave out weak or unrelated ones.',
+  '- For each bullet you keep, start from the variant whose phrasing fits the target best. You may lightly adjust wording to',
+  "  use the job description's terms, but never invent facts, numbers, tools, scope or outcomes.",
+  '- About one page for students, new grads and people with under ~5 years of experience (3–5 bullets per role); at most',
+  '  two pages otherwise. Descriptions are bullet lines that start with "• ".',
+  '- Keep basic info and education as in the master. Put the most relevant skills first.',
+  '- If a job link is given without a description, read the posting first.',
+  '- picks: what you chose or emphasized and why, short.',
+  'Return with the structured output tool.',
+].join('\n')
+
+export type ResumeMergeInput = { sources: { id: string; name: string; resume: unknown }[]; master: unknown | null }
+export type ResumeTailorInput = { master: unknown; target: { role: string; company: string | null; job_url: string | null; jd_text: string | null } }
+
+export function claudeResumeArgs(kind: 'resume_merge' | 'resume_tailor', opts: { web?: boolean } = {}): string[] {
+  const web = kind === 'resume_tailor' && opts.web
+  return [
+    '-p',
+    '--output-format', 'stream-json', '--verbose',
+    '--no-session-persistence',
+    '--tools', ...(web ? ['WebFetch'] : ['']),
+    ...(web ? ['--allowedTools', 'WebFetch'] : []),
+    '--strict-mcp-config',
+    '--setting-sources', '',
+    '--json-schema', JSON.stringify(kind === 'resume_merge' ? MASTER_SCHEMA : TAILOR_SCHEMA),
+    '--append-system-prompt', kind === 'resume_merge' ? MERGE_SYSTEM_PROMPT : TAILOR_SYSTEM_PROMPT,
+  ]
+}
+
+export function mergePrompt(input: ResumeMergeInput): string {
+  return [
+    `My resumes (${input.sources.length}):`,
+    ...input.sources.map((s) => `--- resume id "${s.id}" (${s.name}) ---\n${JSON.stringify(s.resume)}`),
+    ...(input.master ? ['', '--- my current master resume (keep what is here) ---', JSON.stringify(input.master)] : []),
+    '',
+    'Build my master resume.',
+  ].join('\n')
+}
+
+export function tailorPrompt(input: ResumeTailorInput): string {
+  const t = input.target
+  return [
+    `Target role: ${t.role}${t.company ? ` at ${t.company}` : ''}`,
+    ...(t.job_url ? [`Job posting: ${t.job_url}`] : []),
+    ...(t.jd_text ? ['Job description:', t.jd_text] : []),
+    '',
+    'My master resume:',
+    JSON.stringify(input.master),
+    '',
+    'Write the resume for this role.',
+  ].join('\n')
+}
+
 // ── Claude Code output ────────────────────────────────────────────────────
 
 /** One line of `claude --output-format stream-json` → task events. */
@@ -534,6 +660,9 @@ export function parseClaudeLine(line: string): TaskEvent[] {
     if (out && typeof out === 'object' && Array.isArray(out.results)) {
       return [{ type: 'done', text: summary, session_id: e.session_id, results: out.results }]
     }
+    if (out && typeof out === 'object') {
+      return [{ type: 'done', text: summary, session_id: e.session_id, output: out }]
+    }
     return [{ type: 'done', text: String(e.result ?? ''), session_id: e.session_id }]
   }
   return []
@@ -545,6 +674,7 @@ const CHAT_TIMEOUT_MS = 5 * 60_000
 const SEARCH_TIMEOUT_MS = 20 * 60_000
 const EMAIL_TIMEOUT_MS = 10 * 60_000
 const PORTAL_TIMEOUT_MS = 15 * 60_000
+const RESUME_TIMEOUT_MS = 10 * 60_000
 
 function runClaude(
   opts: {
@@ -641,6 +771,19 @@ export function runTask(task: Task, emit: (e: TaskEvent) => void): Promise<void>
         missing: `Claude Code couldn't load your ${mail.label} connector this time, so nothing was read. Landed will try again shortly.`,
       },
     }, emit)
+  }
+
+  if (task.kind === 'resume_merge') {
+    const input = task.input as ResumeMergeInput
+    if (!Array.isArray(input.sources) || input.sources.length === 0) return fail(emit, 'Bad merge task.')
+    return runClaude({ args: claudeResumeArgs('resume_merge'), stdin: mergePrompt(input), timeoutMs: RESUME_TIMEOUT_MS }, emit)
+  }
+
+  if (task.kind === 'resume_tailor') {
+    const input = task.input as ResumeTailorInput
+    if (!input.master || !input.target?.role) return fail(emit, 'Bad tailor task.')
+    const web = !!input.target.job_url && !input.target.jd_text
+    return runClaude({ args: claudeResumeArgs('resume_tailor', { web }), stdin: tailorPrompt(input), timeoutMs: RESUME_TIMEOUT_MS }, emit)
   }
 
   if (task.kind === 'portal_check') {
