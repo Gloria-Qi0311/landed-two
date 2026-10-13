@@ -10,7 +10,7 @@ import { usePortalRunner } from './hooks/portal';
 import { useResumeTaskRunner } from './hooks/resumes';
 import { useSearchRunner } from './hooks/search';
 import { useEmailWatcher } from './hooks/email';
-import { AgentPanel, type AgentPanelView } from './components/agent-panel';
+import { AgentPage } from './components/agent-page';
 import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
 import { useAuth } from './lib/auth';
@@ -116,7 +116,8 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useEmailWatcher();
   usePortalRunner();
   useResumeTaskRunner();
-  const sidebarCounts = { applications: usePendingUpdateCount() };
+  // Badges: updates waiting on Applications; Landed's questions on the Agent page.
+  const sidebarCounts = { applications: usePendingUpdateCount(), agent: usePanelQuestions().count };
   const recordApplyClick = useRecordApplyClick();
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();
@@ -252,8 +253,8 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
           <Route path="/resume-match" element={<Navigate to="/resumes" replace />} />
           <Route path="/sync" element={<Navigate to="/applications" replace />} />
           <Route path="/jd-breakdown" element={<Navigate to="/applications" replace />} />
-          {/* Agent settings moved into the Ask Agent panel on Applications. */}
-          <Route path="/agents" element={<Navigate to="/applications?agent=settings" replace />} />
+          <Route path="/agent" element={<AgentPage />} />
+          <Route path="/agents" element={<Navigate to="/agent?view=settings" replace />} />
           <Route path="*" element={<Navigate to="/applications" replace />} />
         </Routes>
       </main>
@@ -298,38 +299,13 @@ function ApplicationsPage({
   onImportDemo: () => void;
   importing: boolean;
 }) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  // Ask Agent side panel, kept in the URL (?agent=chat|settings) so it
-  // survives reloads and old /agents links can open it.
-  const agentView = (searchParams.get('agent') as AgentPanelView | null) ?? null;
-  const setAgentView = (v: AgentPanelView | null) => {
-    const next = new URLSearchParams(searchParams);
-    if (v) next.set('agent', v);
-    else next.delete('agent');
-    setSearchParams(next, { replace: true });
-  };
-  // Badge: Landed's questions waiting in the panel.
-  const questions = usePanelQuestions().count;
-  const askAgentButton = (
-    <button className="btn-secondary" onClick={() => setAgentView(agentView ? null : 'chat')}
-      style={agentView ? { background: 'var(--surface-3)' } : undefined} aria-pressed={!!agentView}
-      title={questions ? `${questions} question${questions === 1 ? '' : 's'} for you` : undefined}>
-      <Icon name="sparkle" size={13} /> Ask Agent
-      {questions > 0 && (
-        <span style={{
-          marginLeft: 2, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, fontSize: 10.5, fontWeight: 600,
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--accent)', color: 'white',
-        }}>{questions}</span>
-      )}
-    </button>
+  const [searchParams] = useSearchParams();
+  // Old links to the agent side panel (?agent=chat|settings) → the Agent page.
+  const legacyAgent = searchParams.get('agent');
+  const navigate = useNavigate();
+  const page = (content: ReactNode) => (
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{content}</div>
   );
-  const withPanel = (content: ReactNode) => (
-    <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>{content}</div>
-      {agentView && <AgentPanel view={agentView} onView={setAgentView} onClose={() => setAgentView(null)} />}
-    </div>
-  );
-
 
   // Jobs agents found but the user hasn't acted on — the Kanban's Leads column.
   const leads = (useJobLeads().data ?? []).filter((l) => l.status === 'new');
@@ -338,9 +314,10 @@ function ApplicationsPage({
   const recordApplyClick = useRecordApplyClick();
 
   const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0 && leads.length === 0);
+  if (legacyAgent) return <Navigate to={legacyAgent === 'settings' ? '/agent?view=settings' : '/agent'} replace />;
 
   if (showEmpty) {
-    return withPanel(
+    return page(
       <>
         <PageHeader
           title="Applications"
@@ -355,7 +332,9 @@ function ApplicationsPage({
               >
                 <Icon name="sparkle" size={13} /> {importing ? 'Importing…' : 'Try with demo data'}
               </button>
-              {askAgentButton}
+              <button className="btn-primary" onClick={() => navigate('/agent')}>
+                <Icon name="sparkle" size={13} /> Ask your agent
+              </button>
             </>
           }
         />
@@ -364,7 +343,7 @@ function ApplicationsPage({
     );
   }
 
-  return withPanel(
+  return page(
     <>
       <PageHeader
         title="Applications"
@@ -378,7 +357,6 @@ function ApplicationsPage({
             <button className="btn-primary" onClick={onOpenAddModal}>
               <Icon name="plus" size={13} stroke={2} /> Add
             </button>
-            {askAgentButton}
           </>
         }
       />

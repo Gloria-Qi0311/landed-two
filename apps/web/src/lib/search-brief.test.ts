@@ -1,5 +1,5 @@
 // The brief the agent writes into its chat reply (packages/schema), as the
-// Ask Agent panel reads it.
+// Agent page reads it.
 import { describe, expect, test } from 'vitest'
 import { extractBrief, parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'

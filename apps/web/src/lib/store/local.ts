@@ -94,7 +94,7 @@ class LandedDB extends Dexie {
       job_leads: 'id, &fingerprint, status, last_seen_at',
       status_suggestions: 'id, &dedupe_key, state, created_at',
     })
-    // v4: job search briefs confirmed in the Ask Agent chat.
+    // v4: job search briefs confirmed in the Agent chat.
     this.version(4).stores({
       job_searches: 'id, status, created_at',
     })

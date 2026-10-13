@@ -1,4 +1,4 @@
-// Job searches: the brief the user confirmed in Ask Agent (data store, so it
+// Job searches: the brief the user confirmed on the Agent page (data store, so it
 // follows local-first like everything else), and the runner that searches
 // with their agents (lib/job-search.ts).
 import { useEffect } from 'react'

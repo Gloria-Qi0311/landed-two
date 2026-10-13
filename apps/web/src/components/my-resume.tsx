@@ -28,7 +28,7 @@ function AgentLine({ kind }: { kind: TaskKind }) {
         ? <>Runs on {a.agent.label} on {a.runtime.name}, with your own subscription.</>
         : a.outdated
           ? <>The Landed daemon on your computer needs an update: stop it and run <code>pnpm landed start</code> again.</>
-          : <>Needs your computer online: run <code>pnpm landed start</code> (or connect it in Applications → Ask Agent).</>}
+          : <>Needs your computer online: run <code>pnpm landed start</code> (or connect it on the Agent page).</>}
     </div>
   )
 }

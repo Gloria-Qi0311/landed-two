@@ -157,7 +157,7 @@ const RECENT_DAYS = 7
 
 /** Top-of-Applications strip. Renders nothing when there's nothing to show. */
 export function AgentUpdatesBar() {
-  // Landed's own questions are asked in the Ask Agent panel instead.
+  // Landed's own questions are asked on the Agent page instead.
   const suggestions = (useSuggestions().data ?? []).filter((s) => !isPanelQuestion(s))
   const apps = (useApplications().data ?? []) as AppShape[]
   const companies = (useCompanies().data ?? []) as CompanyShape[]
@@ -206,7 +206,7 @@ export function AgentUpdatesBar() {
 
 /** Count for the sidebar badge. */
 /** Sidebar count: updates waiting in "Needs your input" (the panel's own
- *  questions are counted on the Ask Agent button instead). */
+ *  questions are counted on the sidebar's Agent item instead). */
 export function usePendingUpdateCount() {
   return (useSuggestions().data ?? []).filter((s) => s.state === 'pending' && !isPanelQuestion(s)).length
 }

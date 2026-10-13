@@ -1,4 +1,4 @@
-// The Ask Agent conversation. Lives in a store (not a component) so closing
+// The Agent page's conversation. Lives in a store (not a component) so leaving
 // the panel doesn't cut off a reply that's still streaming. The transcript
 // is kept per account in sessionStorage — the conversation itself lives
 // with the agent on the user's computer (Claude Code session = conversation id).

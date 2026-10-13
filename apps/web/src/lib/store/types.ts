@@ -158,7 +158,7 @@ export type SearchRunResult = {
   failed?: string[]
 }
 
-/** The job search direction the user confirmed in the Ask Agent chat. One
+/** The job search direction the user confirmed in the Agent chat. One
  *  is active at a time; confirming a new brief archives the previous one. */
 export type DbJobSearch = {
   id: string

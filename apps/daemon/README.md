@@ -9,7 +9,7 @@ The Landed daemon connects your computer to Landed and runs Landed's AI tasks wi
 
 ## Use it
 
-1. In Landed, open **Applications → Ask Agent → Connect this computer** and copy the command.
+1. In Landed, open **Agent → Connect this computer** and copy the command.
 2. Run it in a terminal on that computer, from the Landed repo folder:
 
    ```sh
@@ -23,7 +23,7 @@ You need Node 23.6+ and at least one supported agent CLI, installed and signed i
 ## What an agent can do here
 
 - Tasks come from a fixed set of kinds:
-  - `chat`: one Ask Agent turn. Once your direction is clear, the agent proposes a search brief, which Landed shows as a card.
+  - `chat`: one turn of the conversation on Landed's Agent page. Once your direction is clear, the agent proposes a search brief, which Landed shows as a card.
   - `job_search`: after you confirm a brief, the agent searches the web for open postings that match it. It returns them as schema-checked JSON, and they land in your Leads column.
   - `email_check`: only offered if your agent can read email, and only once you turn on email watching in Landed. To give Claude Code email access, connect Gmail in Claude (claude.ai → Settings → Connectors). The daemon allows only the mailbox's read tools, never send, draft, label or delete.
   - `portal_check`: when an application has gone quiet for 3 weeks and you click "Look at its portal" in Landed, the agent opens its candidate portal (Workday, LinkedIn, Handshake, …) in your Chrome through Claude in Chrome and reads the status. It is read-only by construction: it gets the tools to open tabs, navigate and read pages, and no tool to click, type, fill forms, run scripts or read network traffic. It never signs in; a portal behind a login comes back as "needs you to sign in". Tip: connect Claude in Chrome in a Chrome profile that is only signed in to job sites.

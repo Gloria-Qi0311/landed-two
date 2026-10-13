@@ -1,8 +1,8 @@
 // Job search runs: a confirmed brief → a `job_search` task for every agent
 // on the user's online computers → the jobs they find become leads
 // (ingestFoundJobs, same dedupe rules as external agents). Lives in a store,
-// not a component, so a search keeps going while the Ask Agent panel is
-// closed. The runs of the current batch are kept per account in
+// not a component, so a search keeps going while the user is elsewhere in
+// the app. The runs of the current batch are kept per account in
 // sessionStorage; after a reload, running ones are followed again (the
 // server replays a task's output for an hour).
 import { create } from 'zustand'

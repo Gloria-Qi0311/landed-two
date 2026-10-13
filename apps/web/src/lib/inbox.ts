@@ -268,7 +268,7 @@ export const restoreLead = (store: DataStore, id: string) => store.updateJobLead
 
 // ── "did you apply?" after opening a posting from Landed ──────────────────
 // Opening a lead's posting (or a saved application's) from Landed asks, in
-// the Ask Agent panel, whether you applied. Stored as an ordinary pending
+// the Agent page, whether you applied. Stored as an ordinary pending
 // suggestion (dedupe key `click:lead:<id>` / `click:app:<id>`), so it syncs
 // and backs up like everything else; email evidence answers it on its own.
 
@@ -278,7 +278,7 @@ const QUIET = 'quiet:'
 export const isClickQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) =>
   s.dedupe_key.startsWith(CLICK_LEAD) || s.dedupe_key.startsWith(CLICK_APP)
 export const isQuietQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) => s.dedupe_key.startsWith(QUIET)
-/** Asked in the Ask Agent panel, not in "Needs your input". */
+/** Asked on the Agent page, not in "Needs your input". */
 export const isPanelQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) => isClickQuestion(s) || isQuietQuestion(s)
 
 export type ClickTarget =

@@ -247,7 +247,7 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
         ))}
         {count === 0 && (
           <div style={{ fontSize: 11, color: 'var(--fg-muted)', textAlign: 'center', padding: 16, border: '1px dashed var(--border)', borderRadius: 6, lineHeight: 1.5 }}>
-            Jobs your agents find land here.<br />Ask Agent → describe what you want.
+            Jobs your agents find land here.<br />Agent → tell it what you're looking for.
           </div>
         )}
       </div>

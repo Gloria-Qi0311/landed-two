@@ -1,4 +1,4 @@
-// Job searches: the direction the user confirmed in the Ask Agent chat (a
+// Job searches: the direction the user confirmed in the Agent chat (a
 // brief) and how its last run went. Mounted behind requireCloud — sync-off
 // accounts keep these in their browser. Runs happen on the user's computer
 // (routes/runtime.ts, task kind `job_search`); results become job leads in

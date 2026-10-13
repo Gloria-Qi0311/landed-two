@@ -1,5 +1,5 @@
 // "Your computer": pair the Landed daemon and see which local agents it
-// found. Used by the Ask Agent panel (setup state + settings). Tasks run on
+// found. Used by the Agent page (setup state + settings). Tasks run on
 // the user's machine with their own subscription; Landed only relays.
 import { useEffect, useState } from 'react'
 import { Icon } from './primitives'

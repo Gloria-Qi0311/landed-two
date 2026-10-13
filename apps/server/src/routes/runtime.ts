@@ -10,7 +10,7 @@
 // Both work whether or not Cloud sync is on: tasks and output are relayed in
 // memory, never stored.
 //
-// Task kinds: `chat` (one Ask Agent turn), `job_search` (search the web for
+// Task kinds: `chat` (one turn of the Agent page's conversation), `job_search` (search the web for
 // jobs matching a confirmed brief; the result carries `jobs`) and
 // `email_check` (read the user's mailbox through their agent's mail
 // connector; the result carries `findings`) and `portal_check` (look at

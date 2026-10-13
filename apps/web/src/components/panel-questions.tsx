@@ -1,4 +1,4 @@
-// Questions Landed asks in the Ask Agent panel (the badge on its button
+// Questions Landed asks on the Agent page (the badge on the sidebar's Agent item
 // counts them):
 //   - "Did you apply?" after you open a posting from Landed;
 //   - "No news for 3+ weeks" for applications in progress: mark ghosted,

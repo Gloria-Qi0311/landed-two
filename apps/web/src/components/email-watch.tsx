@@ -1,4 +1,4 @@
-// Email watching in the Ask Agent panel: a status strip in the chat (turn it
+// Email watching on the Agent page: a status strip in the chat (turn it
 // on / last check / "Check now") and the setting in Agent settings. The
 // agent reads mail through its own connector; see hooks/email.ts.
 import { Icon } from './primitives'
@@ -65,7 +65,7 @@ export function EmailStatus() {
   const s = useEmailState()
   if (!s.capable || !s.target || !s.loaded || s.offline) return null
   return (
-    <div style={{ padding: '9px 14px', borderBottom: '0.5px solid var(--border)', background: 'var(--surface-2)', display: 'flex', gap: 10, alignItems: 'center' }}>
+    <div style={{ padding: '10px 14px', border: '0.5px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)', display: 'flex', gap: 10, alignItems: 'center' }}>
       <span style={{ color: s.running ? 'var(--accent)' : 'var(--fg-muted)', display: 'flex', animation: s.running ? 'pulse 1.6s ease-in-out infinite' : undefined }}>
         <Icon name="inbox" size={13} />
       </span>

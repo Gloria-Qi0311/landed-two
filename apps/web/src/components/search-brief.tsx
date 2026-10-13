@@ -1,4 +1,4 @@
-// The search brief the agent proposes in the Ask Agent chat, as a card with
+// The search brief the agent proposes in the Agent chat, as a card with
 // one button: confirm it and search with every agent on the user's online
 // computers. Plus the status strip for the active search (running / last
 // run) at the top of the chat.
@@ -129,7 +129,7 @@ export function SearchStatus() {
   const { active, activeRuns, running, targets, start } = useSearchState()
   if (!active) return null
   return (
-    <div style={{ padding: '9px 14px', borderBottom: '0.5px solid var(--border)', background: 'var(--surface-2)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+    <div style={{ padding: '10px 14px', border: '0.5px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
       <span style={{ marginTop: 2, color: running ? 'var(--accent)' : 'var(--fg-muted)', animation: running ? 'pulse 1.6s ease-in-out infinite' : undefined }}>
         <Icon name="search" size={13} />
       </span>

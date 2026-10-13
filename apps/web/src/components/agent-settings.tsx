@@ -1,4 +1,4 @@
-// Agent settings — the gear view of the Ask Agent panel: your computer
+// Agent settings — the Agent page's settings view: your computer
 // (local agents via the Landed daemon), cloud agents (Meta Muse, …) that
 // report over the agent protocol, email watching by your own agent, whether
 // email updates apply automatically, and the raw reports.

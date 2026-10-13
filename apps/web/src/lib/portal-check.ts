@@ -1,7 +1,7 @@
 // Portal checks — the fallback when email is silent: the user's own agent
 // looks at candidate portals in their Chrome (Claude in Chrome), read-only
 // by construction (it can navigate and read, never click or type), and
-// reports what each shows. Always started by the user from the Ask Agent
+// reports what each shows. Always started by the user from the Agent
 // panel; results go through the processor in ask-first mode
 // (ingestPortalResults). Same store shape as lib/email-check.ts.
 import { create } from 'zustand'
