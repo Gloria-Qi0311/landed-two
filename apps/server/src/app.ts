@@ -18,6 +18,8 @@ import { inboxRoutes } from './routes/inbox.ts'
 import { searchRoutes } from './routes/searches.ts'
 import { conversationRoutes } from './routes/conversations.ts'
 import { downloadRoutes } from './routes/downloads.ts'
+import { mcpRoutes } from './routes/mcp.ts'
+import { oauthAccountRoutes, oauthRoutes } from './routes/oauth.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
 import { runtimeAccountRoutes, runtimeDaemonRoutes } from './routes/runtime.ts'
@@ -53,6 +55,23 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtim
     return limit(c, next)
   })
 
+  // Cloud agents (ChatGPT, Claude.ai, Gemini…): Landed's MCP server and the
+  // OAuth endpoints that connect it. Called by the agents' servers or by
+  // browser-based MCP clients with a Bearer token — never a cookie.
+  for (const path of ['/mcp', '/oauth/*', '/.well-known/*']) {
+    app.use(path, cors({
+      origin: '*',
+      allowHeaders: ['Authorization', 'Content-Type', 'Mcp-Protocol-Version', 'Mcp-Session-Id'],
+      allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+      exposeHeaders: ['WWW-Authenticate'],
+      maxAge: 86400,
+    }))
+  }
+  app.use('/mcp', bodyLimit({ maxSize: 512 * 1024, onError: tooLarge }))
+  app.use('/oauth/*', bodyLimit({ maxSize: 16 * 1024, onError: tooLarge }))
+  app.route('/', oauthRoutes(sql, config))
+  app.route('/', mcpRoutes(sql, config))
+
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.route('/api/auth', authRoutes(sql, config))
   app.route('/api/downloads', downloadRoutes())
@@ -70,6 +89,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtim
   api.route('/', accountRoutes(sql))
   api.route('/', agentAccountRoutes(sql))
   api.route('/', runtimeAccountRoutes(sql, runtimes))
+  api.route('/', oauthAccountRoutes(sql, config))
   const cloud = new Hono<AppEnv>()
   cloud.use('*', requireCloud)
   cloud.route('/', dataRoutes(sql, config))

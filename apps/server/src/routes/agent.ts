@@ -17,6 +17,7 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
 import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
+import { parseBriefing } from '@landed/schema/cloud-agent'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>
@@ -132,10 +133,36 @@ export function validateObservation(raw: Row, headerKey: string | undefined) {
   return { schemaVersion, runId, observationType, observedAt, idempotencyKey }
 }
 
+/** Store one validated observation. Sync-off accounts: held only until the
+ *  browser picks it up (local-first). Null when this connection already
+ *  sent that idempotency key. */
+export async function insertObservation(
+  sql: Sql,
+  connection: { id: string; user_id: string; cloud_sync: boolean },
+  raw: Row,
+  parsed: ReturnType<typeof validateObservation>,
+): Promise<{ id: string; created_at: string } | null> {
+  const expiresAt = connection.cloud_sync ? null : new Date(Date.now() + HOLD_DAYS * 86_400_000)
+  const body = sql.json(raw)
+  const [row] = await sql<{ id: string; created_at: string }[]>`
+    insert into agent_observations (
+      user_id, connection_id, idempotency_key, schema_version, run_id,
+      observation_type, payload_json, payload_sha256, observed_at, expires_at
+    ) values (
+      ${connection.user_id}, ${connection.id}, ${parsed.idempotencyKey},
+      ${parsed.schemaVersion}, ${parsed.runId}, ${parsed.observationType},
+      ${body}, encode(sha256(convert_to(${body}::jsonb::text, 'UTF8')), 'hex'),
+      ${parsed.observedAt}, ${expiresAt}
+    )
+    on conflict (connection_id, idempotency_key) do nothing
+    returning id, created_at`
+  return row ?? null
+}
+
 // ── per-connection rate limit (in-memory; single server process) ─────────
 
 const recent = new Map<string, number[]>()
-function overRateLimit(connectionId: string): boolean {
+export function overRateLimit(connectionId: string): boolean {
   const cutoff = Date.now() - 3_600_000
   const hits = (recent.get(connectionId) ?? []).filter((t) => t > cutoff)
   if (hits.length >= RATE_LIMIT_PER_HOUR) {
@@ -188,7 +215,28 @@ export function agentAccountRoutes(sql: Sql) {
       where id = ${c.req.param('id')} and user_id = ${c.get('user').id}
       returning ${sql(CONNECTION_COLUMNS)}`
     if (!row) fail(404, 'agent connection not found')
+    await dropBriefingIfUnused(sql, c.get('user').id)
     return c.json(row)
+  })
+
+  // The briefing cloud agents read (packages/schema/src/cloud-agent.ts): the
+  // browser shares it only while a cloud agent that reads tasks is connected.
+  app.get('/agent-briefing', async (c) => {
+    const [row] = await sql`select context, updated_at from agent_briefings where user_id = ${c.get('user').id}`
+    return c.json(row ?? null)
+  })
+
+  app.put('/agent-briefing', async (c) => {
+    const userId = c.get('user').id
+    const briefing = parseBriefing(await jsonBody(c))
+    const [{ readers }] = await sql<{ readers: number }[]>`
+      select count(*)::int as readers from agent_connections
+      where user_id = ${userId} and revoked_at is null and 'tasks:read' = any(scopes)`
+    if (readers === 0) fail(409, 'no cloud agent is connected', { code: 'no_cloud_agent' })
+    await sql`
+      insert into agent_briefings (user_id, context) values (${userId}, ${sql.json(briefing)})
+      on conflict (user_id) do update set context = excluded.context, updated_at = now()`
+    return c.json({ ok: true })
   })
 
   // Review/debug list. Receipts (delivered to a device, or expired) come back
@@ -238,11 +286,11 @@ export function agentIngestRoutes(sql: Sql) {
     const header = c.req.header('Authorization')
     const token = header?.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : ''
     if (!token) fail(401, 'agent token required (Authorization: Bearer landed_agent_…)')
-    const [connection] = await sql<{ id: string; user_id: string; scopes: string[]; revoked_at: string | null; cloud_sync: boolean }[]>`
-      select c.id, c.user_id, c.scopes, c.revoked_at, u.cloud_sync
+    const [connection] = await sql<{ id: string; user_id: string; scopes: string[]; revoked_at: string | null; cloud_sync: boolean; expired: boolean }[]>`
+      select c.id, c.user_id, c.scopes, c.revoked_at, u.cloud_sync, coalesce(c.token_expires_at < now(), false) as expired
       from agent_connections c join users u on u.id = c.user_id
       where c.token_hash = ${sha256(token)}`
-    if (!connection || connection.revoked_at) fail(401, 'invalid or revoked agent token')
+    if (!connection || connection.revoked_at || connection.expired) fail(401, 'invalid, expired or revoked agent token')
     if (!connection.scopes.includes('observations:write')) fail(403, 'token lacks observations:write scope')
     if (overRateLimit(connection.id)) {
       c.header('Retry-After', '3600')
@@ -251,26 +299,13 @@ export function agentIngestRoutes(sql: Sql) {
 
     const raw = await jsonBody<Row>(c)
     const parsed = validateObservation(raw, c.req.header('Idempotency-Key'))
-    // Sync-off accounts: hold only until the browser picks it up (local-first).
-    const expiresAt = connection.cloud_sync ? null : new Date(Date.now() + HOLD_DAYS * 86_400_000)
+    const inserted = await insertObservation(sql, connection, raw, parsed)
     const body = sql.json(raw)
-    const inserted = await sql<{ id: string; created_at: string }[]>`
-      insert into agent_observations (
-        user_id, connection_id, idempotency_key, schema_version, run_id,
-        observation_type, payload_json, payload_sha256, observed_at, expires_at
-      ) values (
-        ${connection.user_id}, ${connection.id}, ${parsed.idempotencyKey},
-        ${parsed.schemaVersion}, ${parsed.runId}, ${parsed.observationType},
-        ${body}, encode(sha256(convert_to(${body}::jsonb::text, 'UTF8')), 'hex'),
-        ${parsed.observedAt}, ${expiresAt}
-      )
-      on conflict (connection_id, idempotency_key) do nothing
-      returning id, created_at`
 
     await sql`update agent_connections set last_seen_at = now() where id = ${connection.id}`
 
-    if (inserted[0]) {
-      return c.json({ accepted: true, duplicate: false, observation_id: inserted[0].id, created_at: inserted[0].created_at }, 201)
+    if (inserted) {
+      return c.json({ accepted: true, duplicate: false, observation_id: inserted.id, created_at: inserted.created_at }, 201)
     }
 
     // Retry with the same key: fine if the body is identical (compared by
@@ -290,6 +325,16 @@ export function agentIngestRoutes(sql: Sql) {
   })
 
   return app
+}
+
+/** The briefing exists only for connected cloud agents: once none that can
+ *  read it is left, delete it. */
+export async function dropBriefingIfUnused(sql: Sql, userId: string) {
+  await sql`
+    delete from agent_briefings b where b.user_id = ${userId}
+      and not exists (
+        select 1 from agent_connections a
+        where a.user_id = b.user_id and a.revoked_at is null and 'tasks:read' = any(a.scopes))`
 }
 
 /** Hourly: purge held payloads nobody picked up within HOLD_DAYS, and drop

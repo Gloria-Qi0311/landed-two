@@ -2,7 +2,9 @@
 
 External agents (Meta Muse, Claude, Codex, …) find jobs and read status emails. They report each fact to Landed as an **observation**, and Landed decides what it means: deduplication, matching to applications, status changes. An agent never edits the pipeline directly.
 
-Users connect an agent on the **Agents** page. Landed creates a token there and shows it once, together with copy-paste setup instructions. The web app generates those instructions in `apps/web/src/lib/agent-prompt.ts`; keep that file in step with this document and with `src/routes/agent.ts`.
+**Agents that take MCP connectors (ChatGPT, Claude, Gemini, Claude Code, Codex, Cursor…) should use Landed's MCP server instead** — `https://<landed>/mcp`, connected with OAuth from the agent's own connector settings (`src/routes/mcp.ts`, `src/routes/oauth.ts`). It wraps this protocol: `get_tasks` returns the work Landed has (a job search for the user's confirmed brief; an email check when the user turned those on) with instructions, and `submit_jobs` / `submit_email_updates` turn results into `job_discovered` / `application_status` observations, held and processed exactly as below. Connections made that way are listed with the others (provider `mcp`).
+
+For agents without connectors, users connect on the **Agent → Settings** page. Landed creates a token there and shows it once, together with copy-paste setup instructions. The web app generates those instructions in `apps/web/src/lib/agent-prompt.ts`; keep that file in step with this document and with `src/routes/agent.ts`.
 
 ## Request
 

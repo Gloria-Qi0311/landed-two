@@ -8,7 +8,7 @@
     "dev": "node --env-file-if-exists=.env --watch src/index.ts",
     "start": "node --env-file-if-exists=.env src/index.ts",
     "migrate": "node --env-file-if-exists=.env src/migrate.ts",
-    "test": "node --env-file-if-exists=.env --test test/*.test.ts",
+    "test": "node --env-file-if-exists=.env --test --test-concurrency=1 test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

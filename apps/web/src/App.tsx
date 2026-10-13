@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { Routes, Route, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
 import { useExtensionBridge } from './hooks/extension-bridge';
-import { useAgentRelay } from './hooks/agents';
+import { useAgentRelay, useCloudBriefing } from './hooks/agents';
 import { useJobLeads, useLeadActions, useObservationProcessor, useRecordApplyClick } from './hooks/inbox';
 import { usePanelQuestions } from './components/panel-questions';
 import { usePortalRunner } from './hooks/portal';
@@ -38,6 +38,7 @@ import {
   EmptyApplicationsView,
 } from './components/empty-states';
 import { COMPANIES as COMPANY_CATALOG } from './data';
+import { AuthorizeAgentPage } from './components/authorize-agent';
 
 // Preview empty states via `?preview=empty` URL param — used by the
 // screenshot harness. Real empty states render when the data layer returns
@@ -60,6 +61,10 @@ export function App() {
   const hydrateAuth = useAuth((s) => s.hydrate);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  // A cloud agent's connect request (OAuth consent): sign in first if
+  // needed, then the consent page, outside the app shell.
+  const authorizing = location.pathname === '/authorize-agent';
 
   // Theme: apply on <body> + persist (the login screen is themed too)
   useEffect(() => {
@@ -82,9 +87,10 @@ export function App() {
     if (prev === undefined || prev === sessionKey) return;
     queryClient.clear();
     // Fresh start on /applications so nobody lands on a URL that only made
-    // sense for the previous account or mode.
-    navigate('/applications');
-  }, [authReady, sessionKey, queryClient, navigate]);
+    // sense for the previous account or mode — except a connect request,
+    // which is why they just signed in.
+    if (!authorizing) navigate('/applications');
+  }, [authReady, sessionKey, queryClient, navigate, authorizing]);
 
   // While the session probe runs, render nothing — avoids flashing the
   // login screen at a signed-in user.
@@ -92,6 +98,7 @@ export function App() {
     return <div style={{ height: '100vh', width: '100vw', background: 'var(--bg)' }} />;
   }
   if (!user) return <LoginScreen />;
+  if (authorizing) return <AuthorizeAgentPage />;
   return <SignedInApp key={sessionKey!} theme={theme} setTheme={setTheme} />;
 }
 
@@ -113,6 +120,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   const appsQuery = useApplications();
   useExtensionBridge();
   useAgentRelay();
+  useCloudBriefing();
   useObservationProcessor();
   useSearchRunner();
   useAutomationRunner();

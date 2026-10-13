@@ -27,7 +27,9 @@ export function useSetAutomations() {
   })
 }
 
-async function context(store: DataStore, emailSince: string | null) {
+/** What agents' tasks need from the data store: the applications (company,
+ *  role, stage), where email reading left off, the active search. */
+export async function taskContext(store: DataStore, emailSince: string | null) {
   const [apps, companies, searches] = await Promise.all([store.listApplications(), store.listCompanies(), store.listJobSearches()])
   const name = new Map(companies.map((c) => [c.id, c.name]))
   const active = searches.find((s) => s.status === 'active')
@@ -53,7 +55,7 @@ export function useAutomationRunner() {
   env.current = ready && prefs && runtimes ? {
     store, runtimes, automations,
     settings: { autoApply: prefs.auto_apply_updates ?? true },
-    context: () => context(store, prefs.email_checked_at ?? null),
+    context: () => taskContext(store, prefs.email_checked_at ?? null),
     onStored: async (kind: AutomationKind, startedAt: string) => {
       if (kind === 'email_check' && (!prefs.email_checked_at || startedAt > prefs.email_checked_at)) {
         qc.setQueryData(['profile', 'me'], await api.patch<Me>('/me', { email_checked_at: startedAt }))

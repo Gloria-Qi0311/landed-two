@@ -11,7 +11,7 @@ import {
 } from '@landed/observation-processor'
 import type { EmailFinding } from '@landed/schema/email-check'
 import type { PortalResult } from '@landed/schema/portal-check'
-import type { FoundJob } from '@landed/schema/search-brief'
+import { describeFoundJob, type FoundJob } from '@landed/schema/search-brief'
 import type { DataStore, DbApplication, DbJobLead, DbSuggestion } from './store/types'
 
 const strip = <T extends { user_id: string }>({ user_id: _, ...rest }: T) => rest
@@ -183,11 +183,7 @@ export async function ingestEmailFindings(
 // ── search results → job leads ────────────────────────────────────────────
 
 /** Fit, pay, sponsorship and age in one line under the lead (Leads card tooltip). */
-function describe(j: FoundJob): string | null {
-  const parts = [j.why, j.salary && `Salary: ${j.salary}`, j.sponsorship && `Sponsorship: ${j.sponsorship}`, j.posted && `Posted: ${j.posted}`]
-  const text = parts.filter(Boolean).join('\n')
-  return text || null
-}
+const describe = describeFoundJob
 
 export type IngestResult = { found: number; added: number; merged: number; already_applied: number }
 

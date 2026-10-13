@@ -122,6 +122,13 @@ export function parseFoundJobs(raw: unknown): FoundJob[] {
   return out
 }
 
+/** A found job's extra details as one description (a lead's text). */
+export function describeFoundJob(j: FoundJob): string | null {
+  const parts = [j.why, j.salary && `Salary: ${j.salary}`, j.sponsorship && `Sponsorship: ${j.sponsorship}`, j.posted && `Posted: ${j.posted}`]
+  const text = parts.filter(Boolean).join('\n')
+  return text || null
+}
+
 /** Where the agent's chat reply carries a brief: a fenced block tagged
  *  `landed-brief` holding the JSON (the chat system prompt asks for it). */
 export const BRIEF_FENCE = 'landed-brief'

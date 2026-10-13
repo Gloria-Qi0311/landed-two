@@ -14,7 +14,8 @@
     "./pipeline": "./src/pipeline.ts",
     "./master-resume": "./src/master-resume.ts",
     "./conversation": "./src/conversation.ts",
-    "./automation": "./src/automation.ts"
+    "./automation": "./src/automation.ts",
+    "./cloud-agent": "./src/cloud-agent.ts"
   },
   "scripts": {
     "build": "echo 'no build \u2014 consumed as source via workspace alias'",

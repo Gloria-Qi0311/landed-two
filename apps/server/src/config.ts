@@ -22,6 +22,9 @@ export type Config = {
   signup: 'open' | 'first-only'
   // Built web app to serve at /. Null disables static serving (dev uses Vite).
   webDist: string | null
+  // The public origin (e.g. https://landed.example.com) for OAuth/MCP
+  // metadata. Unset: taken from each request (Host / X-Forwarded-*).
+  publicUrl?: string | null
 }
 
 export function loadConfig(): Config {
@@ -36,6 +39,7 @@ export function loadConfig(): Config {
     secretsKey,
     cookieSecure: process.env.COOKIE_SECURE === 'true',
     signup,
+    publicUrl: process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL).origin : null,
     webDist: process.env.WEB_DIST === ''
       ? null
       : (process.env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist', import.meta.url))),

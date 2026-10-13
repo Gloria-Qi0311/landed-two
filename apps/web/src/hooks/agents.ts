@@ -11,6 +11,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { localStoreFor, useStore, type DbAgentObservation } from '../lib/store'
 import { OBSERVATIONS_ARRIVED } from './inbox'
+import { taskContext } from './automation'
 
 export type AgentConnection = {
   id: string
@@ -102,4 +103,39 @@ export function useAgentRelay() {
       window.removeEventListener('focus', pull)
     }
   }, [relaying, user, qc])
+}
+
+/** While a cloud agent that reads tasks (a connector) is connected, share
+ *  what its tasks need — the search brief and the application list
+ *  (company, role, stage) — and nothing else. Sent when it changes (checked
+ *  every minute and on focus). The server deletes it when the last such
+ *  agent is disconnected (packages/schema/src/cloud-agent.ts). */
+export function useCloudBriefing() {
+  const { store, ready } = useStore()
+  const connections = useAgentConnections()
+  const readers = (connections.data ?? []).some((c) => !c.revoked_at && c.scopes.includes('tasks:read'))
+
+  useEffect(() => {
+    if (!ready || !readers) return
+    let last = ''
+    const push = async () => {
+      try {
+        const ctx = await taskContext(store, null)
+        const briefing = { brief: ctx.brief, applications: ctx.applications }
+        const key = JSON.stringify(briefing)
+        if (key === last) return
+        await api.put('/agent-briefing', briefing)
+        last = key
+      } catch (e) {
+        console.warn('[landed] sharing the briefing with cloud agents failed', e)
+      }
+    }
+    void push()
+    const timer = setInterval(push, 60_000)
+    window.addEventListener('focus', push)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', push)
+    }
+  }, [ready, readers, store])
 }

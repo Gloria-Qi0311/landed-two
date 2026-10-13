@@ -1,12 +1,14 @@
 // Agent settings — the Agent page's settings view: your computer (local
-// agents via the Landed daemon), cloud agents (Meta Muse, …) that report
-// over the agent protocol, and the raw reports. Scheduled work and the
+// agents via the Landed daemon), cloud agents — ChatGPT, Claude, Gemini…
+// through Landed's MCP connector (OAuth), or with a token over the agent
+// protocol (Meta Muse) — and the raw reports. Scheduled work and the
 // auto-apply preference live on the Automation page.
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from './primitives'
 import { useAuth } from '../lib/auth'
 import { formatRelative } from '../lib/time'
 import { AGENT_PROVIDERS, agentSetupPrompt, isPrivateOrigin, summarizeObservation } from '../lib/agent-prompt'
+import { scheduledPrompt } from '@landed/schema/cloud-agent'
 import {
   useAgentConnections, useAgentObservations, useCreateAgentConnection, useRevokeAgentConnection,
   type AgentConnection,
@@ -66,8 +68,10 @@ export function AgentSettings() {
         <RuntimePanel />
 
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>
-          Cloud agents (Meta Muse, …)
+          Cloud agents (ChatGPT, Claude, Gemini, Meta Muse…)
         </div>
+
+        <ConnectorCard />
 
         {created
           ? <SetupPanel created={created} onDone={() => setCreated(null)} />
@@ -129,7 +133,7 @@ function ConnectForm({ onCreated }: { onCreated: (c: { connection: AgentConnecti
   }
 
   return (
-    <Card title="Connect an agent">
+    <Card title="Or connect with a token (agents without connectors, e.g. Meta Muse)">
       <form onSubmit={submit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>
           Agent
@@ -192,7 +196,7 @@ function SetupPanel({ created, onDone }: { created: { connection: AgentConnectio
 function ConnectionRow({ connection: c, first }: { connection: AgentConnection; first: boolean }) {
   const revoke = useRevokeAgentConnection()
   const [confirming, setConfirming] = useState(false)
-  const label = AGENT_PROVIDERS.find((p) => p.id === c.provider)?.label ?? c.provider
+  const label = c.provider === 'mcp' ? 'Connector' : AGENT_PROVIDERS.find((p) => p.id === c.provider)?.label ?? c.provider
   return (
     <div style={{
       display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12, alignItems: 'center',
@@ -217,7 +221,7 @@ function ConnectionRow({ connection: c, first }: { connection: AgentConnection; 
           <button type="button" className="btn-primary" disabled={revoke.isPending}
             style={{ background: 'oklch(0.5 0.16 30)', borderColor: 'oklch(0.5 0.16 30)' }}
             onClick={() => revoke.mutate(c.id)}>
-            {revoke.isPending ? 'Revoking…' : 'Revoke token'}
+            {revoke.isPending ? 'Revoking…' : c.provider === 'mcp' ? 'Disconnect' : 'Revoke token'}
           </button>
         </>}
       </div>
@@ -225,3 +229,71 @@ function ConnectionRow({ connection: c, first }: { connection: AgentConnection; 
   )
 }
 
+
+// ── Landed as a connector (MCP + OAuth) ───────────────────────────────────
+
+function CopyField({ value, mono = true, rows }: { value: string; mono?: boolean; rows?: number }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setCopied(false)
+    }
+  }
+  const style = {
+    flex: 1, minWidth: 0, fontFamily: mono ? 'var(--font-mono)' : 'inherit', fontSize: 11.5, lineHeight: 1.5, padding: '6px 10px',
+    border: '0.5px solid var(--border)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--fg)', resize: 'none' as const,
+  }
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      {rows ? <textarea readOnly value={value} rows={rows} style={style} onFocus={(e) => e.currentTarget.select()} />
+        : <input readOnly value={value} style={style} onFocus={(e) => e.currentTarget.select()} />}
+      <button type="button" className="btn-secondary" onClick={copy} style={{ flexShrink: 0 }}>{copied ? 'Copied' : 'Copy'}</button>
+    </div>
+  )
+}
+
+const CONNECTOR_STEPS: { name: string; steps: ReactNode }[] = [
+  { name: 'Claude (claude.ai, desktop, mobile)', steps: <>Settings → Connectors → <b>Add custom connector</b> → paste the URL → Add, then Connect.</> },
+  { name: 'ChatGPT', steps: <>Settings → Apps → Advanced settings → turn on <b>Developer mode</b> → Create app → paste the URL, authentication OAuth.</> },
+  { name: 'Gemini', steps: <>gemini.google.com → Settings → <b>Connected apps</b> → Add custom app → paste the URL (personal accounts in the US for now).</> },
+  { name: 'Claude Code · Codex · Cursor', steps: <><code>claude mcp add --transport http landed URL</code> · <code>codex mcp add landed --url URL</code> · Cursor: Settings → MCP → Add new MCP server → URL.</> },
+]
+
+function ConnectorCard() {
+  const url = `${window.location.origin}/mcp`
+  return (
+    <Card title="Add Landed as a connector">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <Muted>
+          Any agent that takes remote MCP connectors can work for you here, on your own subscription: it gets Landed's tasks (a job
+          search for your confirmed direction; an email check if you turned those on and it can read your mail) and hands results
+          back, which land in Leads and on your applications like any agent's. Add this URL as a connector, sign in to Landed when
+          it asks, and click Allow.
+        </Muted>
+        <CopyField value={url} />
+        {isPrivateOrigin() && (
+          <div style={{
+            fontSize: 11.5, padding: '7px 10px', borderRadius: 6, lineHeight: 1.5,
+            background: 'oklch(0.97 0.03 70)', border: '0.5px solid oklch(0.86 0.07 70)', color: 'oklch(0.38 0.1 60)',
+          }}>
+            Agents in the cloud can't reach {window.location.host}. Use Landed's public HTTPS address once it's deployed; agents on this
+            computer (Claude Code, Codex, Cursor) can connect to this one now.
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {CONNECTOR_STEPS.map((s) => (
+            <div key={s.name} style={{ fontSize: 12, lineHeight: 1.55 }}>
+              <span style={{ fontWeight: 600 }}>{s.name}:</span> <span style={{ color: 'var(--fg-muted)' }}>{s.steps}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4 }}>Then ask it — or give it a scheduled task (e.g. every morning):</div>
+        <CopyField value={scheduledPrompt()} mono={false} rows={3} />
+      </div>
+    </Card>
+  )
+}
