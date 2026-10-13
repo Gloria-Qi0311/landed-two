@@ -4,7 +4,14 @@ External agents (Meta Muse, Claude, Codex, …) find jobs and read status emails
 
 **Agents that take MCP connectors (ChatGPT, Claude, Gemini, Claude Code, Codex, Cursor…) should use Landed's MCP server instead** — `https://<landed>/mcp`, connected with OAuth from the agent's own connector settings (`src/routes/mcp.ts`, `src/routes/oauth.ts`). It wraps this protocol: `get_tasks` returns the work Landed has (a job search for the user's confirmed brief; an email check when the user turned those on) with instructions, and `submit_jobs` / `submit_email_updates` turn results into `job_discovered` / `application_status` observations, held and processed exactly as below. Connections made that way are listed with the others (provider `mcp`).
 
-For agents without connectors, users connect on the **Agent → Settings** page. Landed creates a token there and shows it once, together with copy-paste setup instructions. The web app generates those instructions in `apps/web/src/lib/agent-prompt.ts`; keep that file in step with this document and with `src/routes/agent.ts`.
+Personal agents that build connectors from a URL + an API key rather than OAuth (Meta Muse, Manus, OpenClaw…) connect on the **Agent → Settings** page. Landed creates a token there and shows it once, together with copy-paste setup instructions. The token works three ways:
+
+- **MCP**: `POST /mcp` with `Authorization: Bearer <token>` — the same tools as above.
+- **Tasks over plain HTTPS** (`src/routes/mcp.ts` → `agentTaskRoutes`; answers are the tools' structured results, errors are 4xx `{error}`):
+  - `GET /api/agent/tasks` → `{ tasks: [{ id, title, instructions, submit_with, … }], note? }` (403 for connections made before tasks existed: scope `observations:write` only)
+  - `POST /api/agent/jobs` `{ summary?, jobs: [{ company, title, job_url, location?, posted?, deadline?, salary?, sponsorship?, why? }] }` → `{ received, added, duplicates, rejected }`
+  - `POST /api/agent/email-updates` `{ checked_until?, updates: [{ company, role?, status, confidence, job_url?, interview_at?, interview_format?, evidence: { message_id?, thread_id?, sender_domain?, subject, received_at?, summary? } }] }` — only after actually reading mail; it moves where the next email check starts. Bodies up to 512 KB.
+- **Observations** (below) for anything outside a task. The web app generates those instructions in `apps/web/src/lib/agent-prompt.ts`; keep that file in step with this document and with `src/routes/agent.ts`.
 
 ## Request
 

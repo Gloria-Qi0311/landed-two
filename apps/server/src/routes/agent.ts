@@ -23,7 +23,8 @@ import { parseBriefing } from '@landed/schema/cloud-agent'
 type Row = Record<string, any>
 
 const SCHEMA_VERSION = '0.1'
-const DEFAULT_SCOPES = ['observations:write']
+// tasks:read — the agent may read the briefing through get_tasks (routes/mcp.ts).
+const DEFAULT_SCOPES = ['observations:write', 'tasks:read']
 const HOLD_DAYS = 7
 const RECEIPT_DAYS = 30
 const MAX_ACTIVE_CONNECTIONS = 20

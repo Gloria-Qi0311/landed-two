@@ -13,8 +13,13 @@
 // the browser shares while a cloud agent is connected (search brief +
 // application list), plus where the last email check stopped.
 //
-// Auth: OAuth access tokens (routes/oauth.ts). Connections made with a
-// manual token (Agent settings) can submit but not read tasks.
+// Auth: OAuth access tokens (routes/oauth.ts), or the token of a
+// connection made by hand in Agent settings — personal agents like Meta Muse
+// build their connectors from a URL + an API key, not OAuth. Connections
+// from before tasks existed (scope observations:write only) can submit but
+// not read tasks. The same three tools are also plain HTTP
+// (`agentTaskRoutes`: GET /api/agent/tasks, POST /api/agent/jobs,
+// POST /api/agent/email-updates) for agents that call APIs, not MCP.
 import { createHash } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -225,7 +230,7 @@ async function callTool(sql: Sql, conn: Connection, name: string, args: Record<s
 
   if (name === 'get_tasks') {
     if (!conn.scopes.includes('tasks:read')) {
-      return textResult('This connection can submit results but not read tasks. Reconnect Landed as a connector (OAuth) to get tasks.', undefined, true)
+      return textResult("This connection was made before Landed had tasks, so it can submit results but not read tasks. Create a new connection in Landed (Agent → Settings) to get them.", undefined, true)
     }
     const [row] = await sql<{ context: unknown }[]>`select context from agent_briefings where user_id = ${conn.user_id}`
     const [run] = await sql<{ last_done_at: string }[]>`select last_done_at from agent_task_runs where user_id = ${conn.user_id} and kind = 'email_check'`
@@ -333,6 +338,52 @@ async function handle(sql: Sql, conn: Connection, msg: RpcRequest): Promise<obje
   }
 }
 
+/** The agent connection a Bearer token belongs to, or why there is none
+ *  ('' = no token at all). */
+async function connectionFor(sql: Sql, header: string | undefined): Promise<Connection | string> {
+  const token = header?.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : ''
+  if (!token) return ''
+  const [conn] = await sql<(Connection & { revoked_at: string | null; expired: boolean })[]>`
+    select c.id, c.user_id, c.display_name, c.scopes, c.revoked_at, coalesce(c.token_expires_at < now(), false) as expired,
+           u.cloud_sync, u.email_watch, u.email_checked_at
+    from agent_connections c join users u on u.id = c.user_id
+    where c.token_hash = ${sha256(token)}`
+  if (!conn || conn.revoked_at) return 'the token is invalid or was revoked'
+  if (conn.expired) return 'the token expired'
+  return conn
+}
+
+/** The same tools as plain HTTP, for agents that call APIs rather than MCP
+ *  servers (mounted at /api/agent). Answers are the tools' structured
+ *  results; a tool error is a 4xx with its message. */
+export function agentTaskRoutes(sql: Sql) {
+  const app = new Hono<AppEnv>()
+  const run = async (c: Context, name: string, args: Record<string, unknown>) => {
+    const found = await connectionFor(sql, c.req.header('Authorization'))
+    if (typeof found === 'string') return c.json({ error: found || 'agent token required (Authorization: Bearer landed_agent_…)' }, 401)
+    if (overRateLimit(found.id)) {
+      c.header('Retry-After', '3600')
+      return c.json({ error: 'rate limit: try again later' }, 429)
+    }
+    await sql`update agent_connections set last_seen_at = now() where id = ${found.id}`
+    const result = await callTool(sql, found, name, args)
+    if (result.isError) return c.json({ error: result.content[0]?.text ?? 'error' }, name === 'get_tasks' ? 403 : 400)
+    return c.json({ ...result.structuredContent, message: result.content[0]?.text })
+  }
+  const body = async (c: Context) => {
+    try {
+      const b = await c.req.json()
+      return b && typeof b === 'object' && !Array.isArray(b) ? b as Record<string, unknown> : {}
+    } catch {
+      return {}
+    }
+  }
+  app.get('/tasks', (c) => run(c, 'get_tasks', {}))
+  app.post('/jobs', async (c) => run(c, 'submit_jobs', await body(c)))
+  app.post('/email-updates', async (c) => run(c, 'submit_email_updates', await body(c)))
+  return app
+}
+
 export function mcpRoutes(sql: Sql, config: Pick<Config, 'publicUrl'>) {
   const app = new Hono<AppEnv>()
 
@@ -342,16 +393,9 @@ export function mcpRoutes(sql: Sql, config: Pick<Config, 'publicUrl'>) {
   }
 
   app.post('/mcp', async (c) => {
-    const header = c.req.header('Authorization')
-    const token = header?.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : ''
-    if (!token) return unauthorized(c, '')
-    const [conn] = await sql<(Connection & { revoked_at: Date | null; expired: boolean })[]>`
-      select c.id, c.user_id, c.display_name, c.scopes, c.revoked_at, coalesce(c.token_expires_at < now(), false) as expired,
-             u.cloud_sync, u.email_watch, u.email_checked_at
-      from agent_connections c join users u on u.id = c.user_id
-      where c.token_hash = ${sha256(token)}`
-    if (!conn || conn.revoked_at) return unauthorized(c, 'the token is invalid or was revoked')
-    if (conn.expired) return unauthorized(c, 'the token expired')
+    const found = await connectionFor(sql, c.req.header('Authorization'))
+    if (typeof found === 'string') return unauthorized(c, found)
+    const conn = found
 
     let body: unknown
     try {

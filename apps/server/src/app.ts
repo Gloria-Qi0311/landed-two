@@ -18,7 +18,7 @@ import { inboxRoutes } from './routes/inbox.ts'
 import { searchRoutes } from './routes/searches.ts'
 import { conversationRoutes } from './routes/conversations.ts'
 import { downloadRoutes } from './routes/downloads.ts'
-import { mcpRoutes } from './routes/mcp.ts'
+import { agentTaskRoutes, mcpRoutes } from './routes/mcp.ts'
 import { oauthAccountRoutes, oauthRoutes } from './routes/oauth.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
@@ -33,6 +33,8 @@ const uploadBody = bodyLimit({ maxSize: 50 * 1024 * 1024, onError: tooLarge })
 const taskBody = bodyLimit({ maxSize: 12 * 1024 * 1024, onError: tooLarge })
 // One agent observation is small; a large body is a misbehaving agent.
 const agentBody = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge })
+// A run's worth of results at once (up to 60 jobs / 100 email updates).
+const agentBatchBody = bodyLimit({ maxSize: 512 * 1024, onError: tooLarge })
 
 export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtimes: RuntimeHub) {
   const app = new Hono<AppEnv>()
@@ -51,6 +53,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtim
     const limit = c.req.path === '/api/sync/upload' || c.req.path === '/api/cloud/enable'
       ? uploadBody
       : c.req.path === '/api/runtime-jobs' ? taskBody
+      : c.req.path === '/api/agent/jobs' || c.req.path === '/api/agent/email-updates' ? agentBatchBody
       : c.req.path.startsWith('/api/agent/') ? agentBody : smallBody
     return limit(c, next)
   })
@@ -78,6 +81,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtim
   // External agents authenticate with a narrow connection token, never a
   // browser/extension session token.
   app.route('/api/agent', agentIngestRoutes(sql))
+  app.route('/api/agent', agentTaskRoutes(sql))
   // The user's own computers (Landed daemon) authenticate with a runtime
   // token, never a session.
   app.route('/api/runtime', runtimeDaemonRoutes(sql, runtimes))

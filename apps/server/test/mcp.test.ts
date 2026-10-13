@@ -284,13 +284,43 @@ describe('MCP', () => {
     assert.equal(refused.status, 409) // nothing is stored without a connected cloud agent
   })
 
-  test('token connections (agent protocol) can submit but not read tasks', async () => {
+  test('personal agents (a token, no OAuth): the same tasks over MCP or plain HTTP', async () => {
     const session = await signup('tokenconn@example.com')
-    const created = await call('POST', '/api/agent-connections', { token: session, body: { provider: 'muse', display_name: 'Muse' } })
+    const created = await call('POST', '/api/agent-connections', { token: session, body: { provider: 'meta_muse', display_name: 'Muse' } })
     const token = created.body.token
-    const r = await tool(token, 'get_tasks')
-    assert.equal(r.isError, true)
-    const s = await tool(token, 'submit_jobs', { jobs: [{ company: 'Blorp', title: 'PM', job_url: 'https://jobs.example/blorp/2' }] })
-    assert.equal(s.structuredContent.added, 1)
+    assert.deepEqual(created.body.connection.scopes, ['observations:write', 'tasks:read'])
+    await call('PUT', '/api/agent-briefing', { token: session, body: { brief: { roles: ['Product Manager'], locations: ['Remote'] }, applications: [] } })
+
+    // MCP with the token as a Bearer header (Muse builds connectors from a URL + key).
+    const viaMcp = await tool(token, 'get_tasks')
+    assert.equal(viaMcp.structuredContent.tasks[0].id, 'job_search')
+
+    // Plain HTTP.
+    const tasks = await call('GET', '/api/agent/tasks', { token })
+    assert.equal(tasks.status, 200, JSON.stringify(tasks.body))
+    assert.equal(tasks.body.tasks[0].submit_with, 'submit_jobs')
+    assert.match(tasks.body.tasks[0].instructions, /Product Manager/)
+    const jobs = await call('POST', '/api/agent/jobs', { token, body: { jobs: [{ company: 'Blorp', title: 'PM', job_url: 'https://jobs.example/blorp/2' }] } })
+    assert.equal(jobs.status, 200)
+    assert.equal(jobs.body.added, 1)
+    assert.match(jobs.body.message, /1 new/)
+    const bad = await call('POST', '/api/agent/jobs', { token, body: { jobs: [{ title: 'no company' }] } })
+    assert.equal(bad.status, 400)
+    const email = await call('POST', '/api/agent/email-updates', { token, body: { updates: [] } })
+    assert.equal(email.status, 200)
+    assert.equal(email.body.received, 0)
+    assert.equal((await call('GET', '/api/agent/tasks')).status, 401)
+    // The observations endpoint still works with the same token.
+    const obs = await call('POST', '/api/agent/observations', {
+      token, headers: { 'Idempotency-Key': 'k1' },
+      body: { schema_version: '0.1', run_id: 'r', observation_type: 'sync_error', observed_at: '2026-10-13T12:00:00Z', payload: { message: 'hi' } },
+    })
+    assert.equal(obs.status, 201)
+
+    // A connection from before tasks existed can still report, not read.
+    await sql`update agent_connections set scopes = array['observations:write'] where id = ${created.body.connection.id}`
+    assert.equal((await tool(token, 'get_tasks')).isError, true)
+    assert.equal((await call('GET', '/api/agent/tasks', { token })).status, 403)
+    assert.equal((await call('POST', '/api/agent/jobs', { token, body: { jobs: [{ company: 'Blorp', title: 'PM2', job_url: 'https://jobs.example/blorp/3' }] } })).status, 200)
   })
 })

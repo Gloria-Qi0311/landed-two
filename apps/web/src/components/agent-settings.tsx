@@ -133,7 +133,7 @@ function ConnectForm({ onCreated }: { onCreated: (c: { connection: AgentConnecti
   }
 
   return (
-    <Card title="Or connect with a token (agents without connectors, e.g. Meta Muse)">
+    <Card title="Personal agents (Meta Muse, Manus, OpenClaw…): connect with a key">
       <form onSubmit={submit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>
           Agent
@@ -170,8 +170,10 @@ function SetupPanel({ created, onDone }: { created: { connection: AgentConnectio
     <Card title={`Set up ${created.connection.display_name}`} right={<button type="button" className="btn-secondary" onClick={onDone}>Done</button>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Muted>
-          Paste these instructions into your agent. They include its token, which is shown <strong style={{ color: 'var(--fg)' }}>only this once</strong> —
-          if you lose it, revoke this connection and create a new one.
+          Paste these instructions into your agent. They include its key, which is shown <strong style={{ color: 'var(--fg)' }}>only this once</strong> —
+          if you lose it, revoke this connection and create a new one. The agent gets the same tasks as a connector: a job search for
+          your confirmed direction, and an email check if you turned those on and it can read your mail.
+          {!useAuth.getState().user?.cloud_sync && " While it's connected, this browser shares your search direction and application list (company, role, stage) with Landed's server so the agent can read them; revoking it deletes them."}
         </Muted>
         {isPrivateOrigin() && (
           <div style={{
@@ -206,7 +208,8 @@ function ConnectionRow({ connection: c, first }: { connection: AgentConnection; 
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 500 }}>{c.display_name}</div>
         <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
-          {label} · {c.last_seen_at ? `last report ${formatRelative(c.last_seen_at)}` : 'no reports yet'}
+          {label} · {c.last_seen_at ? `last seen ${formatRelative(c.last_seen_at)}` : 'not used yet'}
+          {!c.revoked_at && !c.scopes.includes('tasks:read') && ' · reports only (made before tasks — create a new one to give it tasks)'}
         </div>
       </div>
       <span style={{ fontSize: 11, color: c.revoked_at ? 'var(--fg-muted)' : 'oklch(0.45 0.13 155)' }}>
