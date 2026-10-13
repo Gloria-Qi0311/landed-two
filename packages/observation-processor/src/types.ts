@@ -2,7 +2,9 @@
 // status_suggestions tables (apps/server/migrations/0005, local Dexie v3) and
 // the parts of applications/companies/agent_observations it needs.
 
-export type Stage = 'saved' | 'applied' | 'oa' | 'phone' | 'onsite' | 'offer' | 'rejected' | 'ghosted'
+/** Pipeline stages (packages/schema/src/pipeline.ts): `saved` shows as a
+ *  lead, one `interview` stage replaced phone + onsite. */
+export type Stage = 'saved' | 'applied' | 'oa' | 'interview' | 'offer' | 'rejected' | 'ghosted'
 
 /** `assessment` = an online assessment / take-home invitation (stage `oa`). */
 export type EmailStatus = 'applied' | 'recruiter_response' | 'assessment' | 'interview' | 'rejected' | 'offer' | 'other'

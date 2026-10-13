@@ -36,7 +36,7 @@ import { ResumesPage } from './components/resumes-page';
 import {
   EmptyApplicationsView,
 } from './components/empty-states';
-import { STAGES, COMPANIES as COMPANY_CATALOG } from './data';
+import { STAGES, COMPANIES as COMPANY_CATALOG, columnOf } from './data';
 
 // Preview empty states via `?preview=empty` URL param — used by the
 // screenshot harness. Real empty states render when the data layer returns
@@ -341,10 +341,10 @@ function ApplicationsPage({
 
   const filteredApps = useMemo(() => {
     let list = apps;
-    if (filter === 'active') list = list.filter((a) => !['rejected', 'ghosted'].includes(a.stage));
+    if (filter === 'active') list = list.filter((a) => !['rejected', 'ghosted', 'saved'].includes(a.stage));
     else if (filter === 'starred') list = list.filter((a) => a.starred);
     else if (filter !== 'all' && STAGES.some((s: any) => s.id === filter))
-      list = list.filter((a) => a.stage === filter);
+      list = list.filter((a) => columnOf(a.stage) === filter);
     if (query) {
       const q = query.toLowerCase();
       list = list.filter((a) => {

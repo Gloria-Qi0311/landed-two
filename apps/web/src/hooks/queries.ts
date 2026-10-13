@@ -38,6 +38,7 @@ function toAppShape(row: DbApplication) {
     portal_application_url: row.portal_application_url,
     notes: row.notes ?? '',
     starred: row.starred,
+    interviews: row.interviews ?? [],
   }
 }
 
@@ -119,7 +120,7 @@ export function useAddApplication() {
       // transaction. Catalog entry (if it's a known company) supplies the
       // hue + logo + sector + loc for a newly-created company.
       const cat = COMPANY_CATALOG.find((c: any) => c.name === input.companyName)
-      const stage = input.stage ?? 'saved'
+      const stage = input.stage ?? 'applied'
       const data = await store.addApplication(
         {
           name: input.companyName,
@@ -197,6 +198,7 @@ export function useImportDemoData() {
           job_id: a.jobId || null,
           notes: a.notes || null,
           starred: !!a.starred,
+          interviews: a.interviews ?? [],
         }
       }).filter((a): a is NonNullable<typeof a> => a !== null)
 

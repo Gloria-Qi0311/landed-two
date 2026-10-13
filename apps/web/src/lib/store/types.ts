@@ -6,6 +6,7 @@
 // snake_case shape in both places — the server's JSON shape — so hooks and
 // components never care which backend they're talking to.
 import type { Resume } from '@landed/schema'
+import type { InterviewRound } from '@landed/schema/pipeline'
 import type { SearchBrief } from '@landed/schema/search-brief'
 import type { JobLead, Suggestion } from '@landed/observation-processor'
 
@@ -41,6 +42,8 @@ export type DbApplication = {
   starred: boolean
   last_activity_at: string
   created_at: string
+  /** Interview rounds (stage `interview`): round, onsite/remote, who. */
+  interviews: InterviewRound[]
 }
 
 export type DbResume = {
@@ -159,7 +162,7 @@ export type ApplicationInput = Partial<Omit<DbApplication, 'id' | 'user_id' | 'c
 
 export const APPLICATION_PATCH_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'notes', 'starred',
+  'referral', 'source', 'notes', 'starred', 'interviews',
 ] as const
 export type ApplicationPatch = Partial<Pick<DbApplication, typeof APPLICATION_PATCH_FIELDS[number]>>
 

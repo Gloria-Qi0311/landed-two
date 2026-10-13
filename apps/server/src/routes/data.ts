@@ -6,6 +6,7 @@
 // layer (toAppShape etc.) is unchanged. Bad enum values / foreign ids /
 // cross-user references are rejected by Postgres (see migrations/0001) and
 // mapped to 400 by the app-level error handler.
+import { normalizeStage, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
 import type { Config } from '../config.ts'
@@ -15,11 +16,11 @@ import { encryptSecret } from '../secrets.ts'
 
 const APPLICATION_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'job_id', 'portal_application_url', 'notes', 'starred', 'last_activity_at',
+  'referral', 'source', 'job_id', 'portal_application_url', 'notes', 'starred', 'last_activity_at', 'interviews',
 ] as const
 const APPLICATION_PATCH_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'notes', 'starred',
+  'referral', 'source', 'notes', 'starred', 'interviews',
 ] as const
 const COMPANY_FIELDS = ['name', 'hue', 'logo_chars', 'sector', 'loc', 'portal_url'] as const
 
@@ -30,6 +31,25 @@ type Row = Record<string, any>
 function requireString(v: unknown, field: string): string {
   if (typeof v !== 'string' || v.trim() === '') fail(400, `${field} is required`)
   return v
+}
+
+/** Application columns from a request: stage normalized (legacy phone /
+ *  onsite → interview, plus the round it stood for on create) and interview
+ *  rounds validated. */
+function applicationColumns(sql: Sql, input: Row, fields: readonly string[], opts: { create: boolean }): Row {
+  const out: Row = pick(input, fields)
+  if (out.stage !== undefined) {
+    const n = normalizeStage(out.stage)
+    if (!n) fail(400, `stage must be one of: ${STAGE_VALUES.join(', ')}`)
+    out.stage = n.stage
+    if (opts.create && n.round && out.interviews === undefined) out.interviews = [n.round]
+  }
+  if (out.interviews !== undefined) {
+    const rounds = parseInterviews(out.interviews)
+    if (!rounds) fail(400, 'interviews must be an array of rounds')
+    out.interviews = sql.json(rounds)
+  }
+  return out
 }
 
 export function dataRoutes(sql: Sql, config: Config) {
@@ -65,7 +85,7 @@ export function dataRoutes(sql: Sql, config: Config) {
         insert into companies ${tx({ ...pick(company, COMPANY_FIELDS), name, user_id: userId })}
         returning id`)[0].id
       const [inserted] = await tx`
-        insert into applications ${tx({ ...pick(application, APPLICATION_FIELDS), user_id: userId, company_id: companyId })}
+        insert into applications ${tx({ ...applicationColumns(sql, application, APPLICATION_FIELDS, { create: true }), user_id: userId, company_id: companyId })}
         returning *`
       return inserted
     })
@@ -73,7 +93,7 @@ export function dataRoutes(sql: Sql, config: Config) {
   })
 
   app.patch('/applications/:id', async (c) => {
-    const patch = pick(await jsonBody(c), APPLICATION_PATCH_FIELDS)
+    const patch = applicationColumns(sql, await jsonBody(c), APPLICATION_PATCH_FIELDS, { create: false })
     const [row] = await sql`
       update applications set ${sql({ ...patch, last_activity_at: new Date().toISOString() })}
       where id = ${c.req.param('id')} and user_id = ${c.get('user').id}
@@ -106,7 +126,7 @@ export function dataRoutes(sql: Sql, config: Config) {
         if (!companyId) continue
         requireString(a.role, 'applications[].role')
         await tx`
-          insert into applications ${tx({ ...pick(a, APPLICATION_FIELDS), user_id: userId, company_id: companyId })}`
+          insert into applications ${tx({ ...applicationColumns(sql, a, APPLICATION_FIELDS, { create: true }), user_id: userId, company_id: companyId })}`
         inserted++
       }
       return { companies: nameToId.size, applications: inserted }

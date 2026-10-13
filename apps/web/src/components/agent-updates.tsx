@@ -7,6 +7,7 @@ import { useState, type ReactNode } from 'react'
 import { Icon, StageBadge } from './primitives'
 import { formatRelative } from '../lib/time'
 import { AGENT_PROVIDERS } from '../lib/agent-prompt'
+import { STAGE_LABELS } from '../data'
 import { canUndo, isPanelQuestion } from '../lib/inbox'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { useSuggestionActions, useSuggestions } from '../hooks/inbox'
@@ -119,10 +120,7 @@ function PendingCard({ s, apps, companies, label }: {
   )
 }
 
-const STAGE_LABEL: Record<string, string> = {
-  saved: 'Saved', applied: 'Applied', oa: 'OA / Test', phone: 'Phone Screen', onsite: 'Onsite',
-  offer: 'Offer', rejected: 'Rejected', ghosted: 'Ghosted',
-}
+const STAGE_LABEL: Record<string, string> = STAGE_LABELS
 
 /** What accepting did, in words: "→ Phone Screen", "· added as Offer", or nothing for notes. */
 function recentOutcome(s: DbSuggestion) {

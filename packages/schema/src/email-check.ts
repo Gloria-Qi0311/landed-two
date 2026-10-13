@@ -8,7 +8,7 @@
 export const EMAIL_STATUSES = ['applied', 'recruiter_response', 'assessment', 'interview', 'rejected', 'offer', 'other'] as const
 export type EmailFindingStatus = typeof EMAIL_STATUSES[number]
 
-const STAGES = ['saved', 'applied', 'oa', 'phone', 'onsite', 'offer', 'rejected', 'ghosted']
+const STAGES = ['saved', 'applied', 'oa', 'interview', 'offer', 'rejected', 'ghosted']
 
 /** What the agent is told, besides the date: the applications Landed knows,
  *  so it recognizes companies and roles. No notes, no ids — just enough. */

@@ -334,7 +334,7 @@ function clickResolution(s: DbSuggestion, leads: DbJobLead[], apps: ApplicationR
 
 export const QUIET_DAYS = 21
 const DAY = 86_400_000
-const IN_PROGRESS = new Set(['applied', 'oa', 'phone', 'onsite'])
+const IN_PROGRESS = new Set(['applied', 'oa', 'interview', 'phone', 'onsite'])
 
 /** Latest sign of life: an edit/move, the applied date, or any agent update about it. */
 function lastSignal(app: Pick<DbApplication, 'id' | 'last_activity_at' | 'applied_at'>, suggestions: DbSuggestion[]) {

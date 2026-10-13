@@ -1,6 +1,7 @@
 // Local store (IndexedDB) behaviour. Runs on fake-indexeddb; each test gets
 // a fresh database name so state never leaks between tests.
 import 'fake-indexeddb/auto'
+import Dexie from 'dexie'
 import { describe, expect, test } from 'vitest'
 import { createLocalStore } from './local'
 import { BACKUP_FORMAT, snapshotRowCount } from './types'
@@ -31,8 +32,8 @@ describe('applications + companies', () => {
   test('updateApplication whitelists fields and bumps last_activity_at', async () => {
     const store = fresh()
     const a = await store.addApplication({ name: 'Figma' }, { role: 'Designer', last_activity_at: '2020-01-01T00:00:00.000Z' })
-    const next = await store.updateApplication(a.id, { stage: 'onsite', company_id: 'evil' } as never)
-    expect(next.stage).toBe('onsite')
+    const next = await store.updateApplication(a.id, { stage: 'oa', company_id: 'evil' } as never)
+    expect(next.stage).toBe('oa')
     expect(next.company_id).toBe(a.company_id)
     expect(next.last_activity_at > a.last_activity_at).toBe(true)
     await expect(store.updateApplication('nope', { stage: 'offer' })).rejects.toMatchObject({ status: 404 })
@@ -187,4 +188,59 @@ describe('job searches', () => {
     await copy.replaceWith(snap)
     expect(await copy.listJobSearches()).toHaveLength(2)
   })
+})
+
+describe('pipeline: one interview stage with rounds', () => {
+  test('legacy phone/onsite become interview (+ the round they stood for); rounds are validated', async () => {
+    const store = fresh()
+    const phone = await store.addApplication({ name: 'Acme' }, { role: 'PM', stage: 'phone' as never })
+    expect(phone).toMatchObject({ stage: 'interview', interviews: [{ round: null, format: 'remote', interviewers: [] }] })
+    const fresh2 = await store.addApplication({ name: 'Acme' }, { role: 'APM', stage: 'applied' })
+    expect(fresh2.interviews).toEqual([])
+
+    const moved = await store.updateApplication(fresh2.id, {
+      stage: 'interview',
+      interviews: [{ round: 4, format: 'remote', interviewers: ['leader', 'boss' as never, 'peer'], at: null, note: null }],
+    })
+    expect(moved.interviews).toEqual([{ round: 4, format: 'remote', interviewers: ['peer', 'leader'], at: null, note: null }])
+    expect((await store.updateApplication(fresh2.id, { stage: 'onsite' as never })).stage).toBe('interview')
+    await expect(store.updateApplication(fresh2.id, { stage: 'hired' as never })).rejects.toThrow(/stage/)
+    await expect(store.updateApplication(fresh2.id, { interviews: 'lots' as never })).rejects.toThrow(/interviews/)
+  })
+
+  test('older backups restore with interview rounds', async () => {
+    const store = fresh()
+    const snap = await store.exportSnapshot()
+    await store.replaceWith({
+      ...snap,
+      companies: [{ id: 'c1', name: 'Acme', hue: null, logo_chars: null, sector: null, loc: null, portal_url: null, created_at: '2026-01-01T00:00:00Z' }],
+      applications: [{ id: 'a1', company_id: 'c1', role: 'PM', stage: 'onsite', last_activity_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z' } as never],
+    })
+    expect((await store.listApplications())[0]).toMatchObject({ stage: 'interview', interviews: [{ format: 'onsite' }] })
+  })
+})
+
+test('upgrading a browser database from v4 moves phone/onsite to interview rounds', async () => {
+  const name = `landed-upgrade-${++n}`
+  // The schema as it was at v4 (same stores as LandedDB's versions 1–4).
+  const old = new Dexie(name)
+  old.version(1).stores({ companies: 'id, name', applications: 'id, company_id, last_activity_at', resumes: 'id, created_at', portal_connections: 'id, [company_id+provider]', portal_events: 'id, created_at', ai_runs: 'id', meta: 'key' })
+  old.version(2).stores({ agent_observations: 'id, created_at, &[connection_id+idempotency_key]' })
+  old.version(3).stores({ agent_observations: 'id, created_at, &[connection_id+idempotency_key], processing_status', job_leads: 'id, &fingerprint, status, last_seen_at', status_suggestions: 'id, &dedupe_key, state, created_at' })
+  old.version(4).stores({ job_searches: 'id, status, created_at' })
+  const base = { company_id: 'c1', user_id: 'local', last_activity_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z' }
+  await old.table('applications').bulkAdd([
+    { ...base, id: 'p', role: 'PM', stage: 'phone' },
+    { ...base, id: 'o', role: 'APM', stage: 'onsite' },
+    { ...base, id: 's', role: 'SWE', stage: 'saved' },
+  ])
+  await old.table('status_suggestions').add({ id: 'g', dedupe_key: 'k', state: 'accepted', created_at: '2026-01-01T00:00:00Z', proposed_stage: 'onsite', previous_stage: 'phone' })
+  old.close()
+
+  const store = createLocalStore(name)
+  const apps = Object.fromEntries((await store.listApplications()).map((a) => [a.id, a]))
+  expect(apps.p).toMatchObject({ stage: 'interview', interviews: [{ format: 'remote' }] })
+  expect(apps.o).toMatchObject({ stage: 'interview', interviews: [{ format: 'onsite' }] })
+  expect(apps.s).toMatchObject({ stage: 'saved', interviews: [] })
+  expect((await store.listSuggestions())[0]).toMatchObject({ proposed_stage: 'interview', previous_stage: 'interview' })
 })

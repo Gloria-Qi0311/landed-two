@@ -29,7 +29,7 @@ export type PortalResult = {
 
 export const MAX_PORTAL_ITEMS = 5
 const OUTCOMES: PortalOutcome[] = ['status_found', 'login_required', 'not_found', 'error']
-const STAGES = ['saved', 'applied', 'oa', 'phone', 'onsite', 'offer', 'rejected', 'ghosted']
+const STAGES = ['saved', 'applied', 'oa', 'interview', 'offer', 'rejected', 'ghosted']
 
 function text(v: unknown, max: number): string | null {
   if (typeof v !== 'string') return null

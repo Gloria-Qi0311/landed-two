@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import { NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import { LandedMark, Icon, stageColors } from './primitives';
-import { STAGES, PORTAL_STATUS } from '../data';
+import { STAGES, PORTAL_STATUS, columnOf } from '../data';
 import { AccountAvatar } from './auth';
 
 export const Sidebar = ({ apps, account, onProfileClick, navCounts = {} }) => {
@@ -20,9 +20,9 @@ export const Sidebar = ({ apps, account, onProfileClick, navCounts = {} }) => {
     const c = { all: apps.length, active: 0, starred: 0 };
     STAGES.forEach(s => c[s.id] = 0);
     apps.forEach(a => {
-      c[a.stage]++;
+      c[columnOf(a.stage)] = (c[columnOf(a.stage)] ?? 0) + 1;
       if (a.starred) c.starred++;
-      if (!['rejected', 'ghosted'].includes(a.stage)) c.active++;
+      if (!['rejected', 'ghosted', 'saved'].includes(a.stage)) c.active++;
     });
     return c;
   }, [apps]);

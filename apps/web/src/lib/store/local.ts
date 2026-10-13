@@ -6,6 +6,7 @@
 // same defaults, same enum checks, same "reference must exist" rules — so a
 // device's data always uploads cleanly when the user turns Cloud on.
 import Dexie, { type Table } from 'dexie'
+import { normalizeStage, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
@@ -16,7 +17,6 @@ import {
 
 const LOCAL_USER = 'local'
 
-const STAGES = ['saved', 'applied', 'oa', 'phone', 'onsite', 'offer', 'rejected', 'ghosted']
 const REMOTES = ['Remote', 'Hybrid', 'On-site']
 const PROVIDERS = ['greenhouse', 'lever', 'workday', 'ashby', 'bamboohr', 'boss', 'smartrecruiters', 'other']
 const STATUSES = ['active', 'syncing', 'expired', 'disconnected']
@@ -97,6 +97,18 @@ class LandedDB extends Dexie {
     this.version(4).stores({
       job_searches: 'id, status, created_at',
     })
+    // v5: one `interview` stage with interview rounds replaces phone + onsite.
+    this.version(5).stores({}).upgrade(async (tx) => {
+      await tx.table('applications').toCollection().modify((a: DbApplication) => {
+        const n = normalizeStage(a.stage)
+        a.interviews = parseInterviews(a.interviews) ?? (n?.round ? [n.round] : [])
+        if (n) a.stage = n.stage
+      })
+      await tx.table('status_suggestions').toCollection().modify((s: DbSuggestion) => {
+        if (s.proposed_stage) s.proposed_stage = normalizeStage(s.proposed_stage)?.stage ?? s.proposed_stage
+        if (s.previous_stage) s.previous_stage = normalizeStage(s.previous_stage)?.stage ?? s.previous_stage
+      })
+    })
   }
 }
 
@@ -111,13 +123,24 @@ function companyRow(input: CompanyInput, at: string): DbCompany {
   }
 }
 
+/** Same rules as the server: legacy phone/onsite → interview (+ the round
+ *  it stood for), interview rounds validated. */
+function stageAndRounds(stage: unknown, interviews: unknown, create: boolean) {
+  const n = stage === undefined ? undefined : normalizeStage(stage)
+  if (n === null) throw new LocalStoreError(400, `stage must be one of: ${STAGE_VALUES.join(', ')}`)
+  let rounds = interviews === undefined ? undefined : parseInterviews(interviews)
+  if (rounds === null) throw new LocalStoreError(400, 'interviews must be an array of rounds')
+  if (create && rounds === undefined && n?.round) rounds = [n.round]
+  return { stage: n?.stage, interviews: rounds }
+}
+
 function applicationRow(companyId: string, input: ApplicationInput, at: string): DbApplication {
   required(input.role, 'role')
-  oneOf(input.stage, STAGES, 'stage')
+  const { stage, interviews } = stageAndRounds(input.stage, input.interviews, true)
   oneOf(input.remote, REMOTES, 'remote')
   return {
     id: uuid(), user_id: LOCAL_USER, company_id: companyId,
-    role: input.role, team: input.team ?? null, stage: input.stage ?? 'saved',
+    role: input.role, team: input.team ?? null, stage: stage ?? 'saved', interviews: interviews ?? [],
     salary: input.salary ?? null, location: input.location ?? null, remote: input.remote ?? null,
     applied_at: input.applied_at ?? null, next_step: input.next_step ?? null,
     referral: input.referral ?? false, source: input.source ?? null, job_id: input.job_id ?? null,
@@ -192,7 +215,9 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         if (!row) throw new LocalStoreError(404, 'application not found')
         const clean: ApplicationPatch = {}
         for (const k of APPLICATION_PATCH_FIELDS) if (patch[k] !== undefined) (clean as Record<string, unknown>)[k] = patch[k]
-        oneOf(clean.stage, STAGES, 'stage')
+        const { stage, interviews } = stageAndRounds(clean.stage, clean.interviews, false)
+        if (stage) clean.stage = stage
+        if (interviews) clean.interviews = interviews
         oneOf(clean.remote, REMOTES, 'remote')
         if (clean.role !== undefined) required(clean.role, 'role')
         const next = { ...row, ...clean, last_activity_at: now() }
@@ -460,7 +485,11 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         for (const t of SNAPSHOT_TABLES) await db[t].clear()
         const own = <T,>(rows: T[] | undefined) => (rows ?? []).map((r) => ({ ...r, user_id: LOCAL_USER }))
         await db.companies.bulkAdd(own(snapshot.companies) as DbCompany[])
-        await db.applications.bulkAdd(own(snapshot.applications) as DbApplication[])
+        // Older backups: phone/onsite → interview (+ round), rounds validated.
+        await db.applications.bulkAdd((own(snapshot.applications) as DbApplication[]).map((a) => {
+          const n = normalizeStage(a.stage)
+          return { ...a, stage: n?.stage ?? 'saved', interviews: parseInterviews(a.interviews) ?? (n?.round ? [n.round] : []) }
+        }))
         await db.resumes.bulkAdd(own(snapshot.resumes) as DbResume[])
         await db.portal_connections.bulkAdd(own(snapshot.portal_connections) as DbPortalConnection[])
         await db.portal_events.bulkAdd(own(snapshot.portal_events) as DbPortalEvent[])

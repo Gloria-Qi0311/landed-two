@@ -330,10 +330,10 @@ describe('data isolation + CRUD', () => {
     const before = (await call('GET', '/api/applications', { token: alice })).body.find((a: any) => a.id === aliceAppId)
     const res = await call('PATCH', `/api/applications/${aliceAppId}`, {
       token: alice,
-      body: { stage: 'onsite', user_id: '00000000-0000-0000-0000-000000000000' },
+      body: { stage: 'oa', user_id: '00000000-0000-0000-0000-000000000000' },
     })
     assert.equal(res.status, 200)
-    assert.equal(res.body.stage, 'onsite')
+    assert.equal(res.body.stage, 'oa')
     assert.equal(res.body.user_id, before.user_id)
     assert.ok(Date.parse(res.body.last_activity_at) >= Date.parse(before.last_activity_at))
     assert.equal((await call('PATCH', `/api/applications/${aliceAppId}`, { token: alice, body: { stage: 'bogus' } })).status, 400)
@@ -543,7 +543,8 @@ describe('sync: local device <-> Landed Cloud', () => {
     assert.equal(exp.body.profile.onboarded_at, now)
     assert.deepEqual(exp.body.applications.map((a: any) => a.id).sort(), [snap.applications[0].id, snap.applications[1].id].sort())
     const pm = exp.body.applications.find((a: any) => a.role === 'PM')
-    assert.equal(pm.stage, 'onsite')
+    assert.equal(pm.stage, 'interview', 'older backups: onsite → interview')
+    assert.deepEqual(pm.interviews, [{ round: null, format: 'onsite', interviewers: [], at: null, note: null }])
     assert.equal(pm.starred, true)
     assert.equal(exp.body.resumes[0].is_current, true)
     assert.deepEqual(exp.body.ai_runs[0].parsed_json, [1])
@@ -676,7 +677,7 @@ describe('observation processing storage (Cloud)', () => {
   })
   const suggestion = (over: Record<string, unknown> = {}) => ({
     dedupe_key: 'msg:<m1>:interview', kind: 'stage_change', state: 'pending', application_id: null, candidate_ids: [],
-    company_name: 'Acme', role: 'PM', status: 'interview', proposed_stage: 'phone', previous_stage: null,
+    company_name: 'Acme', role: 'PM', status: 'interview', proposed_stage: 'interview', previous_stage: null,
     confidence: 0.9, evidence: { source: 'gmail', subject: 'Interview' }, observation_ids: ['o1'], provider: 'meta_muse',
     resolved_at: null, ...over,
   })
@@ -720,7 +721,7 @@ describe('observation processing storage (Cloud)', () => {
     const id = crypto.randomUUID()
     const put = await call('PUT', `/api/status-suggestions/${id}`, { token: owner, body: suggestion() })
     assert.equal(put.status, 200, JSON.stringify(put.body))
-    assert.equal(put.body.proposed_stage, 'phone')
+    assert.equal(put.body.proposed_stage, 'interview')
     assert.equal((await call('PUT', `/api/status-suggestions/${crypto.randomUUID()}`, { token: owner, body: suggestion() })).status, 409)
     assert.equal((await call('PUT', `/api/status-suggestions/${crypto.randomUUID()}`, { token: owner, body: suggestion({ dedupe_key: 'k2', proposed_stage: 'nope' }) })).status, 400)
     const resolved = await call('PATCH', `/api/status-suggestions/${id}`, { token: owner, body: { state: 'accepted', previous_stage: 'applied', resolved_at: new Date().toISOString() } })
@@ -989,6 +990,35 @@ describe('email_check: the user\'s agent reads their mailbox', () => {
     assert.equal(done.findings[0].evidence.received_at, '2026-10-10T09:00:00.000Z')
     web.close()
     daemon.close()
+  })
+})
+
+describe('pipeline: one interview stage with rounds', () => {
+  test('legacy phone/onsite are normalized; rounds are validated; the migration moved old rows', async () => {
+    const owner = await signup('pipeline@example.com')
+    const add = (application: Record<string, unknown>) => call('POST', '/api/applications', { token: owner, body: { company: { name: 'Acme' }, application } })
+    const phone = await add({ role: 'PM', stage: 'phone' })
+    assert.equal(phone.status, 201, JSON.stringify(phone.body))
+    assert.equal(phone.body.stage, 'interview')
+    assert.deepEqual(phone.body.interviews, [{ round: null, format: 'remote', interviewers: [], at: null, note: null }])
+    assert.equal((await add({ role: 'APM', stage: 'hired' })).status, 400)
+
+    const plain = await add({ role: 'APM', stage: 'applied' })
+    assert.deepEqual(plain.body.interviews, [])
+    const tagged = await call('PATCH', `/api/applications/${plain.body.id}`, { token: owner, body: {
+      stage: 'interview', interviews: [{ round: 4, format: 'remote', interviewers: ['leader', 'ceo', 'hr'] }, 'junk'],
+    } })
+    assert.deepEqual(tagged.body.interviews, [{ round: 4, format: 'remote', interviewers: ['leader', 'hr'], at: null, note: null }])
+    assert.equal((await call('PATCH', `/api/applications/${plain.body.id}`, { token: owner, body: { interviews: 'many' } })).status, 400)
+    assert.equal((await call('PATCH', `/api/applications/${plain.body.id}`, { token: owner, body: { stage: 'onsite' } })).body.stage, 'interview')
+
+    // 0011 moved rows written before the interview stage existed
+    const [old] = await sql`insert into applications (user_id, company_id, role, stage) values (${phone.body.user_id}, ${phone.body.company_id}, 'Legacy', 'onsite') returning id`
+    const migration = (await import('node:fs')).readFileSync(new URL('../migrations/0011_interview_rounds.sql', import.meta.url), 'utf8')
+    await sql.unsafe(migration.replace(/alter table applications add column interviews[^;]*;/, ''))
+    const [row] = await sql`select stage, interviews from applications where id = ${old.id}`
+    assert.equal(row.stage, 'interview')
+    assert.equal(row.interviews[0].format, 'onsite')
   })
 })
 

@@ -14,6 +14,7 @@
 // same snapshot inserts nothing new. Companies merge by name and portal
 // connections by (company, provider), so signing in on a second device that
 // has its own data merges rather than duplicates.
+import { normalizeStage, parseInterviews } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
@@ -41,7 +42,7 @@ const COLUMNS = {
   applications: [
     'id', 'company_id', 'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at',
     'next_step', 'referral', 'source', 'job_id', 'portal_application_url', 'notes', 'starred',
-    'last_activity_at', 'created_at',
+    'last_activity_at', 'created_at', 'interviews',
   ],
   portal_connections: [
     'id', 'company_id', 'provider', 'portal_host', 'status', 'last_sync_at', 'last_seen_login_at',
@@ -68,12 +69,13 @@ function defaults(now: string): Row {
     created_at: now, last_activity_at: now, referral: false, starred: false, stage: 'saved',
     status: 'active', payload_json: {}, is_current: false, processing_status: 'pending',
     sources: [], candidate_ids: [], evidence: {}, observation_ids: [], state: 'pending', updated_at: now,
+    interviews: [],
   }
 }
 
 const JSON_COLUMNS = new Set([
   'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
-  'brief', 'last_run_result',
+  'brief', 'last_run_result', 'interviews',
 ])
 
 function chunks<T>(rows: T[]): T[][] {
@@ -144,7 +146,11 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
     const cid = companyId.get(r.company_id)
     if (!cid) continue // orphan: its company isn't in the snapshot
     appIds.add(r.id)
-    apps.push(normalize('applications', r, { company_id: cid }))
+    // Older backups: phone/onsite → interview (+ the round it stood for).
+    const stage = normalizeStage(r.stage ?? 'saved')
+    if (!stage) fail(400, `applications[]: unknown stage ${JSON.stringify(r.stage)}`)
+    const interviews = parseInterviews(r.interviews) ?? (stage.round ? [stage.round] : [])
+    apps.push(normalize('applications', r, { company_id: cid, stage: stage.stage, interviews }))
   }
   counts.applications = await insertRows('applications', apps)
 
@@ -215,9 +221,12 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
   counts.job_leads = await insertRows('job_leads', list('job_leads')
     .filter((r) => typeof r.fingerprint === 'string')
     .map((r) => normalize('job_leads', r, { application_id: appRef(r.application_id) })), true)
+  const stageOf = (v: unknown) => (v == null ? null : normalizeStage(v)?.stage ?? null)
   counts.status_suggestions = await insertRows('status_suggestions', list('status_suggestions')
     .filter((r) => typeof r.dedupe_key === 'string')
-    .map((r) => normalize('status_suggestions', r, { application_id: appRef(r.application_id) })), true)
+    .map((r) => normalize('status_suggestions', r, {
+      application_id: appRef(r.application_id), proposed_stage: stageOf(r.proposed_stage), previous_stage: stageOf(r.previous_stage),
+    })), true)
 
   // searches — an uploaded active search loses to the account's current one
   // (one active per account), so it arrives archived instead.

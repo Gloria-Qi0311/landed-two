@@ -102,7 +102,7 @@
 | `applied` | `applied` |
 | `recruiter_response` | 不改阶段，只在活动记录里加一条"Recruiter 回复了" |
 | `assessment`（在线测评 / 笔试 / take-home 邀请） | 当前是 saved / applied 时建议 `oa`；已经过了 OA 就只记活动 |
-| `interview` | 当前是 saved / applied / oa 时建议 `phone`；当前是 phone 时建议 `onsite` |
+| `interview` | 当前是 saved / applied / oa 时建议 `interview`；已经在 interview 了就只记活动（又一轮，轮次由用户在卡片上标） |
 | `rejected` | `rejected` |
 | `offer` | `offer` |
 | `other` | 只记活动 |

@@ -120,7 +120,7 @@ describe('application_status — automatic mode (default)', () => {
   const sure = (id: string) => ({ confidence: 0.9, evidence: gmail(id) })
 
   test.each([
-    ['interview', 'phone'],
+    ['interview', 'interview'],
     ['assessment', 'oa'],
     ['rejected', 'rejected'],
     ['offer', 'offer'],
@@ -155,7 +155,7 @@ describe('application_status — automatic mode (default)', () => {
   test('confident email for an untracked application adds it at the right stage', () => {
     const out = processObservation(statusObs({ status: 'interview', company: 'Figma', role: 'Designer', ...sure('new-int') }), pipeline, opts)
     expect(out.effects.map((e) => e.type)).toEqual(['save_suggestion', 'create_application'])
-    expect(out.effects[1]).toMatchObject({ application: { company_name: 'Figma', stage: 'phone' } })
+    expect(out.effects[1]).toMatchObject({ application: { company_name: 'Figma', stage: 'interview' } })
   })
 
   test('still asks when it cannot tell which application, or when re-opening a closed one', () => {
@@ -167,7 +167,7 @@ describe('application_status — automatic mode (default)', () => {
   })
 
   test('never moves backwards', () => {
-    const atOnsite = ctx({ companies, applications: [app('a', 'co-ramp', 'Ops', 'onsite')] })
+    const atOnsite = ctx({ companies, applications: [app('a', 'co-ramp', 'Ops', 'interview')] })
     expect(processObservation(statusObs({ status: 'applied', company: 'Ramp', ...sure('late-auto') }), atOnsite, opts).effects).toEqual([])
   })
 })
@@ -200,7 +200,7 @@ describe('application_status — manual mode (autoApply off)', () => {
   })
 
   test('interview, rejection and offer always need a human', () => {
-    for (const [s, stage] of [['interview', 'phone'], ['rejected', 'rejected'], ['offer', 'offer']] as const) {
+    for (const [s, stage] of [['interview', 'interview'], ['rejected', 'rejected'], ['offer', 'offer']] as const) {
       const out = processObservation(status({ status: s, company: 'Ramp', confidence: 0.99, evidence: gmail(`m-${s}`) }), pipeline, opts)
       expect(out.status).toBe('needs-review')
       expect(out.effects).toEqual([expect.objectContaining({ type: 'save_suggestion', suggestion: expect.objectContaining({ kind: 'stage_change', proposed_stage: stage, state: 'pending' }) })])
@@ -210,17 +210,19 @@ describe('application_status — manual mode (autoApply off)', () => {
   test('an online assessment moves applied → OA; past OA it is information only', () => {
     const at = (stage: string) => ctx({ settings: { autoApply: false }, companies, applications: [app('a', 'co-ramp', 'Ops', stage)] })
     expect(processObservation(status({ status: 'assessment', company: 'Ramp' }), at('applied'), opts).effects[0]).toMatchObject({ suggestion: { kind: 'stage_change', proposed_stage: 'oa' } })
-    expect(processObservation(status({ status: 'assessment', company: 'Ramp' }), at('phone'), opts).effects[0]).toMatchObject({ suggestion: { kind: 'note' } })
+    expect(processObservation(status({ status: 'assessment', company: 'Ramp' }), at('interview'), opts).effects[0]).toMatchObject({ suggestion: { kind: 'note' } })
   })
 
-  test('interview maps to the next interview stage', () => {
-    const atPhone = ctx({ settings: { autoApply: false }, companies, applications: [app('a', 'co-ramp', 'Ops', 'phone')] })
-    const out = processObservation(status({ status: 'interview', company: 'Ramp' }), atPhone, opts)
-    expect(out.effects[0]).toMatchObject({ suggestion: { proposed_stage: 'onsite' } })
+  test('another interview while interviewing is a new round, not a new stage', () => {
+    const at = (stage: string) => ctx({ settings: { autoApply: false }, companies, applications: [app('a', 'co-ramp', 'Ops', stage)] })
+    expect(processObservation(status({ status: 'interview', company: 'Ramp' }), at('oa'), opts).effects[0]).toMatchObject({ suggestion: { proposed_stage: 'interview' } })
+    expect(processObservation(status({ status: 'interview', company: 'Ramp' }), at('interview'), opts).effects[0]).toMatchObject({ suggestion: { kind: 'note' } })
+    // rows from before the single interview stage still count as interviewing
+    expect(processObservation(status({ status: 'interview', company: 'Ramp' }), at('onsite'), opts).effects[0]).toMatchObject({ suggestion: { kind: 'note' } })
   })
 
   test('never moves backwards; a late confirmation is a no-op', () => {
-    const atOnsite = ctx({ settings: { autoApply: false }, companies, applications: [app('a', 'co-ramp', 'Ops', 'onsite')] })
+    const atOnsite = ctx({ settings: { autoApply: false }, companies, applications: [app('a', 'co-ramp', 'Ops', 'interview')] })
     const out = processObservation(status({ status: 'applied', company: 'Ramp', confidence: 0.99, evidence: gmail('late') }), atOnsite, opts)
     expect(out).toMatchObject({ status: 'processed', effects: [], result: { no_change: 'backward' } })
   })
@@ -282,7 +284,7 @@ describe('application_status — manual mode (autoApply off)', () => {
       status({ status: 'interview', company: 'Ramp', evidence: gmail('mixed') }),
       status({ status: 'rejected', company: 'Ramp', evidence: gmail('mixed') }),
     ], pipeline)
-    expect(c.suggestions.map((s) => s.proposed_stage).sort()).toEqual(['phone', 'rejected'])
+    expect(c.suggestions.map((s) => s.proposed_stage).sort()).toEqual(['interview', 'rejected'])
   })
 
   test('re-processing a status observation is a no-op', () => {

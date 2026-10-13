@@ -24,7 +24,7 @@ export function AddApplicationModal({ open, onClose, onAdd }) {
   const [companyId, setCompanyId] = useState('');
   const [role, setRole] = useState('');
   const [team, setTeam] = useState('');
-  const [stage, setStage] = useState('saved');
+  const [stage, setStage] = useState('applied');
   const [location, setLocation] = useState('');
   const [salary, setSalary] = useState('');
   const [source, setSource] = useState('');
@@ -39,7 +39,7 @@ export function AddApplicationModal({ open, onClose, onAdd }) {
     setCompanyId('');
     setRole('');
     setTeam('');
-    setStage('saved');
+    setStage('applied');
     setLocation('');
     setSalary('');
     setSource('');
@@ -154,7 +154,8 @@ export function AddApplicationModal({ open, onClose, onAdd }) {
             <div>
               <label htmlFor="aam-stage" style={FIELD.label}>Stage</label>
               <select id="aam-stage" value={stage} onChange={(e) => setStage(e.target.value)} style={FIELD.input}>
-                {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                {STAGES.filter(s => s.id !== 'rejected').map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                <option value="saved">Lead — not applied yet</option>
               </select>
             </div>
           </div>

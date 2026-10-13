@@ -1,7 +1,8 @@
 // Detail drawer for a single application
 import React, { useEffect } from 'react';
 import { CompanyMark, Icon, PortalDot, stageColors } from './primitives';
-import { STAGES, PORTAL_STATUS } from '../data';
+import { STAGES, STAGE_LABELS, PORTAL_STATUS, columnOf } from '../data';
+import { InterviewRounds } from './interview-rounds';
 
 // "Open in portal" target — per spec.md §6:
 // portal_application_url > company.portal_url > generic Google search fallback.
@@ -31,7 +32,7 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
   // Fake event history
   const events = [
     { date: 'Apr 19', type: 'auto', text: 'Status pulled from portal: no change' },
-    app.stage !== 'saved' && app.stage !== 'applied' && { date: `Apr ${19 - Math.max(1, Math.floor(app.appliedDays / 2))}`, type: 'milestone', text: `Advanced to ${STAGES.find(s => s.id === app.stage).label}` },
+    app.stage !== 'saved' && app.stage !== 'applied' && { date: `Apr ${19 - Math.max(1, Math.floor(app.appliedDays / 2))}`, type: 'milestone', text: `Advanced to ${STAGE_LABELS[app.stage] ?? app.stage}` },
     { date: `Apr ${19 - app.appliedDays}`, type: 'milestone', text: 'Application submitted' },
     app.referral && { date: `Apr ${19 - app.appliedDays - 2}`, type: 'note', text: 'Referral submitted' },
   ].filter(Boolean);
@@ -68,7 +69,7 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Stage</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {STAGES.map(s => (
+            {[{ id: 'saved', label: 'Lead' }, ...STAGES, { id: 'ghosted', label: 'Ghosted' }].map(s => (
               <button key={s.id} onClick={() => onUpdate(app.id, { stage: s.id })}
                 style={{
                   padding: '4px 9px', borderRadius: 999,
@@ -85,6 +86,16 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
             ))}
           </div>
         </div>
+
+        {/* Interview rounds — Interview stage (or any rounds already logged) */}
+        {(columnOf(app.stage) === 'interview' || app.interviews?.length > 0) && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+              Interviews{app.interviews?.length ? ` · ${app.interviews.length}` : ''}
+            </div>
+            <InterviewRounds rounds={app.interviews ?? []} onChange={(interviews) => onUpdate(app.id, { interviews })} />
+          </div>
+        )}
 
         {/* Portal sync status */}
         <div style={{

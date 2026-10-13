@@ -49,6 +49,15 @@ Like Multica: the user pairs a computer (Applications → **Ask Agent** panel �
 - Runtime tokens (`landed_rt_…`) only reach `/api/runtime/*`; they are not sessions.
 - **Agent UI lives on the Applications page**, Feishu-Bitable style: the **Ask Agent** button opens a side panel (`components/agent-panel.tsx`) — chat when a computer is online, setup when not, settings behind the gear (`?agent=chat|settings`). Don't add separate pages/tabs for agent features; `/agents` only redirects into the panel.
 
+## Pipeline: Leads → Applied → OA / Test → Interview → Offer → Rejected
+
+Stages and interview rounds live in `packages/schema/src/pipeline.ts` (shared by web, server and the processor's callers).
+
+- **`saved` is shown as a lead**: the Leads column holds both agent-found jobs (`job_leads`) and applications not applied to yet (stage `saved`). There is no Saved column.
+- **`ghosted` is a kind of closed**: it shows in the Rejected column with a tag.
+- **One `interview` stage** replaced phone + onsite. Each application carries `interviews: [{round, format: onsite|remote, interviewers: [peer|teammate|leader|hr], at, note}]`, edited in the detail drawer, and the latest round shows on the card.
+- `phone` / `onsite` are legacy. Postgres can't drop enum values, so they stay in the type, but every write path normalizes them to `interview` plus the round they stood for: server routes, snapshot upload, local store, and Dexie v5 for data already in the browser. Never write them again. Board columns and filters go through `columnOf()` in `apps/web/src/data.js`.
+
 ## Landed Cloud backend: `apps/server` + Postgres (no Supabase)
 
 Supabase was removed. The API server (`apps/server`, Hono + postgres.js) owns Cloud auth, every table, realtime, and portal-ingest; it also serves the built web app. See `apps/server/README.md` for setup and deployment.

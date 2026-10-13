@@ -15,7 +15,8 @@ const AUTO_APPLY_CONFIDENCE = 0.8
 const MATCH_MIN_SIMILARITY = 0.6
 const MATCH_MIN_MARGIN = 0.2
 
-const STAGE_ORDER: Record<string, number> = { saved: 0, applied: 1, oa: 2, phone: 3, onsite: 4, offer: 5 }
+// phone/onsite: legacy rows that predate the single interview stage.
+const STAGE_ORDER: Record<string, number> = { saved: 0, applied: 1, oa: 2, interview: 3, phone: 3, onsite: 3, offer: 4 }
 const TERMINAL = new Set(['offer', 'rejected', 'ghosted'])
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
@@ -143,12 +144,11 @@ export function proposedStage(status: EmailStatus, current: string): Stage | nul
       if (TERMINAL.has(current)) return 'oa'
       return null
     case 'interview':
-      if (current === 'saved' || current === 'applied' || current === 'oa') return 'phone'
-      if (current === 'phone') return 'onsite'
+      if (current === 'saved' || current === 'applied' || current === 'oa') return 'interview'
       // An interview for a closed application may be a re-open: propose it
-      // (direction() marks it 'reopen', which always asks). At onsite it's
-      // just another round — information only.
-      if (TERMINAL.has(current)) return 'phone'
+      // (direction() marks it 'reopen', which always asks). Already
+      // interviewing: just another round — information only.
+      if (TERMINAL.has(current)) return 'interview'
       return null
     case 'rejected': return 'rejected'
     case 'offer': return 'offer'

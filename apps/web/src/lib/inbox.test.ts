@@ -74,9 +74,9 @@ describe('processPending', () => {
     const app = await store.addApplication({ name: 'Ramp' }, { role: 'Ops', stage: 'applied' })
     await deliver(store, observation('application_status', { status: 'interview', company: 'Ramp', confidence: 0.9, evidence: gmail('auto-i') }))
     await processPending(store, settings)
-    expect((await store.listApplications())[0].stage).toBe('phone')
+    expect((await store.listApplications())[0].stage).toBe('interview')
     const [s] = await store.listSuggestions()
-    expect(s).toMatchObject({ state: 'auto_applied', previous_stage: 'applied', proposed_stage: 'phone', application_id: app.id })
+    expect(s).toMatchObject({ state: 'auto_applied', previous_stage: 'applied', proposed_stage: 'interview', application_id: app.id })
     await undoSuggestion(store, s, await store.listApplications())
     expect((await store.listApplications())[0].stage).toBe('applied')
   })
@@ -104,13 +104,13 @@ describe('processPending', () => {
     const suggestions = await store.listSuggestions()
     const interview = suggestions.find((s) => s.company_name === 'Ramp')!
     const rejection = suggestions.find((s) => s.company_name === 'Linear')!
-    expect(interview).toMatchObject({ state: 'pending', proposed_stage: 'phone' })
+    expect(interview).toMatchObject({ state: 'pending', proposed_stage: 'interview' })
     expect((await store.listAgentObservations(5)).every((o) => o.processing_status === 'needs-review')).toBe(true)
 
     await acceptSuggestion(store, interview, await store.listApplications())
     await rejectSuggestion(store, rejection.id)
     const apps = await store.listApplications()
-    expect(apps.find((a) => a.role === 'Ops')!.stage).toBe('phone')
+    expect(apps.find((a) => a.role === 'Ops')!.stage).toBe('interview')
     expect(apps.find((a) => a.role === 'Engineer')!.stage).toBe('applied')
     expect((await store.listSuggestions()).find((s) => s.id === interview.id)).toMatchObject({ state: 'accepted', previous_stage: 'applied' })
   })
@@ -126,7 +126,7 @@ describe('processPending', () => {
     expect(s.candidate_ids).toHaveLength(2)
     await expect(acceptSuggestion(store, s, await store.listApplications())).rejects.toThrow(/Pick which application/)
     await acceptSuggestion(store, s, await store.listApplications(), pm.id)
-    expect((await store.listApplications()).find((a) => a.id === pm.id)!.stage).toBe('phone')
+    expect((await store.listApplications()).find((a) => a.id === pm.id)!.stage).toBe('interview')
   })
 
   test('unmatched emails: manual mode suggests a new application, automatic mode adds it', async () => {
@@ -343,7 +343,7 @@ describe('no news for three weeks → ask; portal checks answer', () => {
   test('"ghosted" moves it (undoably); news since asking closes the question', async () => {
     const store = fresh()
     const a = await store.addApplication({ name: 'Databricks' }, { role: 'APM', stage: 'applied', last_activity_at: ago(30) })
-    const b = await store.addApplication({ name: 'Stripe' }, { role: 'PM', stage: 'phone', last_activity_at: ago(25) })
+    const b = await store.addApplication({ name: 'Stripe' }, { role: 'PM', stage: 'interview', last_activity_at: ago(25) })
     await flagQuietApplications(store, now)
     const qa = (await quietOf(store)).find((q) => q.application_id === a.id)!
     await acceptSuggestion(store, qa, await store.listApplications())

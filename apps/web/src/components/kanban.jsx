@@ -1,6 +1,9 @@
 // Kanban view with drag-and-drop between stages (optimistic update on drop).
-// When agents have found jobs, a Leads column comes first: dragging a lead
-// into a stage adds it to the pipeline at that stage; ✕ dismisses it.
+// Columns: Leads → Applied → OA / Test → Interview → Offer → Rejected.
+// Leads holds what you haven't applied to yet: jobs your agents found
+// (dashed; ✕ dismisses) and jobs you saved for later (stage `saved`).
+// Dragging either into a stage adds/moves it. Ghosted applications sit in
+// Rejected with a tag; Interview cards show their latest round.
 import React, { useState, useMemo } from 'react';
 import {
   DndContext,
@@ -12,8 +15,9 @@ import {
   useDroppable,
   DragOverlay,
 } from '@dnd-kit/core';
+import { latestRound, roundLabel } from '@landed/schema/pipeline';
 import { CompanyMark, PortalDot, Icon, stageColors } from './primitives';
-import { STAGES } from '../data';
+import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
 
 // ────────────────────────────────────────────────────────────────────────
@@ -32,6 +36,20 @@ function CardContent({ app, comp, c, isDuplicate }) {
         <PortalDot companyId={comp.id} />
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{app.role}</div>
+      {app.stage === 'ghosted' && (
+        <span style={{ fontSize: 10, color: stageColors.ghosted.fg, background: stageColors.ghosted.bg, border: `0.5px solid ${stageColors.ghosted.ring}`, padding: '1px 6px', borderRadius: 4, width: 'fit-content' }}>
+          Ghosted
+        </span>
+      )}
+      {columnOf(app.stage) === 'interview' && latestRound(app.interviews) && (
+        <span title={app.interviews.length > 1 ? `${app.interviews.length} rounds so far` : undefined} style={{
+          fontSize: 10.5, color: stageColors.interview.fg, background: stageColors.interview.bg, border: `0.5px solid ${stageColors.interview.ring}`,
+          padding: '1px 6px', borderRadius: 4, width: 'fit-content', display: 'flex', alignItems: 'center', gap: 4,
+        }}>
+          <Icon name={latestRound(app.interviews).format === 'onsite' ? 'map' : 'device'} size={10} />
+          {roundLabel(latestRound(app.interviews))}
+        </span>
+      )}
       {isDuplicate && (
         <div
           title="Same company + role exists on another application — possible duplicate from a second portal."
@@ -197,22 +215,33 @@ function DraggableLeadCard({ lead, onDismiss, onOpen }) {
   );
 }
 
-function LeadsColumn({ leads, onDismiss, onOpen }) {
+function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds }) {
+  // Dropping an application here puts it back to "not applied yet".
+  const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
+  const count = leads.length + saved.length;
   return (
-    <div style={{
-      minWidth: 280, width: 280, flexShrink: 0, background: 'transparent', borderRadius: 10,
+    <div ref={setNodeRef} style={{
+      minWidth: 280, width: 280, flexShrink: 0, background: isOver ? 'var(--surface-2)' : 'transparent', borderRadius: 10,
       border: '1px dashed var(--border-strong)', display: 'flex', flexDirection: 'column', maxHeight: '100%',
     }}>
       <div style={{ padding: '10px 12px 8px', borderBottom: '0.5px dashed var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name="wand" size={12} />
           <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fg)' }}>Leads</span>
-          <span style={{ marginLeft: 'auto', fontSize: 11, fontVariantNumeric: 'tabular-nums', color: 'var(--fg-muted)', background: 'var(--surface)', padding: '1px 7px', borderRadius: 8, border: '0.5px solid var(--border)' }}>{leads.length}</span>
+          <span style={{ marginLeft: 'auto', fontSize: 11, fontVariantNumeric: 'tabular-nums', color: 'var(--fg-muted)', background: 'var(--surface)', padding: '1px 7px', borderRadius: 8, border: '0.5px solid var(--border)' }}>{count}</span>
         </div>
-        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: 3 }}>Found by your agents — drag into a stage to add it</div>
+        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: 3 }}>Not applied yet — drag into a stage when you apply</div>
       </div>
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1 }}>
         {leads.map((l) => <DraggableLeadCard key={l.id} lead={l} onDismiss={onDismiss} onOpen={onOpen} />)}
+        {saved.map((a) => (
+          <DraggableCard key={a.id} app={a} comp={getCompany(a.companyId)} c={stageColors.saved} onOpen={onOpenApp} isDuplicate={duplicateIds.has(a.id)} />
+        ))}
+        {count === 0 && (
+          <div style={{ fontSize: 11, color: 'var(--fg-muted)', textAlign: 'center', padding: 16, border: '1px dashed var(--border)', borderRadius: 6, lineHeight: 1.5 }}>
+            Jobs your agents find land here.<br />Ask Agent → describe what you want.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -229,7 +258,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
     useSensor(KeyboardSensor),
   );
 
-  const pipelineStages = STAGES.filter(s => !['ghosted'].includes(s.id));
+  const pipelineStages = STAGES;
   const getCompany = (id) => companies.find(c => c.id === id);
 
   // Group apps by (companyId, normalized role) — same key on 2+ apps means
@@ -248,7 +277,9 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
       return;
     }
     const card = apps.find(a => a.id === cardId);
-    if (card && card.stage !== newStage && onMoveCard) {
+    // Same column (e.g. a ghosted card dropped back on Rejected): nothing to do.
+    const sameColumn = card && (newStage === 'saved' ? card.stage === 'saved' : columnOf(card.stage) === newStage);
+    if (card && !sameColumn && onMoveCard) {
       onMoveCard(cardId, newStage);
     }
   };
@@ -265,12 +296,13 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
       onDragCancel={() => setActiveId(null)}
     >
       <div style={{ display: 'flex', gap: 12, padding: '8px 28px 24px', overflowX: 'auto', height: '100%', alignItems: 'stretch' }}>
-        {leads.length > 0 && <LeadsColumn leads={leads} onDismiss={onDismissLead} onOpen={onOpenLead} />}
+        <LeadsColumn leads={leads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
+          onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds} />
         {pipelineStages.map(stage => (
           <DroppableColumn
             key={stage.id}
             stage={stage}
-            items={apps.filter(a => a.stage === stage.id)}
+            items={apps.filter(a => columnOf(a.stage) === stage.id)}
             c={stageColors[stage.id]}
             getCompany={getCompany}
             onOpen={onOpen}
