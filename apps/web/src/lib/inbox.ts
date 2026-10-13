@@ -341,10 +341,10 @@ function clickResolution(s: DbSuggestion, leads: DbJobLead[], apps: ApplicationR
 
 export const QUIET_DAYS = 21
 const DAY = 86_400_000
-const IN_PROGRESS = new Set(['applied', 'oa', 'interview', 'phone', 'onsite'])
+export const IN_PROGRESS = new Set(['applied', 'oa', 'interview', 'phone', 'onsite'])
 
 /** Latest sign of life: an edit/move, the applied date, or any agent update about it. */
-function lastSignal(app: Pick<DbApplication, 'id' | 'last_activity_at' | 'applied_at'>, suggestions: DbSuggestion[]) {
+export function lastSignal(app: Pick<DbApplication, 'id' | 'last_activity_at' | 'applied_at'>, suggestions: DbSuggestion[]) {
   let t = Math.max(Date.parse(app.last_activity_at) || 0, app.applied_at ? Date.parse(app.applied_at) || 0 : 0)
   for (const s of suggestions) {
     if (s.application_id === app.id && !isPanelQuestion(s)) t = Math.max(t, Date.parse(s.created_at) || 0)

@@ -83,18 +83,21 @@ function fit(el: HTMLTextAreaElement) {
 }
 
 /** A comma-separated list edited as text ("SQL, Python, Figma"). */
-export function EditableList({ items, onSave, placeholder = 'Add…', label }: {
+export function EditableList({ items, onSave, placeholder = 'Add…', label, separator = ',' }: {
   items: string[]
   onSave: (next: string[]) => void
   placeholder?: string
   label?: string
+  /** ';' for items that contain commas themselves ("Seattle, WA", "Engineer, Backend") */
+  separator?: ',' | ';'
 }) {
+  const split = separator === ';' ? /[;；\n]/ : /[,，\n]/
   return (
     <EditableText
       label={label}
-      value={items.join(', ')}
+      value={items.join(`${separator} `)}
       placeholder={placeholder}
-      onSave={(text) => onSave([...new Set(text.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean))])}
+      onSave={(text) => onSave([...new Set(text.split(split).map((s) => s.trim()).filter(Boolean))])}
     />
   )
 }

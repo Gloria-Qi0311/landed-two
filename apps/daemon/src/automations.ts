@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  AUTOMATION_KINDS, isDue, nextRun,
+  AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickQuietPortals,
   type AutomationKind, type AutomationResult, type AutomationRun, type Automations, type SyncContext, type SyncInput, type SyncOutput,
 } from '@landed/schema/automation'
 import { home } from './config.ts'
@@ -25,6 +25,8 @@ type State = {
   last_failure: Partial<Record<AutomationKind, string>>
   outbox: AutomationResult[]
   runs: AutomationRun[]
+  /** application id → when a portal check last looked at it */
+  portal_checked: Record<string, string>
 }
 
 const RETRY_MS = 30 * 60_000
@@ -34,11 +36,14 @@ const FIRST_EMAIL_LOOKBACK_MS = 30 * 86_400_000
 const EMAIL_OVERLAP_MS = 3_600_000
 
 const file = () => join(home(), 'automations.json')
-const empty = (): State => ({ runtime_id: null, automations: null, context: null, last_success: {}, last_failure: {}, outbox: [], runs: [] })
+const empty = (): State => ({ runtime_id: null, automations: null, context: null, last_success: {}, last_failure: {}, outbox: [], runs: [], portal_checked: {} })
 
 function load(): State {
   try {
-    return existsSync(file()) ? { ...empty(), ...JSON.parse(readFileSync(file(), 'utf8')) } : empty()
+    const st: State = existsSync(file()) ? { ...empty(), ...JSON.parse(readFileSync(file(), 'utf8')) } : empty()
+    // Saved by an older daemon: fill in automations added since.
+    if (st.automations) st.automations = parseAutomations(st.automations)
+    return st
   } catch {
     return empty()
   }
@@ -87,7 +92,7 @@ export function handleSync(input: SyncInput): SyncOutput {
   const st = s()
   st.outbox = st.outbox.filter((r) => !input.ack.includes(r.id))
   st.runtime_id = input.runtime_id
-  st.automations = input.automations
+  st.automations = parseAutomations(input.automations)
   st.context = input.context
   save()
   if (input.runtime_id === myRuntimeId) for (const kind of input.run_now) void runAutomation(kind)
@@ -108,14 +113,37 @@ export function tick() {
   }
 }
 
-function inputFor(kind: AutomationKind, ctx: SyncContext, st: State): Record<string, unknown> | string {
+type Planned =
+  | { input: Record<string, unknown>; items?: AutomationResult['items'] }
+  | { error: string }
+  /** nothing to do this time (not a failure) */
+  | { skip: string }
+
+function inputFor(kind: AutomationKind, ctx: SyncContext, st: State): Planned {
   if (kind === 'email_check') {
     const last = st.last_success.email_check
     const since = last ? new Date(Date.parse(last) - EMAIL_OVERLAP_MS) : ctx.email_since ? new Date(ctx.email_since) : new Date(Date.now() - FIRST_EMAIL_LOOKBACK_MS)
-    return { since: since.toISOString(), applications: ctx.applications }
+    return { input: { since: since.toISOString(), applications: ctx.applications } }
   }
-  if (!ctx.brief || !ctx.search_id) return 'No search direction yet — confirm one with your agent first.'
-  return { brief: ctx.brief, search_id: ctx.search_id }
+  if (kind === 'portal_check') {
+    const quiet = st.automations?.portal_check.quiet_days ?? 14
+    const picked = pickQuietPortals(ctx.portal_apps ?? [], quiet, st.portal_checked ?? {})
+    if (picked.length === 0) return { skip: `No application with a portal link has gone ${quiet} days without news.` }
+    // The agent sees refs, never application ids.
+    const items = picked.map((a, i) => ({ ref: String(i + 1), application_id: a.id, company: a.company }))
+    return { input: { items: picked.map((a, i) => ({ ref: String(i + 1), company: a.company, role: a.role, stage: a.stage, url: a.url })) }, items }
+  }
+  if (!ctx.brief || !ctx.search_id) return { error: 'No search direction yet — confirm one with your agent first.' }
+  return { input: { brief: ctx.brief, search_id: ctx.search_id } }
+}
+
+const PAYLOAD: Record<AutomationKind, 'findings' | 'jobs' | 'results'> = { email_check: 'findings', job_search: 'jobs', portal_check: 'results' }
+
+function describeRun(kind: AutomationKind, n: number) {
+  const s = n === 1 ? '' : 's'
+  if (kind === 'email_check') return `${n} application email${s}`
+  if (kind === 'portal_check') return `${n} portal${s} checked`
+  return `${n} job${s}`
 }
 
 async function runAutomation(kind: AutomationKind) {
@@ -126,15 +154,26 @@ async function runAutomation(kind: AutomationKind) {
   const run: AutomationRun = { id, kind, started_at: started, finished_at: null, status: 'running', summary: null, error: null }
   st.runs = [run, ...st.runs].slice(0, MAX_RUNS)
   const agent = pickAgent(kind)
-  const input = agent ? inputFor(kind, st.context, st) : kind === 'email_check'
-    ? 'No agent on this computer can read your email (Claude Code with a Gmail connector can).'
-    : 'No agent on this computer can search for jobs.'
-  if (typeof input === 'string') {
-    Object.assign(run, { status: 'error', error: input, finished_at: started })
+  const plan: Planned = agent ? inputFor(kind, st.context, st) : {
+    error: kind === 'email_check' ? 'No agent on this computer can read your email (Claude Code with a Gmail connector can).'
+      : kind === 'portal_check' ? "No agent on this computer can use Chrome (Claude Code with Claude in Chrome can)."
+      : 'No agent on this computer can search for jobs.',
+  }
+  if ('error' in plan) {
+    Object.assign(run, { status: 'error', error: plan.error, finished_at: started })
     st.last_failure[kind] = started
     save()
     return
   }
+  if ('skip' in plan) {
+    // Nothing to look at is a successful run: the schedule moves on.
+    Object.assign(run, { status: 'ok', summary: plan.skip, finished_at: started })
+    st.last_success[kind] = started
+    delete st.last_failure[kind]
+    save()
+    return
+  }
+  const input = plan.input
   running.add(kind)
   save()
   log(`automation: ${kind} started`)
@@ -147,15 +186,14 @@ async function runAutomation(kind: AutomationKind) {
   const finished = new Date().toISOString()
   run.finished_at = finished
   const e = end as TaskEvent | null
-  const payload = e?.type === 'done' ? (kind === 'email_check' ? e.findings : e.jobs) : undefined
+  const payload = e?.type === 'done' ? e[PAYLOAD[kind]] : undefined
   if (e?.type === 'done' && Array.isArray(payload)) {
     st.last_success[kind] = started
     delete st.last_failure[kind]
-    st.outbox.push({ id, kind, started_at: started, finished_at: finished, summary: e.text, ...(kind === 'email_check' ? { findings: payload } : { jobs: payload }) })
+    st.outbox.push({ id, kind, started_at: started, finished_at: finished, summary: e.text, [PAYLOAD[kind]]: payload, ...(plan.items ? { items: plan.items } : {}) })
+    for (const item of plan.items ?? []) (st.portal_checked ??= {})[item.application_id] = finished
     run.status = 'ok'
-    run.summary = kind === 'email_check'
-      ? `${payload.length} application email${payload.length === 1 ? '' : 's'}`
-      : `${payload.length} job${payload.length === 1 ? '' : 's'}`
+    run.summary = describeRun(kind, kind === 'portal_check' ? plan.items?.length ?? payload.length : payload.length)
   } else {
     st.last_failure[kind] = finished
     run.status = 'error'

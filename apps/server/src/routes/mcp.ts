@@ -23,6 +23,7 @@
 import { createHash } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { parseAutomations } from '@landed/schema/automation'
 import { parseBriefing, type Briefing } from '@landed/schema/cloud-agent'
 import { parseEmailFindings, type EmailFinding } from '@landed/schema/email-check'
 import { describeFoundJob, parseFoundJobs, type FoundJob, type SearchBrief } from '@landed/schema/search-brief'
@@ -41,7 +42,7 @@ const EMAIL_OVERLAP_MS = 3_600_000
 
 type Connection = {
   id: string; user_id: string; display_name: string; scopes: string[]; cloud_sync: boolean
-  email_watch: boolean; email_checked_at: string | null
+  automations: unknown; email_checked_at: string | null
 }
 
 type ToolResult = { content: { type: 'text'; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean }
@@ -171,17 +172,20 @@ function briefText(b: SearchBrief): string {
   ].join('\n')
 }
 
-/** The work for this account right now (exported for tests). */
-export function buildTasks(briefing: Briefing | null, user: { email_watch: boolean }, emailSince: Date, now = new Date()) {
+/** The work for this account right now: the automations the user turned
+ *  on (Automation page) that a cloud agent can do — a job search and an
+ *  email check. Portal checks need the user's own Chrome, so they stay on
+ *  the user's computer. */
+export function buildTasks(briefing: Briefing | null, on: { job_search: boolean; email_check: boolean }, emailSince: Date, now = new Date()) {
   const tasks: Record<string, unknown>[] = []
-  if (briefing?.brief) {
+  if (on.job_search && briefing?.brief) {
     tasks.push({
       id: 'job_search', title: 'Search for jobs', submit_with: 'submit_jobs',
       instructions: `${SEARCH_INSTRUCTIONS}\n\nToday is ${now.toISOString().slice(0, 10)}.\n\nSearch brief:\n${briefText(briefing.brief)}`,
       brief: briefing.brief,
     })
   }
-  if (user.email_watch) {
+  if (on.email_check) {
     const apps = briefing?.applications ?? []
     tasks.push({
       id: 'email_check', title: 'Check email for application updates', submit_with: 'submit_email_updates',
@@ -237,10 +241,14 @@ async function callTool(sql: Sql, conn: Connection, name: string, args: Record<s
     const briefing = row ? parseBriefing(row.context) : null
     const last = Math.max(conn.email_checked_at ? Date.parse(conn.email_checked_at) : 0, run ? Date.parse(run.last_done_at) : 0)
     const since = new Date(last ? last - EMAIL_OVERLAP_MS : now.getTime() - FIRST_EMAIL_LOOKBACK_DAYS * 86_400_000)
-    const tasks = buildTasks(briefing, conn, since, now)
-    const note = !row
-      ? "Landed hasn't received the user's search direction yet. Ask them to open Landed once (Agent page): it shares the brief while you're connected."
-      : !briefing?.brief ? 'The user has not confirmed a search direction in Landed yet, so there is no job search to run. They can agree on one with Landed\'s Agent.' : null
+    const automations = parseAutomations(conn.automations)
+    const on = { job_search: automations.job_search.enabled, email_check: automations.email_check.enabled }
+    const tasks = buildTasks(briefing, on, since, now)
+    const note = !on.job_search && !on.email_check
+      ? "The user hasn't turned on any automation in Landed (Automation page: job search, email check), so there's nothing to do."
+      : on.job_search && !row
+        ? "Landed hasn't received the user's search direction yet. Ask them to open Landed once: it shares the brief while you're connected."
+        : on.job_search && !briefing?.brief ? "The user hasn't confirmed a search direction in Landed yet, so there is no job search to run. They can agree on one with Landed's Agent." : null
     const text = tasks.length
       ? [`Landed has ${tasks.length} task${tasks.length === 1 ? '' : 's'} for you.`, ...tasks.map((t, i) => `\n## ${i + 1}. ${t.title} (id: ${t.id}) — submit with ${t.submit_with}\n\n${t.instructions}`), ...(note ? [`\nNote: ${note}`] : [])].join('\n')
       : `Nothing to do right now.${note ? ` ${note}` : ''}`
@@ -300,7 +308,7 @@ type RpcRequest = { jsonrpc?: string; id?: string | number | null; method?: stri
 const rpcError = (id: RpcRequest['id'], code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } })
 const rpcResult = (id: RpcRequest['id'], result: unknown) => ({ jsonrpc: '2.0', id, result })
 
-const INSTRUCTIONS = "Landed is the user's job-hunt tracker. Call get_tasks first: it returns the work Landed wants done (a job search for the user's brief, an email check) with instructions, and names the tool to submit each result with (submit_jobs, submit_email_updates). Landed decides what results mean; never invent data."
+const INSTRUCTIONS = "Landed is the user's job-hunt tracker. Call get_tasks first: it returns the work the user turned on in Landed's Automation (a job search for their brief, an email check) with instructions, and names the tool to submit each result with (submit_jobs, submit_email_updates). Landed decides what results mean; never invent data."
 
 async function handle(sql: Sql, conn: Connection, msg: RpcRequest): Promise<object | null> {
   const isRequest = msg && typeof msg === 'object' && 'id' in msg && msg.id !== undefined
@@ -345,7 +353,7 @@ async function connectionFor(sql: Sql, header: string | undefined): Promise<Conn
   if (!token) return ''
   const [conn] = await sql<(Connection & { revoked_at: string | null; expired: boolean })[]>`
     select c.id, c.user_id, c.display_name, c.scopes, c.revoked_at, coalesce(c.token_expires_at < now(), false) as expired,
-           u.cloud_sync, u.email_watch, u.email_checked_at
+           u.cloud_sync, u.automations, u.email_checked_at
     from agent_connections c join users u on u.id = c.user_id
     where c.token_hash = ${sha256(token)}`
   if (!conn || conn.revoked_at) return 'the token is invalid or was revoked'

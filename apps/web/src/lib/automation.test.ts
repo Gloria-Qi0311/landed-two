@@ -61,6 +61,33 @@ describe('the browser side of a sync', () => {
     expect(designate(syncTargets(rts as never), parseAutomations({}))!.runtime.id).toBe('11111111-0000-4000-8000-000000000001')
   })
 
+  test('with portal checks on too, the computer that can also use Chrome wins', () => {
+    const mailOnly = runtime('11111111-0000-4000-8000-000000000003', ['automation_sync', 'email_check'], 'Gmail')
+    const both = runtime('11111111-0000-4000-8000-000000000004', ['automation_sync', 'email_check', 'portal_check'], 'Gmail')
+    const on = parseAutomations({ email_check: { enabled: true }, portal_check: { enabled: true } })
+    expect(designate(syncTargets([mailOnly, both] as never), on)!.runtime.id).toBe('11111111-0000-4000-8000-000000000004')
+  })
+
+  test('a finished portal check asks before changing a stage', async () => {
+    const store = createLocalStore('landed-auto-portal')
+    await store.addApplication({ name: 'Figma' }, { role: 'APM', stage: 'applied' })
+    const [app] = await store.listApplications()
+    const rt = runtime('11111111-0000-4000-8000-00000000000b', ['automation_sync', 'portal_check'])
+    answer = {
+      results: [{ id: '22222222-0000-4000-8000-000000000002', kind: 'portal_check', started_at: '2026-10-13T10:00:00.000Z', finished_at: '2026-10-13T10:05:00.000Z', summary: '1',
+        results: [{ ref: '1', outcome: 'status_found', status: 'rejected', status_text: 'Not selected', confidence: 0.9 }],
+        items: [{ ref: '1', application_id: app.id, company: 'Figma' }] }],
+      runs: [], state: {},
+    }
+    await syncAutomations({
+      store, runtimes: [rt] as never, automations: parseAutomations({ portal_check: { enabled: true } }), settings: { autoApply: true },
+      context: async () => ({ applications: [], email_since: null, brief: null, search_id: null, portal_apps: [] }),
+      onStored: async () => { answer = { results: [], runs: [], state: {} } },
+    })
+    expect((await store.listApplications())[0].stage).toBe('applied') // unchanged until the user says so
+    expect(useAutomationSync.getState().stored['22222222-0000-4000-8000-000000000002'].text).toBe('1 needs you')
+  })
+
   test('finished email checks are stored through the processor, then acked', async () => {
     const store = createLocalStore('landed-auto-web')
     await store.addApplication({ name: 'Figma' }, { role: 'APM', stage: 'applied' })
@@ -74,7 +101,7 @@ describe('the browser side of a sync', () => {
     const stored: string[] = []
     await syncAutomations({
       store, runtimes: [rt] as never, automations: parseAutomations({ email_check: { enabled: true } }), settings: { autoApply: true },
-      context: async () => ({ applications: [], email_since: null, brief: null, search_id: null }),
+      context: async () => ({ applications: [], email_since: null, brief: null, search_id: null, portal_apps: [] }),
       onStored: async (kind) => { stored.push(kind); answer = { results: [], runs: [], state: {} } },
     })
     const [app] = await store.listApplications()

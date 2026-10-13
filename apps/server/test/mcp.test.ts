@@ -206,8 +206,12 @@ describe('MCP', () => {
     assert.deepEqual(tools.body.result.tools.map((t: { name: string }) => t.name), ['get_tasks', 'submit_jobs', 'submit_email_updates'])
     assert.equal((await rpc(access, 'nope/method')).body.error.code, -32601)
 
-    // Nothing shared yet.
+    // No automation on yet; then on, but nothing shared yet.
     let tasks = await tool(access, 'get_tasks')
+    assert.deepEqual(tasks.structuredContent.tasks, [])
+    assert.match(tasks.structuredContent.note, /Automation/)
+    await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true } } } })
+    tasks = await tool(access, 'get_tasks')
     assert.deepEqual(tasks.structuredContent.tasks, [])
     assert.match(tasks.structuredContent.note, /open Landed/)
 
@@ -217,7 +221,7 @@ describe('MCP', () => {
       body: { brief: { summary: 'Backend roles in Seattle', roles: ['Backend Engineer'], locations: ['Seattle, WA'] }, applications: [{ company: 'Blorp', role: 'Engineer', stage: 'applied' }, { company: '', role: 'x', stage: 'applied' }] },
     })
     assert.equal(shared.status, 200)
-    await call('PATCH', '/api/me', { token: session, body: { email_watch: true } })
+    await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true }, email_check: { enabled: true } } } })
     tasks = await tool(access, 'get_tasks')
     const [search, email] = tasks.structuredContent.tasks
     assert.equal(search.id, 'job_search')
@@ -290,6 +294,7 @@ describe('MCP', () => {
     const token = created.body.token
     assert.deepEqual(created.body.connection.scopes, ['observations:write', 'tasks:read'])
     await call('PUT', '/api/agent-briefing', { token: session, body: { brief: { roles: ['Product Manager'], locations: ['Remote'] }, applications: [] } })
+    await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true } } } })
 
     // MCP with the token as a Bearer header (Muse builds connectors from a URL + key).
     const viaMcp = await tool(token, 'get_tasks')

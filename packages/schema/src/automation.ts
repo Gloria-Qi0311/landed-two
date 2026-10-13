@@ -1,13 +1,17 @@
-// Automation: Landed's recurring agent work, on a schedule — checking email
-// for application updates and searching for new jobs with the confirmed
-// brief. The schedule is account-level (users.automations, /me). The daemon
+// Automation: Landed's recurring agent work, on a schedule. Three of them,
+// each "when → what → then":
+//   email_check   read new email → update applications
+//   job_search    search with the confirmed brief → new jobs in Leads
+//   portal_check  look at the candidate portals of applications that went
+//                 quiet (user's Chrome, read-only) → ask before updating
+// Everything else (how email updates are applied) belongs to one of them. The schedule is account-level (users.automations, /me). The daemon
 // on the user's computer runs it (so it works with Landed closed) and keeps
 // results on that computer until the browser picks them up (task kind
 // `automation_sync`): the browser sends the schedule + the context the tasks
 // need and acks what it has stored; the daemon answers with finished results
 // and its run log. Plain TS, no dependencies.
 
-export const AUTOMATION_KINDS = ['email_check', 'job_search'] as const
+export const AUTOMATION_KINDS = ['email_check', 'job_search', 'portal_check'] as const
 export type AutomationKind = typeof AUTOMATION_KINDS[number]
 
 /** Every N hours, or at a time of day on some days of the week (0 = Sunday),
@@ -16,16 +20,22 @@ export type Schedule =
   | { kind: 'interval'; hours: number }
   | { kind: 'daily'; time: string; days: number[] }
 
-export type AutomationConfig = { enabled: boolean; schedule: Schedule }
+/** `quiet_days` (portal_check only): look at an application's portal once
+ *  it has had no news for this many days. */
+export type AutomationConfig = { enabled: boolean; schedule: Schedule; quiet_days?: number }
 export type Automations = Record<AutomationKind, AutomationConfig>
 
 export const INTERVAL_HOURS = [1, 2, 4, 8, 12]
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
 export const WEEKDAYS = [1, 2, 3, 4, 5]
+export const QUIET_DAY_CHOICES = [7, 14, 21, 30]
+/** At most this many portals per run: each one is a few minutes of browsing. */
+export const MAX_PORTALS_PER_RUN = 5
 
 export const DEFAULT_AUTOMATIONS: Automations = {
   email_check: { enabled: false, schedule: { kind: 'interval', hours: 4 } },
   job_search: { enabled: false, schedule: { kind: 'daily', time: '09:00', days: ALL_DAYS } },
+  portal_check: { enabled: false, schedule: { kind: 'daily', time: '10:00', days: [1] }, quiet_days: 14 },
 }
 
 function parseSchedule(raw: unknown, fallback: Schedule): Schedule {
@@ -47,6 +57,7 @@ export function parseAutomations(raw: unknown): Automations {
     const d = DEFAULT_AUTOMATIONS[kind]
     const x = r[kind]
     out[kind] = { enabled: x?.enabled === true, schedule: parseSchedule(x?.schedule, d.schedule) }
+    if (kind === 'portal_check') out[kind].quiet_days = QUIET_DAY_CHOICES.includes(x?.quiet_days as number) ? x!.quiet_days as number : d.quiet_days
   }
   return out
 }
@@ -79,7 +90,21 @@ export function describeSchedule(s: Schedule): string {
   return `${days} at ${s.time}`
 }
 
+/** The applications a portal check looks at now: no news for `quietDays`
+ *  and not looked at in that time either, longest-quiet first, at most
+ *  MAX_PORTALS_PER_RUN. */
+export function pickQuietPortals(apps: PortalApp[], quietDays: number, lastChecked: Record<string, string>, now = Date.now()): PortalApp[] {
+  const cutoff = now - quietDays * 86_400_000
+  return apps
+    .filter((a) => Date.parse(a.last_signal_at) <= cutoff && !(Date.parse(lastChecked[a.id] ?? '') > cutoff))
+    .sort((a, b) => Date.parse(a.last_signal_at) - Date.parse(b.last_signal_at))
+    .slice(0, MAX_PORTALS_PER_RUN)
+}
+
 // ── the sync task (browser ⇄ daemon) ──────────────────────────────────────
+
+/** An in-progress application with a portal link, and its last sign of life. */
+export type PortalApp = { id: string; company: string; role: string; stage: string; url: string; last_signal_at: string }
 
 export type SyncContext = {
   /** for email checks: the applications Landed knows, and where to start reading */
@@ -88,6 +113,8 @@ export type SyncContext = {
   /** for job searches: the confirmed brief (packages/schema/src/search-brief.ts) */
   brief: unknown | null
   search_id: string | null
+  /** for portal checks: candidates (the daemon picks the quiet ones at run time) */
+  portal_apps: PortalApp[]
 }
 
 export type SyncInput = {
@@ -109,6 +136,9 @@ export type AutomationResult = {
   summary: string
   findings?: unknown[]
   jobs?: unknown[]
+  /** portal checks: what each portal showed, and which application each ref was */
+  results?: unknown[]
+  items?: { ref: string; application_id: string; company: string }[]
 }
 
 export type AutomationRun = {
@@ -152,6 +182,13 @@ export function parseSyncInput(raw: unknown): SyncInput | null {
       email_since: iso(c.email_since),
       brief: c.brief && typeof c.brief === 'object' ? c.brief : null,
       search_id: typeof c.search_id === 'string' && UUID.test(c.search_id) ? c.search_id : null,
+      portal_apps: (Array.isArray(c.portal_apps) ? c.portal_apps : []).slice(0, 100)
+        .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+        .map((a) => ({
+          id: String(a.id), company: str(a.company, 120).trim(), role: str(a.role, 200).trim(), stage: String(a.stage),
+          url: str(a.url, 2000).trim(), last_signal_at: iso(a.last_signal_at) ?? '',
+        }))
+        .filter((a) => UUID.test(a.id) && a.company && a.role && STAGES.includes(a.stage) && /^https?:\/\/[^\s/?#]+\.[^\s]*$/i.test(a.url) && a.last_signal_at),
     },
     run_now: (Array.isArray(r.run_now) ? r.run_now : []).filter(isKind),
     ack: (Array.isArray(r.ack) ? r.ack : []).filter((x): x is string => typeof x === 'string' && UUID.test(x)).slice(0, 200),
@@ -170,6 +207,12 @@ export function parseSyncOutput(raw: unknown): SyncOutput {
       summary: str(x.summary, 1000),
       ...(Array.isArray(x.findings) ? { findings: x.findings.slice(0, 100) } : {}),
       ...(Array.isArray(x.jobs) ? { jobs: x.jobs.slice(0, 60) } : {}),
+      ...(Array.isArray(x.results) ? { results: x.results.slice(0, MAX_PORTALS_PER_RUN) } : {}),
+      ...(Array.isArray(x.items) ? {
+        items: x.items.slice(0, MAX_PORTALS_PER_RUN)
+          .filter((i): i is Record<string, unknown> => !!i && typeof i === 'object' && typeof i.ref === 'string' && typeof i.application_id === 'string' && UUID.test(i.application_id))
+          .map((i) => ({ ref: str(i.ref, 8), application_id: i.application_id as string, company: str(i.company, 120) })),
+      } : {}),
     }))
   const runs = (Array.isArray(r.runs) ? r.runs : []).slice(0, 30)
     .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && isKind(x.kind))

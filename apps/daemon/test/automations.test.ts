@@ -73,3 +73,39 @@ test('another computer only keeps the settings; failures retry later; "run now" 
   assert.equal(out.results.find((r) => r.kind === 'job_search')?.jobs?.length, 1)
   assert.equal(out.runs.find((r) => r.kind === 'email_check')?.status, 'error')
 })
+
+test('portal checks: only quiet applications, refs not ids, not again until they are quiet again', async () => {
+  resetAutomationsForTests()
+  const calls: { kind: string; input: Record<string, unknown> }[] = []
+  setupAutomations({
+    runtimeId: 'rt-a', log: () => {},
+    runTask: async (task, emit) => { calls.push(task); emit({ type: 'done', text: '', results: [{ ref: '1', outcome: 'status_found', status: 'rejected' }] }) },
+  })
+  const day = 86_400_000
+  const app = (id: string, company: string, daysQuiet: number) => ({
+    id, company, role: 'APM', stage: 'applied', url: `https://jobs.example/${company}`, last_signal_at: new Date(Date.now() - daysQuiet * day).toISOString(),
+  })
+  const quietId = '11111111-1111-4111-8111-111111111111'
+  const portalAutomations = {
+    ...automations, email_check: { ...automations.email_check, enabled: false },
+    portal_check: { enabled: true, schedule: { kind: 'daily' as const, time: '10:00', days: [1] }, quiet_days: 14 },
+  }
+  const ctx = { ...context, portal_apps: [app(quietId, 'Figma', 20), app('22222222-2222-4222-8222-222222222222', 'Stripe', 3)] }
+  sync({ automations: portalAutomations, context: ctx, run_now: ['portal_check'] })
+  await settle()
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0].input, { items: [{ ref: '1', company: 'Figma', role: 'APM', stage: 'applied', url: 'https://jobs.example/Figma' }] })
+  const out = sync({ automations: portalAutomations, context: ctx })
+  assert.deepEqual(out.results[0].items, [{ ref: '1', application_id: quietId, company: 'Figma' }])
+  assert.equal(out.results[0].results?.length, 1)
+  assert.equal(out.runs[0].summary, '1 portal checked')
+
+  // Looked at just now: not again this week, and nothing else is quiet.
+  sync({ automations: portalAutomations, context: ctx, run_now: ['portal_check'], ack: [out.results[0].id] })
+  await settle()
+  assert.equal(calls.length, 1)
+  const after = sync({ automations: portalAutomations, context: ctx })
+  assert.equal(after.runs[0].status, 'ok')
+  assert.match(after.runs[0].summary ?? '', /No application/)
+  assert.equal(after.results.length, 0)
+})

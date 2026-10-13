@@ -3,7 +3,8 @@
 //   - "Did you apply?" after you open a posting from Landed;
 //   - "No news for 3+ weeks" for applications in progress: mark ghosted,
 //     keep waiting, or have your agent look at their candidate portals in
-//     Chrome — read-only, and only when you click.
+//     Chrome now — read-only (the Automation page can also do this on a
+//     schedule).
 // Each closes itself when an email, a portal check or a manual move answers
 // it (settleQuestions in lib/inbox.ts).
 import { useMemo, type ReactNode } from 'react'

@@ -34,6 +34,18 @@ export function needsDaemonUpdate(runtimes: Runtime[] | undefined) {
 }
 
 /** Confirm a brief (it becomes the active search) and start searching. */
+/** Change the search criteria in place (Automation page): the edited brief
+ *  becomes the active search, and the previous one is archived — the same
+ *  as confirming a new brief in the chat. */
+export function useEditBrief() {
+  const qc = useQueryClient()
+  const { store } = useStore()
+  return useMutation({
+    mutationFn: (brief: SearchBrief) => store.addJobSearch(brief),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['job_searches'] }),
+  })
+}
+
 export function useStartSearch() {
   const qc = useQueryClient()
   const { store } = useStore()
