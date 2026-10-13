@@ -47,11 +47,24 @@ const WEB_TOOLS = ['WebSearch', 'WebFetch']
 // last one that worked (~/.landed/capabilities.json), and the daemon
 // re-detects every 30 minutes (cli.ts).
 
-export type MailAccess = { server: string; label: string; tools: string[] }
+/** `denied`: the server's other tools (writes), denied outright as well. */
+export type MailAccess = { server: string; label: string; tools: string[]; denied?: string[] }
 
 const MAIL_SERVER = /\b(gmail|outlook|e?mail)\b/i
-const READ_TOOL = /(search|read|get|list|fetch|find|query|view)/i
-const WRITE_TOOL = /(send|create|draft|delete|trash|modify|update|move|archive|mark|add|remove|reply|forward|batch|label_)/i
+// By words, not substrings: "apply_sensitive_thread_label" contains "read"
+// (in "thread") but is a write. A tool is a read when its first word is a
+// read verb and no word anywhere is a write verb.
+const READ_VERBS = new Set(['search', 'read', 'get', 'list', 'fetch', 'find', 'query', 'view', 'lookup'])
+const WRITE_WORDS = new Set([
+  'send', 'create', 'draft', 'drafts', 'delete', 'trash', 'modify', 'update', 'move', 'archive', 'mark', 'add', 'remove',
+  'reply', 'forward', 'batch', 'apply', 'label', 'set', 'tag', 'star', 'unstar', 'snooze', 'mute', 'unsubscribe', 'block',
+  'write', 'edit', 'insert', 'import', 'save', 'upload', 'share', 'restore', 'untrash', 'spam',
+])
+const words = (name: string) => name.toLowerCase().split(/[^a-z0-9]+|(?<=[a-z])(?=[0-9])/).filter(Boolean)
+export function isReadOnlyTool(name: string): boolean {
+  const w = words(name.replace(/([a-z])([A-Z])/g, '$1_$2'))
+  return w.length > 0 && READ_VERBS.has(w[0]) && !w.some((x) => WRITE_WORDS.has(x))
+}
 
 /** `claude mcp list` output → servers and whether they're connected. */
 export function parseMcpList(out: string): { name: string; connected: boolean }[] {
@@ -77,8 +90,7 @@ export function readOnlyMailTools(serverName: string, toolNames: string[]): stri
   const prefix = `mcp__${serverName.replace(/[^a-zA-Z0-9_-]/g, '_')}__`
   return [...new Set(toolNames)].filter((t) => {
     if (!t.startsWith(prefix)) return false
-    const name = t.slice(prefix.length)
-    return READ_TOOL.test(name) && !WRITE_TOOL.test(name)
+    return isReadOnlyTool(t.slice(prefix.length))
   })
 }
 
@@ -130,13 +142,15 @@ export async function detectMail(): Promise<MailAccess | null> {
     '--tools', 'ToolSearch', '--allowedTools', 'ToolSearch',
   ], 90_000, (line) => found.push(...toolReferences(line)))
   const tools = readOnlyMailTools(server.name, found)
+  const prefix = `mcp__${server.name.replace(/[^a-zA-Z0-9_-]/g, '_')}__`
+  const denied = [...new Set(found)].filter((t) => t.startsWith(prefix) && !tools.includes(t))
   if (tools.length) {
-    const mail = { server: server.name, label: server.name.replace(/^claude\.ai\s+/i, ''), tools }
+    const mail = { server: server.name, label: server.name.replace(/^claude\.ai\s+/i, ''), tools, denied }
     saveMailCache(mail)
     return mail
   }
   // Connected, but its tools didn't load this time: trust the last good lookup.
-  const cached = loadMailCache()
+  const cached = cachedMail()
   return cached?.server === server.name ? cached : null
 }
 
@@ -197,6 +211,15 @@ function probeChrome(): Promise<boolean> {
   })
 }
 
+/** The last good lookup, re-checked with today's read-only rules (a cache
+ *  written by an older daemon may hold tools those rules now reject). */
+function cachedMail(): MailAccess | null {
+  const c = loadMailCache()
+  if (!c) return null
+  const tools = readOnlyMailTools(c.server, c.tools)
+  return tools.length ? { ...c, tools, denied: [...new Set([...(c.denied ?? []), ...c.tools.filter((t) => !tools.includes(t))])] } : null
+}
+
 let claudeMail: MailAccess | null = null
 
 /** `quick`: use the cached mailbox lookup instead of a fresh one (startup, so
@@ -206,7 +229,7 @@ export async function detectAgents(opts: { quick?: boolean } = {}): Promise<Agen
   for (const a of SUPPORTED) {
     const r = spawnSync(a.bin, ['--version'], { encoding: 'utf8', timeout: 15_000 })
     if (r.status !== 0) continue
-    const [mail, chrome] = await Promise.all([opts.quick ? loadMailCache() : detectMail(), probeChrome()])
+    const [mail, chrome] = await Promise.all([opts.quick ? cachedMail() : detectMail(), probeChrome()])
     claudeMail = mail
     found.push({
       id: a.id, label: a.label, version: r.stdout.trim().split('\n')[0] || null,
@@ -430,6 +453,7 @@ export function claudeEmailArgs(mail: MailAccess): string[] {
     // connector's tools are deferred behind it.
     '--tools', 'ToolSearch',
     '--allowedTools', 'ToolSearch', ...mail.tools, // + the mailbox's read tools only
+    ...(mail.denied?.length ? ['--disallowedTools', ...mail.denied] : []), // and its writes, denied outright
     '--setting-sources', '',
     '--json-schema', JSON.stringify(EMAIL_RESULT_SCHEMA),
     '--append-system-prompt', EMAIL_SYSTEM_PROMPT,

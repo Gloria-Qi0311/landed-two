@@ -37,7 +37,7 @@ export function workspace() {
 
 /** Last successful mailbox detection: claude.ai connectors don't always load,
  *  so a lookup that comes back empty falls back to what worked before. */
-export type MailCache = { server: string; label: string; tools: string[] }
+export type MailCache = { server: string; label: string; tools: string[]; denied?: string[] }
 
 export function loadMailCache(): MailCache | null {
   try {

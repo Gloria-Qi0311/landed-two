@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   CHROME_READ_TOOLS, chatWithHistory, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
-  parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
+  isReadOnlyTool, parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
 
@@ -86,10 +86,18 @@ test('mail access: only a connected mail server, only its read tools', () => {
   assert.deepEqual(toolReferences('not json'), [])
 })
 
+test('read-only means by words: "thread" is not "read"', () => {
+  for (const t of ['search_threads', 'get_thread', 'get_message', 'list_labels', 'readMessage', 'fetch_email']) assert.ok(isReadOnlyTool(t), t)
+  for (const t of ['apply_sensitive_thread_label', 'modify_thread_labels', 'create_draft', 'send_message', 'get_and_delete', 'thread_reader', 'batch_get', 'list_and_archive', 'setLabel']) {
+    assert.ok(!isReadOnlyTool(t), t)
+  }
+})
+
 test('email check: mailbox read tools only (+ ToolSearch); findings come back as done.findings', () => {
-  const args = claudeEmailArgs({ server: 'claude.ai Gmail', label: 'Gmail', tools: ['mcp__claude_ai_Gmail__search_threads'] })
+  const args = claudeEmailArgs({ server: 'claude.ai Gmail', label: 'Gmail', tools: ['mcp__claude_ai_Gmail__search_threads'], denied: ['mcp__claude_ai_Gmail__apply_sensitive_thread_label'] })
+  assert.deepEqual(args.slice(args.indexOf('--disallowedTools') + 1, args.indexOf('--disallowedTools') + 2), ['mcp__claude_ai_Gmail__apply_sensitive_thread_label'])
   assert.deepEqual(args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools')), ['ToolSearch'], 'no web, files or shell')
-  assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--setting-sources')), ['ToolSearch', 'mcp__claude_ai_Gmail__search_threads'])
+  assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools')), ['ToolSearch', 'mcp__claude_ai_Gmail__search_threads'])
   assert.match(emailPrompt({ since: '2026-10-01T00:00:00.000Z', applications: [{ company: 'Figma', role: 'APM', stage: 'applied' }] }), /since 2026-10-01[\s\S]*- Figma — APM \(applied\)/)
   assert.deepEqual(parseClaudeLine('{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"summary":"1 update","findings":[{"company":"Figma","status":"assessment"}]}}'), [
     { type: 'done', text: '1 update', session_id: undefined, findings: [{ company: 'Figma', status: 'assessment' }] },
