@@ -35,7 +35,7 @@ import { ResumesPage } from './components/resumes-page';
 import {
   EmptyApplicationsView,
 } from './components/empty-states';
-import { STAGES, COMPANIES as COMPANY_CATALOG, columnOf } from './data';
+import { COMPANIES as COMPANY_CATALOG } from './data';
 
 // Preview empty states via `?preview=empty` URL param — used by the
 // screenshot harness. Real empty states render when the data layer returns
@@ -184,7 +184,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)' }}>
-      <Sidebar apps={apps} account={account} navCounts={sidebarCounts} onProfileClick={() => setProfileOpen((o) => !o)} />
+      <Sidebar account={account} navCounts={sidebarCounts} onProfileClick={() => setProfileOpen((o) => !o)} />
 
       <ProfileMenu
         open={profileOpen}
@@ -299,7 +299,6 @@ function ApplicationsPage({
   importing: boolean;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const filter = searchParams.get('filter') || 'all';
   // Ask Agent side panel, kept in the URL (?agent=chat|settings) so it
   // survives reloads and old /agents links can open it.
   const agentView = (searchParams.get('agent') as AgentPanelView | null) ?? null;
@@ -331,14 +330,6 @@ function ApplicationsPage({
     </div>
   );
 
-  const filteredApps = useMemo(() => {
-    let list = apps;
-    if (filter === 'active') list = list.filter((a) => !['rejected', 'ghosted', 'saved'].includes(a.stage));
-    else if (filter === 'starred') list = list.filter((a) => a.starred);
-    else if (filter !== 'all' && STAGES.some((s: any) => s.id === filter))
-      list = list.filter((a) => columnOf(a.stage) === filter);
-    return list;
-  }, [apps, filter]);
 
   // Jobs agents found but the user hasn't acted on — the Kanban's Leads column.
   const leads = (useJobLeads().data ?? []).filter((l) => l.status === 'new');
@@ -379,7 +370,7 @@ function ApplicationsPage({
         subtitle={
           isLoading
             ? 'Loading…'
-            : `${filteredApps.length} of ${apps.length} · across ${new Set(filteredApps.map((a) => a.companyId)).size} companies`
+            : `${apps.length} application${apps.length === 1 ? '' : 's'} · ${new Set(apps.map((a) => a.companyId)).size} companies`
         }
         actions={
           <>
@@ -393,7 +384,7 @@ function ApplicationsPage({
       <AgentUpdatesBar />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         <KanbanView
-          apps={filteredApps}
+          apps={apps}
           companies={companies}
           onOpen={onOpenApp}
           onMoveCard={onMoveCard}
