@@ -7,6 +7,7 @@
 //                        the account stays (the client has already saved the
 //                        data to the device via GET /export)
 //   DELETE /me           { password } — delete the account and everything in it
+import { parseAutomations } from '@landed/schema/automation'
 import { Hono } from 'hono'
 import { deleteCookie } from 'hono/cookie'
 import { SESSION_COOKIE, verifyPassword, type AppEnv } from '../auth.ts'
@@ -14,7 +15,7 @@ import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
 import { uploadSnapshot } from './sync.ts'
 
-const ME_COLUMNS = ['id', 'email', 'cloud_sync', 'onboarded_at', 'auto_apply_updates', 'email_watch', 'email_checked_at', 'plan', 'created_at']
+const ME_COLUMNS = ['id', 'email', 'cloud_sync', 'onboarded_at', 'auto_apply_updates', 'email_watch', 'email_checked_at', 'automations', 'plan', 'created_at']
 
 async function checkPassword(sql: Sql, userId: string, password: unknown) {
   const [row] = await sql<{ password_hash: string }[]>`select password_hash from users where id = ${userId}`
@@ -53,8 +54,12 @@ export function accountRoutes(sql: Sql) {
       if (at !== null && (typeof at !== 'string' || Number.isNaN(Date.parse(at)))) fail(400, 'email_checked_at must be an ISO timestamp or null')
       patch.email_checked_at = at
     }
+    if ('automations' in body) {
+      if (!body.automations || typeof body.automations !== 'object') fail(400, 'automations must be an object')
+      patch.automations = sql.json(parseAutomations(body.automations))
+    }
     if (Object.keys(patch).length === 0) {
-      fail(400, 'nothing to update (allowed: onboarded_at, auto_apply_updates, email_watch, email_checked_at)')
+      fail(400, 'nothing to update (allowed: onboarded_at, auto_apply_updates, email_watch, email_checked_at, automations)')
     }
     const [row] = await sql`
       update users set ${sql(patch)} where id = ${c.get('user').id}

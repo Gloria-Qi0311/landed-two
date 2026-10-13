@@ -9,6 +9,10 @@ importers:
   .: {}
 
   apps/daemon:
+    dependencies:
+      '@landed/schema':
+        specifier: workspace:*
+        version: link:../../packages/schema
     devDependencies:
       '@types/node':
         specifier: ^25.8.0

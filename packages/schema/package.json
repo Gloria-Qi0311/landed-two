@@ -13,7 +13,8 @@
     "./portal-check": "./src/portal-check.ts",
     "./pipeline": "./src/pipeline.ts",
     "./master-resume": "./src/master-resume.ts",
-    "./conversation": "./src/conversation.ts"
+    "./conversation": "./src/conversation.ts",
+    "./automation": "./src/automation.ts"
   },
   "scripts": {
     "build": "echo 'no build \u2014 consumed as source via workspace alias'",

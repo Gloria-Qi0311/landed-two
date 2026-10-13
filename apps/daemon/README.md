@@ -31,6 +31,8 @@ You need Node 23.6+ and at least one supported agent CLI, installed and signed i
   - `resume_parse`: reads a resume you uploaded in Landed. PDFs and images are saved to a temporary folder in `~/.landed/workspace/uploads`. The agent may read that one file and nothing else, and the folder is deleted when it's done.
   - `resume_merge` / `resume_tailor`: My Resume. These merge your uploaded resumes into one master resume, keeping every phrasing of every bullet, and tailor versions from it for a role. Both are text work only, with no tools or connectors; tailoring may read the job posting when it only has a link.
 
+  - `automation_sync`: Landed's Automation page. The daemon keeps the schedule you set (email checks, job searches) in `~/.landed/automations.json` and runs it itself, so it works even when Landed is closed. Results wait there until Landed is open again and has stored them.
+
   The daemon re-checks what your agent can do (mail connector, Chrome) every 30 minutes, so connecting Gmail or Chrome needs no restart. claude.ai connectors don't always load in `claude -p`, so the last good mailbox lookup is kept in `~/.landed/capabilities.json`. An email or portal check that never reached the mailbox or Chrome reports an error and doesn't count as a check, so no email is skipped. `pnpm landed status` shows what was found. After updating Landed itself, restart the daemon (`pnpm landed start`) to pick up new code.
 - Your message reaches the agent on stdin and never passes through a shell.
 - The agent runs in an empty `~/.landed/workspace`. It ignores your own Claude Code settings and hooks (`--setting-sources ""`).

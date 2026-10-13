@@ -1,11 +1,11 @@
-// Agent — its own page (sidebar: Applications → Agent → My Resume). Chat
+// Agent — its own page (sidebar: Applications → Agent → Automation → My Resume). Chat
 // with your own agent, running on your computer through the Landed daemon.
 // Past chats are listed on the left (saved in the account's data store —
 // lib/agent-chat.ts); pick one up any time. Not set up yet → connect a
 // computer here; computer offline → past chats stay readable. When the
 // agent proposes a search brief, it shows as a card: confirm it and every
 // connected agent searches; results land in the Leads column. The page also
-// carries email watching and Landed's questions ("did you apply?", "no
+// carries Landed's questions ("did you apply?", "no
 // news for 3 weeks" → portal check). ?view=settings shows agent settings.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -15,7 +15,6 @@ import { Markdown } from './markdown'
 import { PageHeader } from './shell'
 import { EditableText } from './editable'
 import { BriefCard, SearchStatus } from './search-brief'
-import { EmailStatus } from './email-watch'
 import { PanelQuestions } from './panel-questions'
 import { PairingError, PairingSteps, RuntimePanel, usePairing } from './runtime-panel'
 import { AgentSettings } from './agent-settings'
@@ -284,7 +283,6 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
             </div>
           )}
           <SearchStatus />
-          <EmailStatus />
         </div>
       </div>
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto', padding: '14px 28px' }}>

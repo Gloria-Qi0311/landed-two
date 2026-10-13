@@ -11,10 +11,12 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { detectAgents, runTask, type AgentInfo, type Task } from './agents.ts'
+import { handleSync, setupAutomations, tick } from './automations.ts'
+import type { SyncInput } from '@landed/schema/automation'
 import { home, loadConfig, saveConfig, type Config } from './config.ts'
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 
-const VERSION = '0.2.0'
+const VERSION = '0.3.0'
 const MAX_PARALLEL = 2
 
 const describe = (agents: AgentInfo[]) =>
@@ -38,6 +40,13 @@ async function run(config: Config) {
   const waiting: Task[] = []
 
   const work = (task: Task) => {
+    // Settings in, finished results out — no agent run, so not queued.
+    if (task.kind === 'automation_sync') {
+      const sink = createEventSink(client, task.id)
+      sink.emit({ type: 'done', text: '', output: handleSync(task.input as SyncInput) })
+      void sink.flush()
+      return
+    }
     if (running >= MAX_PARALLEL) return void waiting.push(task)
     running++
     log(`task ${task.id.slice(0, 8)}: ${task.kind} with ${task.agent}`)
@@ -68,11 +77,15 @@ async function run(config: Config) {
   }
   void redetect()
   setInterval(redetect, REDETECT_MS).unref()
+  // Scheduled work (Automation page): check every minute what's due.
+  setInterval(tick, 60_000).unref()
 
   let backoff = 1000
   for (;;) {
     try {
-      await client.hello({ name, agents, daemon_version: VERSION })
+      const me = await client.hello({ name, agents, daemon_version: VERSION }) as { id: string }
+      // Which computer this is: the browser names the one that runs the schedule.
+      setupAutomations({ runtimeId: me.id, runTask, log })
       await client.stream(work, () => {
         backoff = 1000
         log(`connected to ${config.server} as "${name}" — agents: ${describe(agents)}`)

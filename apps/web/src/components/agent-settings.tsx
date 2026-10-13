@@ -1,7 +1,7 @@
-// Agent settings — the Agent page's settings view: your computer
-// (local agents via the Landed daemon), cloud agents (Meta Muse, …) that
-// report over the agent protocol, email watching by your own agent, whether
-// email updates apply automatically, and the raw reports.
+// Agent settings — the Agent page's settings view: your computer (local
+// agents via the Landed daemon), cloud agents (Meta Muse, …) that report
+// over the agent protocol, and the raw reports. Scheduled work and the
+// auto-apply preference live on the Automation page.
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from './primitives'
 import { useAuth } from '../lib/auth'
@@ -11,11 +11,7 @@ import {
   useAgentConnections, useAgentObservations, useCreateAgentConnection, useRevokeAgentConnection,
   type AgentConnection,
 } from '../hooks/agents'
-import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
 import { RuntimePanel } from './runtime-panel'
-import { EmailWatchSetting } from './email-watch'
-import { browserAgent } from '../hooks/portal'
-import { useRuntimes } from '../hooks/runtimes'
 
 const TYPE_LABEL: Record<string, string> = {
   job_discovered: 'Job found',
@@ -68,12 +64,6 @@ export function AgentSettings() {
         </div>
 
         <RuntimePanel />
-
-        <Card title="Email watching"><EmailWatchSetting /></Card>
-
-        <Card title="Portal checks"><PortalCheckSetting /></Card>
-
-        <AutoApplySetting />
 
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>
           Cloud agents (Meta Muse, …)
@@ -235,50 +225,3 @@ function ConnectionRow({ connection: c, first }: { connection: AgentConnection; 
   )
 }
 
-/** The fallback when email is silent: what portal checks do, and how to enable them. */
-function PortalCheckSetting() {
-  const agent = browserAgent(useRuntimes().data)
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, lineHeight: 1.55, color: 'var(--fg-muted)' }}>
-      <div>
-        When an application has had no news for 3 weeks, Landed asks you about it in this panel. From there you can have
-        your agent open each job's candidate portal (Workday, LinkedIn, Handshake, …) in {agent?.browser ?? 'Chrome'} and read the
-        status. It only runs when you click. It is <b>read-only by design</b>: it can open tabs, navigate and read pages, but it has no
-        tool to click, type, fill in forms, run scripts or sign in. Anything it finds waits for you to confirm.
-      </div>
-      <div>
-        {agent
-          ? <>Ready: {agent.agent.label} on {agent.runtime.name} can use {agent.browser}.</>
-          : <>Not set up: install the Claude in Chrome extension and connect it to Claude Code; the daemon picks it up within 30 minutes (or right away if you restart it with <code>pnpm landed start</code>).</>}
-      </div>
-      <div>
-        Tip: use a separate Chrome profile that's only signed in to job sites, and connect Claude in Chrome there. Then your agent
-        never sees your email or bank tabs, and portals it can't open just show up as "needs you to sign in".
-      </div>
-    </div>
-  )
-}
-
-function AutoApplySetting() {
-  const prefs = useAccountPrefs()
-  const set = useSetAutoApply()
-  const offline = useAuth((s) => s.offline)
-  const on = prefs.data?.auto_apply_updates ?? true
-  return (
-    <Card title="Email updates">
-      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, lineHeight: 1.5, cursor: offline ? 'default' : 'pointer' }}>
-        <input type="checkbox" checked={on} disabled={offline || prefs.isLoading || set.isPending}
-          onChange={(e) => set.mutate(e.target.checked)} style={{ marginTop: 2 }} />
-        <span>
-          <span style={{ fontWeight: 500 }}>Apply updates from email automatically</span>
-          <span style={{ display: 'block', color: 'var(--fg-muted)' }}>
-            When an agent is confident about an email — application received, interview, rejection, offer — Landed updates
-            your board right away and you can undo it from the Applications page. Updates it can't place (which application?
-            low confidence?) always ask first. Turn this off to approve every change yourself.
-          </span>
-        </span>
-      </label>
-      {set.error && <div style={{ marginTop: 6 }}><ErrorText message={(set.error as Error).message} /></div>}
-    </Card>
-  )
-}

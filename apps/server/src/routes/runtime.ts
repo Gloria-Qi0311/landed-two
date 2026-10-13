@@ -18,12 +18,15 @@
 // `results`), `resume_parse` (a resume file → the canonical shape),
 // `resume_merge` (uploaded resumes → one master resume) and
 // `resume_tailor` (master → a version aimed at a role); those two return
-// `output`, validated per kind. Each agent reports the kinds its daemon can run.
+// `output`, validated per kind. `automation_sync` hands the daemon the
+// schedule + the context its tasks need, and collects finished results
+// (packages/schema/src/automation.ts). Each agent reports the kinds its daemon can run.
 import { createHash, randomBytes } from 'node:crypto'
 import { parseEmailCheckInput, parseEmailFindings } from '@landed/schema/email-check'
 import { parseLooseResume, parseMasterResume, parseResumeParseInput, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'
 import { parseChatHistory } from '@landed/schema/conversation'
+import { parseSyncInput, parseSyncOutput } from '@landed/schema/automation'
 import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -38,7 +41,7 @@ type Row = Record<string, any>
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex')
 const UUID = /^[0-9a-f-]{36}$/i
 const RUNTIME_COLUMNS = ['id', 'name', 'agents', 'daemon_version', 'last_seen_at', 'revoked_at', 'created_at']
-const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'portal_check', 'resume_parse', 'resume_merge', 'resume_tailor'])
+const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'portal_check', 'resume_parse', 'resume_merge', 'resume_tailor', 'automation_sync'])
 const MAX_SOURCES = 10
 /** Daemons from before agents reported their kinds can only chat. */
 const LEGACY_KINDS = ['chat']
@@ -107,6 +110,10 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
       }
       // Recent turns, for a computer that doesn't have this conversation's session.
       input = { message: raw.message, conversation_id: raw.conversation_id, history: parseChatHistory(raw.history) }
+    } else if (body.kind === 'automation_sync') {
+      const sync = parseSyncInput(raw)
+      if (!sync) fail(400, 'input needs runtime_id, automations and context')
+      input = sync
     } else if (body.kind === 'resume_parse') {
       const parse = parseResumeParseInput(raw)
       if (!parse) fail(400, 'input needs a PDF or image file (at most 8 MB) or the resume as text')
@@ -310,6 +317,17 @@ export function runtimeDaemonRoutes(sql: Sql, hub: RuntimeHub) {
       const raw = (body.events as Row[]).find((x) => x?.type === 'done')?.output
       if (kind === 'resume_merge') e.output = parseMasterResume(raw)
       else if (kind === 'resume_parse') e.output = parseLooseResume(raw)
+      else if (kind === 'automation_sync') {
+        const out = parseSyncOutput(raw)
+        e.output = {
+          ...out,
+          results: out.results.map((x) => ({
+            ...x,
+            ...(x.findings ? { findings: parseEmailFindings(x.findings) } : {}),
+            ...(x.jobs ? { jobs: parseFoundJobs(x.jobs) } : {}),
+          })),
+        }
+      }
       else if (kind === 'resume_tailor') e.output = { resume: parseLooseResume((raw as Row)?.resume), notes: parseTailorNotes(raw) }
     }
     if (!hub.push(c.req.param('id'), runtime.id, events)) fail(404, 'unknown or finished task')

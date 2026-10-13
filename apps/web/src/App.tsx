@@ -10,8 +10,9 @@ import { usePortalRunner } from './hooks/portal';
 import { useResumeTaskRunner } from './hooks/resumes';
 import { useAgentChatRunner } from './hooks/conversations';
 import { useSearchRunner } from './hooks/search';
-import { useEmailWatcher } from './hooks/email';
+import { useAutomationRunner } from './hooks/automation';
 import { AgentPage } from './components/agent-page';
+import { AutomationPage } from './components/automation-page';
 import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
 import { useAuth } from './lib/auth';
@@ -114,7 +115,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useAgentRelay();
   useObservationProcessor();
   useSearchRunner();
-  useEmailWatcher();
+  useAutomationRunner();
   usePortalRunner();
   useResumeTaskRunner();
   useAgentChatRunner();
@@ -256,6 +257,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
           <Route path="/sync" element={<Navigate to="/applications" replace />} />
           <Route path="/jd-breakdown" element={<Navigate to="/applications" replace />} />
           <Route path="/agent" element={<AgentPage />} />
+          <Route path="/automation" element={<AutomationPage />} />
           <Route path="/agents" element={<Navigate to="/agent?view=settings" replace />} />
           <Route path="*" element={<Navigate to="/applications" replace />} />
         </Routes>

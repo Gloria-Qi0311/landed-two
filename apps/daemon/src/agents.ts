@@ -31,7 +31,7 @@ export type Task = { id: string; agent: string; kind: string; input: Record<stri
 
 // Codex / Gemini CLI get runners next; only agents we can run are reported,
 // with the task kinds they can run (the server only sends those).
-const SUPPORTED = [{ id: 'claude', label: 'Claude Code', bin: 'claude', kinds: ['chat', 'job_search', 'resume_parse', 'resume_merge', 'resume_tailor'] }]
+const SUPPORTED = [{ id: 'claude', label: 'Claude Code', bin: 'claude', kinds: ['chat', 'job_search', 'resume_parse', 'resume_merge', 'resume_tailor', 'automation_sync'] }]
 
 const WEB_TOOLS = ['WebSearch', 'WebFetch']
 

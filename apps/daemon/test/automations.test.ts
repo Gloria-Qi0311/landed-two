@@ -1,0 +1,75 @@
+import assert from 'node:assert/strict'
+import { mkdtempSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test } from 'node:test'
+
+process.env.LANDED_HOME = mkdtempSync(join(tmpdir(), 'landed-auto-'))
+const { handleSync, resetAutomationsForTests, setupAutomations, tick } = await import('../src/automations.ts')
+
+const automations = {
+  email_check: { enabled: true, schedule: { kind: 'interval' as const, hours: 4 } },
+  job_search: { enabled: false, schedule: { kind: 'daily' as const, time: '09:00', days: [0, 1, 2, 3, 4, 5, 6] } },
+}
+const context = { applications: [{ company: 'Figma', role: 'APM', stage: 'applied' }], email_since: '2026-10-01T00:00:00.000Z', brief: null, search_id: null }
+const sync = (over: Record<string, unknown> = {}) => handleSync({ runtime_id: 'rt-a', automations, context, run_now: [], ack: [], ...over } as never)
+const settle = () => new Promise((r) => setTimeout(r, 30))
+
+test('runs what is due on the named computer, keeps results until acked', async () => {
+  resetAutomationsForTests()
+  const calls: { kind: string; input: Record<string, unknown> }[] = []
+  setupAutomations({
+    runtimeId: 'rt-a', log: () => {},
+    runTask: async (task, emit) => { calls.push(task); emit({ type: 'done', text: '2 updates', findings: [{ company: 'Figma', status: 'interview' }, { company: 'Stripe', status: 'applied' }] }) },
+  })
+  const first = sync()
+  assert.ok(first.state.email_check?.next_run_at, 'never ran → due now')
+  assert.equal(first.state.job_search?.next_run_at, null, 'disabled')
+  tick()
+  await settle()
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].kind, 'email_check')
+  assert.equal(calls[0].input.since, '2026-10-01T00:00:00.000Z', 'first run reads from where the browser left off')
+  tick()
+  await settle()
+  assert.equal(calls.length, 1, 'not due again for 4 hours')
+
+  const out = sync()
+  assert.equal(out.results.length, 1)
+  assert.equal(out.results[0].findings?.length, 2)
+  assert.deepEqual([out.runs[0].status, out.runs[0].summary], ['ok', '2 application emails'])
+  assert.ok(Date.parse(out.state.email_check!.next_run_at!) - Date.now() > 3.9 * 3_600_000)
+  assert.equal(sync({ ack: [out.results[0].id] }).results.length, 0, 'acked results are dropped')
+  assert.equal(statSync(join(process.env.LANDED_HOME!, 'automations.json')).mode & 0o777, 0o600)
+})
+
+test('another computer only keeps the settings; failures retry later; "run now" runs at once', async () => {
+  resetAutomationsForTests()
+  let fail = true
+  const calls: string[] = []
+  setupAutomations({
+    runtimeId: 'rt-b', log: () => {},
+    runTask: async (task, emit) => { calls.push(task.kind); emit(fail ? { type: 'error', message: "couldn't load Gmail" } : { type: 'done', text: '', jobs: [{ company: 'Acme', title: 'APM' }] }) },
+  })
+  sync({ runtime_id: 'rt-a' })
+  tick()
+  await settle()
+  assert.equal(calls.length, 0, 'rt-a runs the schedule, not rt-b')
+
+  sync({ runtime_id: 'rt-b', automations: { ...automations, email_check: { ...automations.email_check, enabled: true } } })
+  tick()
+  await settle()
+  assert.deepEqual(calls, ['email_check'])
+  tick()
+  await settle()
+  assert.equal(calls.length, 1, 'a failed run waits 30 minutes before retrying')
+
+  fail = false
+  const withBrief = { ...context, brief: { roles: ['APM'] }, search_id: '11111111-2222-4333-8444-555555555555' }
+  sync({ runtime_id: 'rt-b', context: withBrief, run_now: ['job_search'] })
+  await settle()
+  assert.deepEqual(calls, ['email_check', 'job_search'])
+  const out = sync({ runtime_id: 'rt-b', context: withBrief })
+  assert.equal(out.results.find((r) => r.kind === 'job_search')?.jobs?.length, 1)
+  assert.equal(out.runs.find((r) => r.kind === 'email_check')?.status, 'error')
+})

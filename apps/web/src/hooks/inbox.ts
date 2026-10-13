@@ -35,6 +35,8 @@ export type Me = {
   auto_apply_updates: boolean
   email_watch: boolean
   email_checked_at: string | null
+  /** schedule for recurring agent work (packages/schema/src/automation.ts) */
+  automations?: unknown
   onboarded_at: string | null
   created_at: string
 }

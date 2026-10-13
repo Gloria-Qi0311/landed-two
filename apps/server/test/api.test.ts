@@ -1139,6 +1139,63 @@ describe('portal_check: read-only look at candidate portals', () => {
   })
 })
 
+describe('automation', () => {
+  test('the schedule is an account setting (normalized); email_watch carried over by the migration', async () => {
+    const owner = await signup('auto-prefs@example.com', undefined, { cloud: false })
+    const me = (await call('GET', '/api/me', { token: owner })).body
+    assert.deepEqual(me.automations, {})
+    const set = await call('PATCH', '/api/me', { token: owner, body: { automations: {
+      email_check: { enabled: true, schedule: { kind: 'interval', hours: 2 } },
+      job_search: { enabled: true, schedule: { kind: 'daily', time: '25:00', days: [1] } },
+      hack: { enabled: true },
+    } } })
+    assert.equal(set.status, 200)
+    assert.deepEqual(set.body.automations.email_check, { enabled: true, schedule: { kind: 'interval', hours: 2 } })
+    assert.equal(set.body.automations.job_search.schedule.time, '09:00', 'bad time → default')
+    assert.equal(set.body.automations.hack, undefined)
+    assert.equal((await call('PATCH', '/api/me', { token: owner, body: { automations: 'daily' } })).status, 400)
+  })
+
+  test('automation_sync: validated settings + context in, results cleaned out', async () => {
+    const owner = await signup('auto-sync@example.com', undefined, { cloud: false })
+    const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'automation_sync'] }] } })
+    const abort = new AbortController()
+    const reader = (await app.request('/api/runtime/stream', { headers: { Authorization: `Bearer ${rt}` }, signal: abort.signal })).body!.getReader()
+    let buf = ''
+    const until = async (needle: string) => {
+      while (!buf.includes(needle)) buf += new TextDecoder().decode((await reader.read()).value)
+      return buf
+    }
+    await until('event: ready')
+    const send = (input: unknown) => call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind: 'automation_sync', input } })
+    assert.equal((await send({ automations: {} })).status, 400, 'needs the designated computer')
+    const started = await send({ runtime_id: runtime.id, automations: { email_check: { enabled: true } }, run_now: ['email_check', 'shell'],
+      context: { applications: [{ company: 'Figma', role: 'APM', stage: 'applied', notes: 'private' }], email_since: '2026-10-01T00:00:00Z' } })
+    assert.equal(started.status, 202)
+    const job = JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
+    assert.deepEqual(job.input.run_now, ['email_check'])
+    assert.deepEqual(job.input.context.applications, [{ company: 'Figma', role: 'APM', stage: 'applied' }])
+
+    const web = (await app.request(`/api/runtime-jobs/${job.id}/stream`, { headers: { Authorization: `Bearer ${owner}` } })).body!.getReader()
+    await call('POST', `/api/runtime/jobs/${job.id}/events`, { token: rt, body: { events: [{ type: 'done', text: '', output: {
+      results: [{ id: crypto.randomUUID(), kind: 'email_check', started_at: '2026-10-13T09:00:00Z', finished_at: '2026-10-13T09:01:00Z', summary: '', findings: [
+        { company: 'Figma', status: 'interview', confidence: 5, evidence: { message_id: 'm' } }, { company: 'X', status: 'hired' },
+      ] }],
+      runs: [], state: { email_check: { last_success_at: '2026-10-13T09:00:00Z', next_run_at: '2026-10-13T13:00:00Z', running: false } },
+    } }] } })
+    let out = ''
+    while (!out.includes('"type":"done"')) out += new TextDecoder().decode((await web.read()).value)
+    const done = JSON.parse(out.split('data: ').pop()!.split('\n')[0])
+    assert.equal(done.output.results[0].findings.length, 1, 'findings cleaned by their own parser')
+    assert.equal(done.output.results[0].findings[0].confidence, 1)
+    assert.equal(done.output.state.email_check.next_run_at, '2026-10-13T13:00:00Z')
+    web.cancel().catch(() => {})
+    reader.cancel().catch(() => {})
+    abort.abort()
+  })
+})
+
 describe('agent chat history (Cloud)', () => {
   test('conversations: upsert, list newest first, ownership, sync-off stays on the device, snapshots', async () => {
     const off = await signup('chat-off@example.com', undefined, { cloud: false })
