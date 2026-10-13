@@ -20,7 +20,7 @@ import {
   useAddApplication,
   useImportDemoData,
 } from './hooks/queries';
-import { Sidebar, PageHeader, StatsBanner } from './components/shell';
+import { Sidebar, PageHeader } from './components/shell';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
 import { EmptyDeviceNotice, OfflineNotice, RestoreBackupDialog, TurnOffCloudDialog, TurnOnCloudDialog } from './components/cloud';
 import { downloadBackup, readBackupFile, signOut } from './lib/cloud';
@@ -475,7 +475,6 @@ function ApplicationsPage({
           </>
         }
       />
-      <StatsBanner apps={apps} />
       <AgentUpdatesBar />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         <ViewComp

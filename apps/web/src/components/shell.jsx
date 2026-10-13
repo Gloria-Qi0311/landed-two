@@ -1,4 +1,4 @@
-// Sidebar + stats banner + page header
+// Sidebar + page header
 import React, { useMemo } from 'react';
 import { NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import { LandedMark, Icon, stageColors } from './primitives';
@@ -159,52 +159,6 @@ export const Sidebar = ({ apps, account, onProfileClick, navCounts = {} }) => {
         </button>
       </div>
     </aside>
-  );
-};
-export const StatsBanner = ({ apps }) => {
-  const stats = useMemo(() => {
-    const active = apps.filter(a => !['rejected', 'ghosted', 'saved'].includes(a.stage)).length;
-    const interviewing = apps.filter(a => ['phone', 'onsite'].includes(a.stage)).length;
-    const offers = apps.filter(a => a.stage === 'offer').length;
-    // Response rate: of apps the user has actually applied to (not just saved),
-    // how many got SOME kind of response (moved beyond 'applied' — into oa / phone /
-    // onsite / offer / rejected / ghosted). Saved roles aren't part of the denominator.
-    const appliedAt = apps.filter(a => a.stage !== 'saved');
-    const responded = apps.filter(a => !['saved', 'applied'].includes(a.stage));
-    const responseRate = Math.round((responded.length / Math.max(1, appliedAt.length)) * 100);
-    // Apps with an actionable next step (not empty / '—' / 'Awaiting response' boilerplate)
-    // and not in a terminal stage. Honest proxy for "things on your plate."
-    const idleNextSteps = new Set(['', '—', 'Awaiting response']);
-    const nextSteps = apps.filter(a =>
-      !['rejected', 'ghosted'].includes(a.stage) &&
-      a.nextStep && !idleNextSteps.has(a.nextStep)
-    ).length;
-    return { active, interviewing, offers, responseRate, nextSteps };
-  }, [apps]);
-
-  const Stat = ({ label, value, sub, accent }) => (
-    <div style={{ flex: 1, minWidth: 0, padding: '0 18px', borderLeft: '0.5px solid var(--border)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-      <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{label}</div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span style={{ fontSize: 17, fontWeight: 600, color: accent || 'var(--fg)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>{value}</span>
-        {sub && <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{sub}</span>}
-      </div>
-    </div>
-  );
-
-  return (
-    <div style={{ display: 'flex', padding: '10px 28px 12px', borderBottom: '0.5px solid var(--border)', background: 'var(--bg)' }}>
-      <div style={{ paddingLeft: 0, paddingRight: 18, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>In flight</div>
-        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>
-          {stats.active} <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 400 }}>active applications</span>
-        </div>
-      </div>
-      <Stat label="Interviewing" value={stats.interviewing} sub="phone + onsite" />
-      <Stat label="Offers" value={stats.offers} sub="awaiting decision" accent="oklch(0.45 0.14 155)" />
-      <Stat label="Response rate" value={`${stats.responseRate}%`} sub="of applied" />
-      <Stat label="Next steps" value={stats.nextSteps} sub="actionable" />
-    </div>
   );
 };
 // Unified page header — used on every top-level page so the design language stays consistent.
