@@ -15,12 +15,13 @@
 // `email_check` (read the user's mailbox through their agent's mail
 // connector; the result carries `findings`) and `portal_check` (look at
 // candidate portals in the user's Chrome, read-only; the result carries
-// `results`), `resume_merge` (uploaded resumes → one master resume) and
+// `results`), `resume_parse` (a resume file → the canonical shape),
+// `resume_merge` (uploaded resumes → one master resume) and
 // `resume_tailor` (master → a version aimed at a role); those two return
 // `output`, validated per kind. Each agent reports the kinds its daemon can run.
 import { createHash, randomBytes } from 'node:crypto'
 import { parseEmailCheckInput, parseEmailFindings } from '@landed/schema/email-check'
-import { parseLooseResume, parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
+import { parseLooseResume, parseMasterResume, parseResumeParseInput, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'
 import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { Hono, type Context } from 'hono'
@@ -36,7 +37,7 @@ type Row = Record<string, any>
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex')
 const UUID = /^[0-9a-f-]{36}$/i
 const RUNTIME_COLUMNS = ['id', 'name', 'agents', 'daemon_version', 'last_seen_at', 'revoked_at', 'created_at']
-const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'portal_check', 'resume_merge', 'resume_tailor'])
+const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'portal_check', 'resume_parse', 'resume_merge', 'resume_tailor'])
 const MAX_SOURCES = 10
 /** Daemons from before agents reported their kinds can only chat. */
 const LEGACY_KINDS = ['chat']
@@ -104,6 +105,10 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
         fail(400, 'input.conversation_id must be a uuid')
       }
       input = { message: raw.message, conversation_id: raw.conversation_id }
+    } else if (body.kind === 'resume_parse') {
+      const parse = parseResumeParseInput(raw)
+      if (!parse) fail(400, 'input needs a PDF or image file (at most 8 MB) or the resume as text')
+      input = parse
     } else if (body.kind === 'resume_merge') {
       const sources = (Array.isArray(raw.sources) ? raw.sources : []).slice(0, MAX_SOURCES)
         .map((s: Row) => ({ id: String(s?.id ?? '').slice(0, 64), name: String(s?.name ?? '').slice(0, 120), resume: parseLooseResume(s?.resume) }))
@@ -302,6 +307,7 @@ export function runtimeDaemonRoutes(sql: Sql, hub: RuntimeHub) {
       if (e.type !== 'done') continue
       const raw = (body.events as Row[]).find((x) => x?.type === 'done')?.output
       if (kind === 'resume_merge') e.output = parseMasterResume(raw)
+      else if (kind === 'resume_parse') e.output = parseLooseResume(raw)
       else if (kind === 'resume_tailor') e.output = { resume: parseLooseResume((raw as Row)?.resume), notes: parseTailorNotes(raw) }
     }
     if (!hub.push(c.req.param('id'), runtime.id, events)) fail(404, 'unknown or finished task')

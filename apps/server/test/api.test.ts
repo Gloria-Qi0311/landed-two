@@ -1058,7 +1058,7 @@ describe('My Resume: master + versions', () => {
   test('resume_merge / resume_tailor: inputs validated, outputs cleaned per kind', async () => {
     const owner = await signup('resume-tasks@example.com', undefined, { cloud: false })
     const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
-    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'resume_merge', 'resume_tailor'] }] } })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'resume_parse', 'resume_merge', 'resume_tailor'] }] } })
     const daemonAbort = new AbortController()
     const reader = (await app.request('/api/runtime/stream', { headers: { Authorization: `Bearer ${rt}` }, signal: daemonAbort.signal })).body!.getReader()
     let buf = ''
@@ -1070,10 +1070,14 @@ describe('My Resume: master + versions', () => {
     const send = (kind: string, input: unknown) => call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind, input } })
 
     assert.equal((await send('resume_merge', { sources: [] })).status, 400)
+    assert.equal((await send('resume_parse', { name: 'CV', file: { type: 'text/html', data_base64: 'PGgxPg==' } })).status, 400, 'PDF/images only')
+    assert.equal((await send('resume_parse', { name: 'CV', file: { type: 'application/pdf', data_base64: 'JVBERi0x'.repeat(500_000) } })).status, 202, 'a ~4 MB PDF fits')
+    await until('event: job')
     assert.equal((await send('resume_tailor', { master, target: { role: '' } })).status, 400)
     const merge = await send('resume_merge', { sources: [{ id: 'r1', name: 'PM', resume: { basic: { name: 'Alex' }, experience: [{ company: 'X', description: 'did things' }], extra: 'dropped' } }] })
     assert.equal(merge.status, 202)
-    const job = JSON.parse((await until('event: job')).split('event: job\ndata: ').pop()!.split('\n')[0])
+    const job = JSON.parse((await until('"kind":"resume_merge"')).split('event: job\ndata: ').pop()!.split('\n')[0])
+    assert.equal(job.kind, 'resume_merge')
     assert.equal(job.input.sources[0].resume.extra, undefined)
 
     const web = (await app.request(`/api/runtime-jobs/${job.id}/stream`, { headers: { Authorization: `Bearer ${owner}` } })).body!.getReader()

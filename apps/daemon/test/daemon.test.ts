@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  CHROME_READ_TOOLS, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
+  CHROME_READ_TOOLS, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
   parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
@@ -128,6 +128,16 @@ test('resume merge/tailor: text-only (no MCP, no tools); tailoring reads the pos
   assert.deepEqual(parseClaudeLine('{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"entries":[]}}'), [
     { type: 'done', text: '', session_id: undefined, output: { entries: [] } },
   ])
+})
+
+test('resume parse: the agent may read that one file and nothing else', () => {
+  const withFile = claudeParseArgs('/Users/me/.landed/workspace/uploads/t1/resume.pdf')
+  assert.deepEqual(withFile.slice(withFile.indexOf('--tools'), withFile.indexOf('--strict-mcp-config')), [
+    '--tools', 'Read', '--allowedTools', 'Read(//Users/me/.landed/workspace/uploads/t1/resume.pdf)',
+  ])
+  const text = claudeParseArgs(null)
+  assert.equal(text[text.indexOf('--tools') + 1], '')
+  assert.ok(!text.includes('--allowedTools'))
 })
 
 test('SSE parser handles split chunks, comments and multi-line data', () => {

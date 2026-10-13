@@ -25,6 +25,8 @@ const tooLarge = (c: Context) => c.json({ error: 'request body too large' }, 413
 const smallBody = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooLarge })
 // A whole-device snapshot (resumes + AI run transcripts) can be big.
 const uploadBody = bodyLimit({ maxSize: 50 * 1024 * 1024, onError: tooLarge })
+// A resume file sent to the user's computer for parsing (base64, ≤ 8 MB).
+const taskBody = bodyLimit({ maxSize: 12 * 1024 * 1024, onError: tooLarge })
 // One agent observation is small; a large body is a misbehaving agent.
 const agentBody = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge })
 
@@ -44,6 +46,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtim
   app.use('/api/*', (c, next) => {
     const limit = c.req.path === '/api/sync/upload' || c.req.path === '/api/cloud/enable'
       ? uploadBody
+      : c.req.path === '/api/runtime-jobs' ? taskBody
       : c.req.path.startsWith('/api/agent/') ? agentBody : smallBody
     return limit(c, next)
   })

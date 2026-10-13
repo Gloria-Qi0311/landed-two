@@ -24,7 +24,7 @@ import {
 import { ResumeSchema, safeNormalize, isResumeFilled, type Resume } from '@landed/schema'
 import { masterStats } from '@landed/schema/master-resume'
 import { PageHeader } from './shell'
-import { MasterPane, NewVersionPane, VersionNotes } from './my-resume'
+import { MasterPane, NewVersionPane, UploadPane, VersionNotes } from './my-resume'
 import { Icon } from './primitives'
 import {
   useResumes,
@@ -101,11 +101,16 @@ export function ResumesPage() {
           ) : effectiveActiveId === 'new-version' ? (
             <NewVersionPane onCreated={setActiveId} onOpenMaster={() => setActiveId('master')} />
           ) : effectiveActiveId === 'new' || activeResume === null ? (
-            <UploadFlow
-              onSave={async (name, parsed, setCurrent) => {
-                const created = await addResume.mutateAsync({ name, parsed, setCurrent })
-                setActiveId(created.id)
-              }}
+            <UploadPane
+              onOpenMaster={() => setActiveId('master')}
+              manual={
+                <UploadFlow
+                  onSave={async (name, parsed, setCurrent) => {
+                    const created = await addResume.mutateAsync({ name, parsed, setCurrent })
+                    setActiveId(created.id)
+                  }}
+                />
+              }
             />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

@@ -8,7 +8,7 @@ import type { FoundJob } from '@landed/schema/search-brief'
 import { ApiError, api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
-export type TaskKind = 'chat' | 'job_search' | 'email_check' | 'portal_check' | 'resume_merge' | 'resume_tailor'
+export type TaskKind = 'chat' | 'job_search' | 'email_check' | 'portal_check' | 'resume_parse' | 'resume_merge' | 'resume_tailor'
 /** `kinds`: the tasks this agent's daemon can run (older daemons: chat only).
  *  `mail`: the mailbox it can read through a connector (e.g. "Gmail").
  *  `browser`: "Chrome" when it can look at pages in the user's Chrome. */

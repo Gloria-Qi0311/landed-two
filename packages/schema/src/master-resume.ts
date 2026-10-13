@@ -1,6 +1,6 @@
 // My Resume: the master resume and tailored versions.
 //
-//   uploaded resumes (sources) ──merge──▶ master resume ──tailor──▶ versions
+//   resume files ──parse──▶ uploaded resumes (sources) ──merge──▶ master resume ──tailor──▶ versions
 //
 // The master is the most complete record of the user's career, merged from
 // every resume they uploaded. Each experience is broken into bullets, and each
@@ -10,8 +10,8 @@
 // resumes (the canonical Resume shape in ./index.ts, which the extension auto-
 // fills from) aimed at a role.
 //
-// Merging and tailoring run on the user's own agent (apps/daemon, task
-// kinds `resume_merge` / `resume_tailor`). Plain TS, no dependencies: the
+// Parsing, merging and tailoring run on the user's own agent (apps/daemon,
+// task kinds `resume_parse` / `resume_merge` / `resume_tailor`). Plain TS, no dependencies: the
 // server validates task input and output with these.
 
 export type Variant = {
@@ -252,4 +252,32 @@ export function masterStats(m: MasterResume) {
   const bullets = m.entries.reduce((n, e) => n + e.bullets.length, 0)
   const alternatives = m.entries.reduce((n, e) => n + e.bullets.reduce((k, b) => k + b.variants.length - 1, 0), 0)
   return { entries: m.entries.length, bullets, alternatives }
+}
+
+// ── uploads: one resume file → the canonical Resume (task `resume_parse`) ──
+
+/** Files the agent reads itself (Claude Code reads PDFs and images natively).
+ *  Word files are turned into text in the browser and sent as `text`. */
+export const PARSE_FILE_TYPES: Record<string, string> = {
+  'application/pdf': 'pdf', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+}
+export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+const MAX_UPLOAD_TEXT = 60_000
+
+export type ParseInput = { name: string; file: { type: string; data_base64: string } | null; text: string | null }
+
+export function parseResumeParseInput(raw: unknown): ParseInput | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const name = str(r.name, 120) || 'Resume'
+  const f = r.file as Record<string, unknown> | null | undefined
+  if (f && typeof f === 'object') {
+    const type = String(f.type ?? '')
+    const data = typeof f.data_base64 === 'string' ? f.data_base64 : ''
+    if (!PARSE_FILE_TYPES[type] || !data || !/^[A-Za-z0-9+/=\s]+$/.test(data)) return null
+    if (data.length > Math.ceil(MAX_UPLOAD_BYTES / 3) * 4 + 4) return null
+    return { name, file: { type, data_base64: data.replace(/\s+/g, '') }, text: null }
+  }
+  const text = typeof r.text === 'string' ? r.text.trim().slice(0, MAX_UPLOAD_TEXT) : ''
+  return text ? { name, file: null, text } : null
 }

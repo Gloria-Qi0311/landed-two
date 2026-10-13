@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, test } from 'vitest'
 import { safeNormalize } from '@landed/schema'
-import { masterStats, masterToResume, parseMasterResume, parseTarget } from '@landed/schema/master-resume'
+import { masterStats, masterToResume, parseMasterResume, parseResumeParseInput, parseTarget } from '@landed/schema/master-resume'
 import { createLocalStore } from './store/local'
 
 const raw = {
@@ -38,6 +38,15 @@ describe('master resume', () => {
     if (!flat.ok) return
     expect(flat.resume.internship[0]).toMatchObject({ company: 'Brightwave', description: '• Drove discovery (14 interviews)\n• Wrote the PRD' })
     expect(flat.resume.experience[0].company).toBe('Campus Cafe')
+  })
+
+  test('uploads: PDFs/images as base64 up to 8 MB, everything else as text', () => {
+    expect(parseResumeParseInput({ name: 'CV', file: { type: 'application/pdf', data_base64: 'JVBERi0x' } })).toMatchObject({ file: { type: 'application/pdf' }, text: null })
+    expect(parseResumeParseInput({ file: { type: 'application/x-msdownload', data_base64: 'TVqQ' } })).toBeNull()
+    expect(parseResumeParseInput({ file: { type: 'application/pdf', data_base64: 'not base64!' } })).toBeNull()
+    expect(parseResumeParseInput({ file: { type: 'application/pdf', data_base64: 'A'.repeat(12_000_000) } })).toBeNull()
+    expect(parseResumeParseInput({ name: '', text: '  Alex Rivera, PM  ' })).toEqual({ name: 'Resume', file: null, text: 'Alex Rivera, PM' })
+    expect(parseResumeParseInput({ text: '   ' })).toBeNull()
   })
 
   test('targets need a role; links must be http(s)', () => {

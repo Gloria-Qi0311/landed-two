@@ -2,7 +2,7 @@
 // upload by the user's own agent — every job, project and bullet, with every
 // way each bullet was phrased) and versions tailored to a role from it.
 // Data + rules: packages/schema/src/master-resume.ts; tasks: lib/resume-tasks.ts.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { masterStats, parseTarget, type MasterEntry, type MasterResume } from '@landed/schema/master-resume'
 import { Icon } from './primitives'
 import { formatRelative } from '../lib/time'
@@ -45,6 +45,88 @@ function TaskStatus({ kind, running }: { kind: 'resume_merge' | 'resume_tailor';
   }
   if (task.status === 'error') return <div role="alert" style={{ ...muted, color: danger }}>{task.error}</div>
   return null
+}
+
+// ── upload ────────────────────────────────────────────────────────────────
+
+export function UploadPane({ manual, onOpenMaster }: { manual: ReactNode; onOpenMaster: () => void }) {
+  const target = agentFor(useRuntimes().data, 'resume_parse')
+  const uploads = useResumeTask((s) => s.uploads)
+  const upload = useResumeTask((s) => s.upload)
+  const clear = useResumeTask((s) => s.clearUploads)
+  const task = useResumeTask((s) => s.task)
+  const [over, setOver] = useState(false)
+  const [showManual, setShowManual] = useState(false)
+  const picker = useRef<HTMLInputElement>(null)
+  const busy = uploads.some((u) => u.status === 'preparing' || u.status === 'reading')
+  const mergeDone = task?.kind === 'resume_merge' && task.status === 'done' && uploads.some((u) => u.status === 'saved') && !busy
+
+  const send = (files: FileList | File[] | null) => {
+    const list = Array.from(files ?? [])
+    if (list.length && target.agent) void upload({ runtime: target.runtime, agent: target.agent }, list)
+  }
+
+  return (
+    <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div>
+        <div style={{ fontSize: 17, fontWeight: 600, fontFamily: 'var(--font-display)', marginBottom: 4 }}>Add your resumes</div>
+        <div style={muted}>
+          Add every resume you have: different versions, older ones, other languages. Your agent reads each one, and your master
+          resume picks up anything new.
+        </div>
+      </div>
+
+      <div
+        role="button" tabIndex={0}
+        onClick={() => target.agent && picker.current?.click()}
+        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && target.agent) picker.current?.click() }}
+        onDragOver={(e) => { e.preventDefault(); setOver(true) }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => { e.preventDefault(); setOver(false); send(e.dataTransfer.files) }}
+        style={{
+          border: `1.5px dashed ${over ? 'var(--accent)' : 'var(--border-strong)'}`, borderRadius: 12, padding: '34px 20px',
+          background: over ? 'var(--surface-2)' : 'var(--surface)', textAlign: 'center', cursor: target.agent ? 'pointer' : 'default',
+          opacity: target.agent ? 1 : 0.6,
+        }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8, color: 'var(--fg-muted)' }}><Icon name="download" size={22} /></div>
+        <div style={{ fontSize: 13.5, fontWeight: 500 }}>Drop resumes here, or click to choose</div>
+        <div style={{ ...muted, fontSize: 11.5, marginTop: 4 }}>PDF, Word (.docx), photo or text · several at once · up to 8 MB each</div>
+        <input ref={picker} type="file" multiple hidden accept=".pdf,.docx,.png,.jpg,.jpeg,.webp,.txt,.md"
+          onChange={(e) => { send(e.target.files); e.target.value = '' }} />
+      </div>
+      <AgentLine kind="resume_parse" />
+
+      {uploads.length > 0 && (
+        <div style={{ ...card, padding: 10, display: 'flex', flexDirection: 'column' }}>
+          {uploads.map((u, i) => (
+            <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', borderTop: i ? '0.5px solid var(--border-subtle)' : 'none', fontSize: 12.5 }}>
+              <Icon name="doc" size={12} />
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
+              {u.status === 'saved'
+                ? <span style={{ fontSize: 11.5, color: 'oklch(0.45 0.13 155)', display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="check" size={11} /> Added</span>
+                : u.status === 'error'
+                  ? <span title={u.error} style={{ fontSize: 11.5, color: danger, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.error}</span>
+                  : <span style={{ fontSize: 11.5, color: 'var(--fg-muted)', animation: 'pulse 1.6s ease-in-out infinite' }}>{u.status === 'preparing' ? 'Preparing…' : 'Reading…'}</span>}
+            </div>
+          ))}
+          {!busy && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, paddingTop: 8, borderTop: '0.5px solid var(--border-subtle)' }}>
+              <TaskStatus kind="resume_merge" running="Updating your master resume" />
+              {mergeDone && <button className="btn-primary" onClick={onOpenMaster}><Icon name="sparkle" size={12} /> See your master resume</button>}
+              <button className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={clear}>Clear list</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div>
+        <button type="button" className="btn-secondary" style={{ fontSize: 11.5 }} onClick={() => setShowManual(!showManual)}>
+          {showManual ? 'Hide' : 'No computer connected? Paste from ChatGPT, Claude or Gemini instead'}
+        </button>
+      </div>
+      {showManual && manual}
+    </div>
+  )
 }
 
 // ── master ────────────────────────────────────────────────────────────────
