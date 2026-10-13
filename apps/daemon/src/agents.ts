@@ -765,69 +765,107 @@ const EMAIL_TIMEOUT_MS = 10 * 60_000
 const PORTAL_TIMEOUT_MS = 15 * 60_000
 const RESUME_TIMEOUT_MS = 10 * 60_000
 
-function runClaude(
+/** An init event's MCP servers: whether `name` is among them. claude.ai
+ *  connectors sometimes don't load at all in `claude -p` (same flags, same
+ *  minute), and the init event says so before any model call. */
+export function initHasServer(line: string, name: string): boolean | null {
+  try {
+    const e = JSON.parse(line)
+    if (e.type !== 'system' || e.subtype !== 'init') return null
+    return Array.isArray(e.mcp_servers) && e.mcp_servers.some((m: { name?: string }) => m?.name === name)
+  } catch {
+    return null
+  }
+}
+
+const SERVER_ATTEMPTS = 5
+
+export function runClaude(
   opts: {
     args: string[]; stdin: string; timeoutMs: number; onDone?: () => void
     /** runs when the agent exits, whatever happened (e.g. delete an upload) */
     cleanup?: () => void
     /** A result only counts if one of these tools actually ran (else: error). */
     requireTool?: { match: (name: string) => boolean; missing: string }
+    /** The MCP server the task needs (e.g. "claude.ai Gmail"). If it didn't
+     *  load, stop before the model runs and start over (a few times). */
+    requireServer?: string
   },
   emit: (e: TaskEvent) => void,
 ): Promise<void> {
   return new Promise((resolve) => {
-    const child = spawn('claude', opts.args, { cwd: workspace(), stdio: ['pipe', 'pipe', 'pipe'] })
-    emit({ type: 'started', agent: 'claude' })
     let finished = false
-    let stderr = ''
-    let pending = ''
-    let usedRequired = false
     const finish = (e?: TaskEvent) => {
       if (finished) return
       if (e) emit(e)
       finished = e?.type === 'done' || e?.type === 'error' || finished
     }
     const timer = setTimeout(() => {
-      child.kill('SIGTERM')
+      current?.kill('SIGTERM')
       finish({ type: 'error', message: `The agent took too long (${Math.round(opts.timeoutMs / 60_000)} min) and was stopped.` })
     }, opts.timeoutMs)
+    let current: ReturnType<typeof spawn> | null = null
+    emit({ type: 'started', agent: 'claude' })
 
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      pending += chunk
-      const lines = pending.split('\n')
-      pending = lines.pop() ?? ''
-      for (const line of lines) {
-        for (const e of parseClaudeLine(line)) {
-          if (e.type === 'tool' && opts.requireTool?.match(e.name)) usedRequired = true
-          if (e.type === 'done' && opts.requireTool && !usedRequired) {
-            // e.g. the connector didn't load and the agent "found nothing":
-            // that must not count as a check.
-            finish({ type: 'error', message: opts.requireTool.missing })
-            continue
+    const attempt = (n: number) => {
+      const child = spawn('claude', opts.args, { cwd: workspace(), stdio: ['pipe', 'pipe', 'pipe'] })
+      current = child
+      let stderr = ''
+      let pending = ''
+      let usedRequired = false
+      let missingServer = false
+      child.stdout!.setEncoding('utf8')
+      child.stdout!.on('data', (chunk: string) => {
+        pending += chunk
+        const lines = pending.split('\n')
+        pending = lines.pop() ?? ''
+        for (const line of lines) {
+          if (opts.requireServer && !missingServer && initHasServer(line, opts.requireServer) === false) {
+            missingServer = true
+            child.kill('SIGKILL')
+            return
           }
-          if (e.type === 'done') opts.onDone?.()
-          if (e.type === 'done' || e.type === 'error') finish(e)
-          else if (!finished) emit(e)
+          for (const e of parseClaudeLine(line)) {
+            if (e.type === 'tool' && opts.requireTool?.match(e.name)) usedRequired = true
+            if (e.type === 'done' && opts.requireTool && !usedRequired) {
+              // e.g. the connector didn't load and the agent "found nothing":
+              // that must not count as a check.
+              finish({ type: 'error', message: opts.requireTool.missing })
+              continue
+            }
+            if (e.type === 'done') opts.onDone?.()
+            if (e.type === 'done' || e.type === 'error') finish(e)
+            else if (!finished) emit(e)
+          }
         }
-      }
-    })
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk: string) => { stderr = (stderr + chunk).slice(-2000) })
-    child.on('error', (err) => finish({ type: 'error', message: `Couldn't start Claude Code: ${err.message}` }))
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      try {
-        opts.cleanup?.()
-      } catch {
-        // best effort
-      }
-      if (!finished) {
-        finish({ type: 'error', message: `Claude Code exited (${code ?? 'killed'})${stderr ? `: ${stderr.trim().split('\n').pop()}` : ''}` })
-      }
-      resolve()
-    })
-    child.stdin.end(opts.stdin)
+      })
+      child.stderr!.setEncoding('utf8')
+      child.stderr!.on('data', (chunk: string) => { stderr = (stderr + chunk).slice(-2000) })
+      child.on('error', (err) => finish({ type: 'error', message: `Couldn't start Claude Code: ${err.message}` }))
+      child.on('close', (code) => {
+        if (missingServer && !finished && n < SERVER_ATTEMPTS) {
+          setTimeout(() => attempt(n + 1), 1500 * n)
+          return
+        }
+        clearTimeout(timer)
+        try {
+          opts.cleanup?.()
+        } catch {
+          // best effort
+        }
+        if (!finished) {
+          finish({
+            type: 'error',
+            message: missingServer
+              ? opts.requireTool?.missing ?? `Claude Code couldn't load ${opts.requireServer}.`
+              : `Claude Code exited (${code ?? 'killed'})${stderr ? `: ${stderr.trim().split('\n').pop()}` : ''}`,
+          })
+        }
+        resolve()
+      })
+      child.stdin!.end(opts.stdin)
+    }
+    attempt(1)
   })
 }
 
@@ -867,6 +905,7 @@ export function runTask(task: Task, emit: (e: TaskEvent) => void): Promise<void>
       args: claudeEmailArgs(mail),
       stdin: emailPrompt({ since: input.since, applications: input.applications }),
       timeoutMs: EMAIL_TIMEOUT_MS,
+      requireServer: mail.server,
       requireTool: {
         match: (name) => mail.tools.includes(name),
         missing: `Claude Code couldn't load your ${mail.label} connector this time, so nothing was read. Landed will try again shortly.`,
@@ -914,6 +953,7 @@ export function runTask(task: Task, emit: (e: TaskEvent) => void): Promise<void>
     if (!Array.isArray(items) || items.length === 0) return fail(emit, 'Bad portal task.')
     return runClaude({
       args: claudePortalArgs(), stdin: portalPrompt(items), timeoutMs: PORTAL_TIMEOUT_MS,
+      requireServer: 'claude-in-chrome',
       requireTool: {
         match: (name) => name === `${CHROME}navigate`,
         missing: "Claude Code couldn't reach Chrome this time (is it open, with Claude in Chrome connected?). Nothing was checked.",

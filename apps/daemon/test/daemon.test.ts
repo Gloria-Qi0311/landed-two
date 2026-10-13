@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   CHROME_READ_TOOLS, chatWithHistory, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
-  isReadOnlyTool, parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
+  initHasServer, isReadOnlyTool, parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
 
@@ -152,6 +152,13 @@ test('chat: an old conversation on a computer without its session gets the histo
   assert.equal(chatWithHistory([], 'hi'), 'hi')
   const text = chatWithHistory([{ role: 'user', text: 'AI PM roles in the US?' }, { role: 'agent', text: 'Do you need sponsorship?' }], 'Yes, H-1B')
   assert.match(text, /User: AI PM roles in the US\?[\s\S]*You \(the assistant\): Do you need sponsorship\?[\s\S]*Yes, H-1B$/)
+})
+
+test('init event: did the needed MCP server load?', () => {
+  const init = (servers: string[]) => JSON.stringify({ type: 'system', subtype: 'init', mcp_servers: servers.map((name) => ({ name, status: 'pending' })) })
+  assert.equal(initHasServer(init(['claude.ai Gmail', 'claude.ai Google Drive']), 'claude.ai Gmail'), true)
+  assert.equal(initHasServer(init([]), 'claude.ai Gmail'), false)
+  assert.equal(initHasServer('{"type":"assistant"}', 'claude.ai Gmail'), null)
 })
 
 test('SSE parser handles split chunks, comments and multi-line data', () => {
