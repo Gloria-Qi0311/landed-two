@@ -81,12 +81,6 @@ export const Sidebar = ({ apps, account, onProfileClick, navCounts = {} }) => {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>Landed</div>
         </div>
-        <button className="icon-btn" style={{ background: 'transparent', border: 'none', color: 'var(--fg-muted)', cursor: 'pointer', padding: 4, borderRadius: 4, display: 'flex', position: 'relative' }}>
-          <Icon name="bell" size={14} />
-          {needsAuth > 0 && (
-            <span style={{ position: 'absolute', top: 2, right: 2, width: 7, height: 7, background: 'oklch(0.65 0.18 30)', borderRadius: 4, border: '1.5px solid var(--surface-2)' }} />
-          )}
-        </button>
       </div>
 
       {/* Nav */}
