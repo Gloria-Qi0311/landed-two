@@ -1,7 +1,7 @@
 // ~/.landed — the daemon's config (server URL + runtime token), its agent
 // workspace, and which conversations already have an agent session.
 // LANDED_HOME overrides the location (tests).
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -26,6 +26,11 @@ export function saveConfig(c: Config) {
   ensureHome()
   writeFileSync(configPath(), JSON.stringify(c, null, 2) + '\n', { mode: 0o600 })
   chmodSync(configPath(), 0o600) // the token is a credential
+}
+
+/** Forget the connection (the computer was removed in Landed). */
+export function clearConfig() {
+  rmSync(configPath(), { force: true })
 }
 
 /** Agents run here — an empty directory, never the user's projects. */

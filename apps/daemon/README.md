@@ -9,16 +9,23 @@ The Landed daemon connects your computer to Landed and runs Landed's AI tasks wi
 
 ## Use it
 
-1. In Landed, open **Agent → Connect this computer** and copy the command.
-2. Run it in a terminal on that computer, from the Landed repo folder:
+**On a Mac:** in Landed, open **Agent → Connect this computer**.
+- The first time, Landed offers **Landed for Mac**. Download it and open it once. It installs the daemon as a background service: the service starts with your Mac, restarts if it stops, and never needs a terminal.
+- From then on, *Connect this computer* opens the app. It asks "Connect this Mac to Landed at …?", and you click **Connect**. That confirmation is there because any web page can open a `landed://` link, and pairing should never happen without your click.
 
-   ```sh
-   pnpm landed connect --server https://your-landed --token landed_rt_…   # pair + run
-   pnpm landed start                                                       # later: run again
-   pnpm landed status                                                      # what's paired, which agents were found
-   ```
+Build the app with `pnpm --filter @landed/daemon build:mac`. That writes `dist/Landed.app` and `dist/Landed-mac.zip`; the Landed server serves the zip at `/api/downloads/landed-mac.zip`. Add `--install` to also copy the app to `~/Applications` on this Mac. The app is ad-hoc signed and not notarized, so the first time a *downloaded* copy is opened, macOS may ask you to confirm it in System Settings → Privacy & Security.
 
-You need Node 23.6+ and at least one supported agent CLI, installed and signed in. Keep the daemon running for Landed to reach the agents; your Mac mini is a good always-on host. Removing the computer in Landed revokes its key, and the daemon exits.
+**From a terminal (any OS, from the repo):**
+
+```sh
+pnpm landed connect --server https://your-landed --token landed_rt_…   # pair + run here
+pnpm landed start                                                       # run again later
+pnpm landed status                                                      # what's paired, which agents were found
+```
+
+Only one daemon runs per computer (`~/.landed/daemon.pid`). If the background service is installed, `connect` hands it the new connection instead of starting a second daemon. `pnpm landed uninstall` removes the service.
+
+You need Node 20+ and at least one supported agent CLI, installed and signed in. Removing the computer in Landed revokes its key. A terminal daemon then exits, and the service waits for a new connection.
 
 ## What an agent can do here
 

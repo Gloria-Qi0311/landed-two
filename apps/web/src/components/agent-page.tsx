@@ -188,43 +188,31 @@ function Setup() {
       <div style={{ fontSize: 15, fontWeight: 600 }}>Connect your own AI agent first</div>
       <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
         Landed talks to the agent you already use — Claude Code today — running on your computer, on your own
-        subscription. Connect that computer once and you can chat here any time: shape your job search, then let the
-        agent go find roles for you.
+        subscription. Connect your computer once (one click on a Mac) and chat here any time: shape your job search,
+        then let the agent go find roles for you.
       </div>
       <RuntimePanel />
     </div>
   )
 }
 
-/** Paired, but the daemon isn't running. `start` only works on the computer
- *  that ran `connect` (it reuses ~/.landed/config.json), so offer re-pairing
- *  right here for every other case. */
+/** Paired, but not connected right now. With Landed for Mac it comes back
+ *  on its own when that Mac is on; otherwise connect (this) computer again. */
 function Offline({ runtime }: { runtime: Runtime }) {
-  const [copied, setCopied] = useState(false)
   const { pairing, start, cancel, pending, error } = usePairing()
   const muted = { fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.6 } as const
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: 15, fontWeight: 600 }}>{runtime.name} is offline</div>
       <div style={muted}>
-        On {runtime.name}, start the Landed daemon from the Landed repo folder and this page connects by itself:
-      </div>
-      <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, padding: '8px 10px', borderRadius: 6, background: 'var(--surface-2)', border: '0.5px solid var(--border)' }}>
-        pnpm landed start
-      </code>
-      <div>
-        <button type="button" className="btn-secondary" onClick={async () => { await navigator.clipboard.writeText('pnpm landed start').catch(() => {}); setCopied(true) }}>
-          {copied ? 'Copied' : 'Copy command'}
-        </button>
-      </div>
-      <div style={{ ...muted, marginTop: 10, paddingTop: 12, borderTop: '0.5px solid var(--border-subtle)' }}>
-        It says <b>“Not paired yet”</b>, or you're on a different computer? Connect this one instead — it takes one command.
+        If Landed for Mac is installed on {runtime.name}, it reconnects by itself as soon as that Mac is on and awake —
+        nothing to do here. On this computer, or if it isn't installed there, connect it now:
       </div>
       {error && <PairingError error={error} />}
       {pairing ? <PairingSteps token={pairing.token} onCancel={cancel} /> : (
         <div>
           <button type="button" className="btn-primary" disabled={pending} onClick={start}>
-            <Icon name="plus" size={12} /> Connect this computer
+            <Icon name="device" size={12} /> Connect this computer
           </button>
         </div>
       )}

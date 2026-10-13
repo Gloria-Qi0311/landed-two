@@ -17,6 +17,7 @@ import { dataRoutes } from './routes/data.ts'
 import { inboxRoutes } from './routes/inbox.ts'
 import { searchRoutes } from './routes/searches.ts'
 import { conversationRoutes } from './routes/conversations.ts'
+import { downloadRoutes } from './routes/downloads.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
 import { runtimeAccountRoutes, runtimeDaemonRoutes } from './routes/runtime.ts'
@@ -54,6 +55,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtim
 
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.route('/api/auth', authRoutes(sql, config))
+  app.route('/api/downloads', downloadRoutes())
   // External agents authenticate with a narrow connection token, never a
   // browser/extension session token.
   app.route('/api/agent', agentIngestRoutes(sql))

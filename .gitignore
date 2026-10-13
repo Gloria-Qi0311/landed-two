@@ -49,3 +49,4 @@ test-results/
 LOOP-FRICTION.jsonl
 
 apps/extension/dist/
+apps/daemon/dist/

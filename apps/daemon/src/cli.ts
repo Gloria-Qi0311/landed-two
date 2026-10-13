@@ -2,9 +2,17 @@
 // landed — connect this computer to Landed and run its tasks with the agent
 // CLIs installed here (Claude Code today; Codex and Gemini CLI next).
 //
+// Most people never type these: Landed.app (scripts/build-mac.mjs) runs
+// `setup` when opened and `open-url` when Landed's "Connect this computer"
+// opens a landed:// link, and the background service runs `service`.
+//
+//   landed setup          # install the background service (macOS)
+//   landed open-url <url> # pair from a landed://connect link (asks first)
+//   landed service        # what the background service runs
+//   landed uninstall      # remove the background service
 //   landed connect --server https://landed.example.com --token landed_rt_…
-//   landed start        # reconnect with the saved config
-//   landed status       # what's configured and which agents were found
+//   landed start          # reconnect with the saved config, in this terminal
+//   landed status         # what's configured and which agents were found
 //
 // From the Landed repo: `pnpm landed <command>`.
 import { hostname } from 'node:os'
@@ -13,10 +21,14 @@ import { parseArgs } from 'node:util'
 import { detectAgents, runTask, type AgentInfo, type Task } from './agents.ts'
 import { handleSync, setupAutomations, tick } from './automations.ts'
 import type { SyncInput } from '@landed/schema/automation'
-import { home, loadConfig, saveConfig, type Config } from './config.ts'
+import { clearConfig, home, loadConfig, saveConfig, type Config } from './config.ts'
+import {
+  computerName, confirm, installService, notify, otherDaemon, parseConnectUrl, restartService, serviceInstalled, takeLock,
+  uninstallService,
+} from './mac.ts'
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 
-const VERSION = '0.3.0'
+const VERSION = '0.4.0'
 const MAX_PARALLEL = 2
 
 const describe = (agents: AgentInfo[]) =>
@@ -28,11 +40,14 @@ function log(msg: string) {
 
 const REDETECT_MS = 30 * 60_000
 
-async function run(config: Config) {
+/** Connect and work until the computer is removed in Landed ('revoked');
+ *  in a terminal that exits, as a service it waits for a new pairing. */
+async function run(config: Config, opts: { service?: boolean } = {}): Promise<'revoked' | 'no-agent'> {
   let agents = await detectAgents({ quick: true })
   if (agents.length === 0) {
     log('No supported agent found. Install Claude Code (https://claude.com/claude-code) and sign in, then run `landed start` again.')
-    process.exit(1)
+    if (!opts.service) process.exit(1)
+    return 'no-agent'
   }
   const client = new LandedClient(config.server, config.token)
   const name = config.name ?? hostname().replace(/\.local$/, '')
@@ -76,9 +91,12 @@ async function run(config: Config) {
     }
   }
   void redetect()
-  setInterval(redetect, REDETECT_MS).unref()
-  // Scheduled work (Automation page): check every minute what's due.
-  setInterval(tick, 60_000).unref()
+  const timers = [
+    setInterval(redetect, REDETECT_MS),
+    // Scheduled work (Automation page): check every minute what's due.
+    setInterval(tick, 60_000),
+  ]
+  timers.forEach((t) => t.unref())
 
   let backoff = 1000
   for (;;) {
@@ -93,14 +111,69 @@ async function run(config: Config) {
       log('connection closed, reconnecting…')
     } catch (err) {
       if (err instanceof AuthError) {
-        log(`${err.message}: in Landed open Agent → Connect this computer, and run the new command.`)
-        process.exit(2)
+        log(`${err.message}: in Landed open Agent → Connect this computer.`)
+        if (!opts.service) process.exit(2)
+        timers.forEach(clearInterval)
+        return 'revoked'
       }
       log(`can't reach Landed (${(err as Error).message}); retrying in ${Math.round(backoff / 1000)}s`)
     }
     await new Promise((r) => setTimeout(r, backoff))
     backoff = Math.min(backoff * 2, 60_000)
   }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** One daemon per computer: in a terminal, step aside for a running one. */
+function exclusive() {
+  const other = otherDaemon()
+  if (other) {
+    console.error(`Landed is already running on this computer (pid ${other}${serviceInstalled() ? ', the background service' : ''}). Nothing to do.`)
+    process.exit(0)
+  }
+  takeLock()
+}
+
+/** The background service: wait for a pairing, run, and if the computer is
+ *  removed in Landed, forget the connection and wait for the next one. */
+async function service() {
+  while (otherDaemon()) await sleep(10_000) // e.g. a terminal daemon still running
+  takeLock()
+  log(`Landed ${VERSION} service started`)
+  for (;;) {
+    const config = loadConfig()
+    if (!config) {
+      await sleep(3000)
+      continue
+    }
+    const outcome = await run(config, { service: true })
+    if (outcome === 'revoked') {
+      clearConfig()
+      log('this computer was removed in Landed; waiting for a new connection')
+    } else {
+      await sleep(60_000) // no agent installed yet: look again in a minute
+    }
+  }
+}
+
+/** landed://connect?… from Landed's "Connect this computer": ask, save, restart the service. */
+async function openUrl(raw: string | undefined) {
+  const link = raw ? parseConnectUrl(raw) : null
+  if (!link) {
+    console.error("That isn't a Landed connect link.")
+    process.exit(1)
+  }
+  const current = loadConfig()
+  const host = new URL(link.server).host
+  const message = current && current.server !== link.server
+    ? `Connect this Mac to Landed at ${host}?\n\nIt's connected to ${new URL(current.server).host} now; that connection will be replaced.`
+    : `Connect this Mac to Landed at ${host}?\n\nLanded's tasks will run here with your own agent (Claude Code), on your own subscription.`
+  if (!confirm(message)) process.exit(0)
+  saveConfig({ server: link.server, token: link.token, name: link.name ?? computerName() ?? undefined })
+  if (!serviceInstalled()) installService()
+  else restartService()
+  notify(`This Mac is connected to Landed at ${host}.`)
 }
 
 async function main() {
@@ -118,7 +191,13 @@ async function main() {
     const config: Config = { server: values.server, token: values.token, ...(values.name ? { name: values.name } : {}) }
     saveConfig(config)
     log(`saved ${join(home(), 'config.json')}`)
-    return run(config)
+    if (serviceInstalled()) {
+      restartService()
+      log('the background service picked up the new connection')
+      return
+    }
+    exclusive()
+    return void (await run(config))
   }
 
   if (command === 'start') {
@@ -131,7 +210,29 @@ async function main() {
       )
       process.exit(1)
     }
-    return run(config)
+    exclusive()
+    return void (await run(config))
+  }
+
+  if (command === 'service') return service()
+
+  if (command === 'setup') {
+    if (process.platform !== 'darwin') {
+      console.error('The background service is macOS-only for now; use `landed start`.')
+      process.exit(1)
+    }
+    const { plist } = installService()
+    log(`background service installed (${plist}); it starts at login and restarts if it stops`)
+    notify(loadConfig() ? 'Landed is running in the background.' : 'Landed is installed. In Landed, click "Connect this computer".')
+    return
+  }
+
+  if (command === 'open-url') return openUrl(positionals[1])
+
+  if (command === 'uninstall') {
+    uninstallService()
+    log('background service removed')
+    return
   }
 
   if (command === 'status') {
@@ -150,7 +251,7 @@ async function main() {
     return
   }
 
-  console.error(`Unknown command "${command}". Commands: connect, start, status.`)
+  console.error(`Unknown command "${command}". Commands: setup, open-url, service, uninstall, connect, start, status.`)
   process.exit(1)
 }
 
