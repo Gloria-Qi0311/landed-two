@@ -7,7 +7,7 @@
 // device's data always uploads cleanly when the user turns Cloud on.
 import Dexie, { type Table } from 'dexie'
 import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
-import { normalizeStage, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
+import { normalizeStage, parseDeadline, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
@@ -159,6 +159,15 @@ function stageAndRounds(stage: unknown, interviews: unknown, create: boolean) {
   return { stage: n?.stage, interviews: rounds }
 }
 
+/** Same as the server: "" / null clears, anything else must read as a date. */
+function deadlineOf(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined
+  if (v === null || v === '') return null
+  const d = parseDeadline(v)
+  if (!d) throw new LocalStoreError(400, 'deadline must be a date')
+  return d
+}
+
 function applicationRow(companyId: string, input: ApplicationInput, at: string): DbApplication {
   required(input.role, 'role')
   const { stage, interviews } = stageAndRounds(input.stage, input.interviews, true)
@@ -166,6 +175,7 @@ function applicationRow(companyId: string, input: ApplicationInput, at: string):
   return {
     id: uuid(), user_id: LOCAL_USER, company_id: companyId,
     role: input.role, team: input.team ?? null, stage: stage ?? 'saved', interviews: interviews ?? [],
+    deadline: deadlineOf(input.deadline) ?? null,
     salary: input.salary ?? null, location: input.location ?? null, remote: input.remote ?? null,
     applied_at: input.applied_at ?? null, next_step: input.next_step ?? null,
     referral: input.referral ?? false, source: input.source ?? null, job_id: input.job_id ?? null,
@@ -243,6 +253,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         const { stage, interviews } = stageAndRounds(clean.stage, clean.interviews, false)
         if (stage) clean.stage = stage
         if (interviews) clean.interviews = interviews
+        if (clean.deadline !== undefined) clean.deadline = deadlineOf(clean.deadline) ?? null
         oneOf(clean.remote, REMOTES, 'remote')
         if (clean.role !== undefined) required(clean.role, 'role')
         const next = { ...row, ...clean, last_activity_at: now() }
@@ -418,7 +429,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       return db.transaction('rw', db.job_leads, async () => {
         const row = await db.job_leads.get(id)
         if (!row) throw new LocalStoreError(404, 'lead not found')
-        const next = { ...row, ...patch }
+        const next = { ...row, ...patch, ...(patch.deadline !== undefined ? { deadline: deadlineOf(patch.deadline) ?? null } : {}) }
         await db.job_leads.put(next)
         return next
       })

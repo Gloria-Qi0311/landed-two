@@ -195,7 +195,7 @@ describe('lead actions', () => {
 describe('ingestFoundJobs (search runs on the user\'s computer)', () => {
   const job = (over: Record<string, unknown> = {}) => ({
     company: 'Acme AI', title: 'Associate Product Manager', job_url: 'https://jobs.ashbyhq.com/acme/1b2c3d4e-0000-4000-8000-000000000001',
-    location: 'San Francisco, CA', posted: '3 days ago', salary: '$130k–$150k', sponsorship: 'Sponsors H-1B', why: 'New grad APM on an AI product',
+    location: 'San Francisco, CA', posted: '3 days ago', deadline: null as string | null, salary: '$130k–$150k', sponsorship: 'Sponsors H-1B', why: 'New grad APM on an AI product',
     ...over,
   })
   const source = (run: string) => ({ run_id: run, runtime_id: 'rt-1', agent: 'claude' })
@@ -231,6 +231,7 @@ describe('ingestEmailFindings (email checks on the user\'s computer)', () => {
   const source = (run: string) => ({ run_id: run, runtime_id: 'rt-1', agent: 'claude', mail: 'Gmail' })
   const mail = (id: string, over: Record<string, unknown> = {}) => ({
     company: 'Figma', role: 'Associate Product Manager', status: 'assessment' as const, confidence: 0.95, job_url: null,
+    interview_at: null as string | null, interview_format: null as 'onsite' | 'remote' | null,
     evidence: { message_id: id, sender_domain: 'figma.com', subject: 'Your Figma online assessment', received_at: '2026-10-10T09:00:00.000Z' },
     ...over,
   })
@@ -252,6 +253,17 @@ describe('ingestEmailFindings (email checks on the user\'s computer)', () => {
     expect(await store.listApplications()).toHaveLength(2)
   })
 
+  test('an interview invitation with a time adds a round to the application', async () => {
+    const store = fresh()
+    await store.addApplication({ name: 'Figma' }, { role: 'Associate Product Manager', stage: 'oa' })
+    await ingestEmailFindings(store, [mail('inv-1', { status: 'interview', interview_at: '2026-10-20T14:00:00-07:00', interview_format: 'remote' })], source('run-i'), settings)
+    const [app] = await store.listApplications()
+    expect(app.stage).toBe('interview')
+    expect(app.interviews).toEqual([{ round: 1, format: 'remote', interviewers: [], at: '2026-10-20T21:00:00.000Z', note: null }])
+    await ingestEmailFindings(store, [mail('inv-2', { status: 'interview', interview_at: '2026-10-27T10:00:00-07:00', interview_format: 'onsite' })], source('run-j'), settings)
+    expect((await store.listApplications())[0].interviews.map((r) => [r.round, r.format])).toEqual([[1, 'remote'], [2, 'onsite']])
+  })
+
   test('unsure or ambiguous emails wait for the user; ids missing → stable fallback key', async () => {
     const store = fresh()
     await store.addApplication({ name: 'Figma' }, { role: 'APM', stage: 'applied' })
@@ -265,7 +277,7 @@ describe('ingestEmailFindings (email checks on the user\'s computer)', () => {
 describe('"did you apply?" after opening a posting', () => {
   const lead = (store: LocalStore) => ingestFoundJobs(store, [{
     company: 'Figma', title: 'Associate Product Manager', job_url: 'https://job-boards.greenhouse.io/figma/jobs/6180116004',
-    location: 'SF', posted: null, salary: null, sponsorship: null, why: null,
+    location: 'SF', posted: null, deadline: 'Oct 21, 2026 5pm PT', salary: null, sponsorship: null, why: null,
   }], { run_id: 'run-s', runtime_id: 'rt-1', agent: 'claude' }).then(async () => (await store.listJobLeads())[0])
   const open = async (store: LocalStore) => {
     const [s, l, a, c] = await Promise.all([store.listSuggestions(), store.listJobLeads(), store.listApplications(), store.listCompanies()])
@@ -275,6 +287,7 @@ describe('"did you apply?" after opening a posting', () => {
   test('opening a lead asks once; "yes" adds that lead as Applied', async () => {
     const store = fresh()
     const l = await lead(store)
+    expect(l.deadline).toBe('2026-10-21')
     expect(await recordApplyClick(store, { kind: 'lead', lead: l })).not.toBeNull()
     expect(await recordApplyClick(store, { kind: 'lead', lead: l })).toBeNull()
     const [q] = await open(store)
@@ -282,7 +295,7 @@ describe('"did you apply?" after opening a posting', () => {
     await acceptSuggestion(store, q, await store.listApplications())
     const apps = await store.listApplications()
     expect(apps).toHaveLength(1)
-    expect(apps[0]).toMatchObject({ stage: 'applied', portal_application_url: 'https://job-boards.greenhouse.io/figma/jobs/6180116004' })
+    expect(apps[0]).toMatchObject({ stage: 'applied', portal_application_url: 'https://job-boards.greenhouse.io/figma/jobs/6180116004', deadline: '2026-10-21' })
     expect((await store.listJobLeads())[0]).toMatchObject({ status: 'saved', application_id: apps[0].id })
     expect(await open(store)).toHaveLength(0)
   })
@@ -305,6 +318,7 @@ describe('"did you apply?" after opening a posting', () => {
     await recordApplyClick(store, { kind: 'lead', lead: l })
     await ingestEmailFindings(store, [{
       company: 'Figma', role: 'Associate Product Manager', status: 'applied', confidence: 0.95, job_url: null,
+      interview_at: null, interview_format: null,
       evidence: { message_id: 'm-applied', sender_domain: 'greenhouse-mail.io', subject: 'Thanks for applying to Figma' },
     }], { run_id: 'run-e', runtime_id: 'rt-1', agent: 'claude', mail: 'Gmail' }, settings)
     expect(await open(store)).toHaveLength(0)

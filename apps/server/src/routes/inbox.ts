@@ -3,6 +3,7 @@
 // observations processed. Mounted behind requireCloud — sync-off accounts
 // keep these in their browser. The processing itself runs in the browser
 // (packages/observation-processor); these routes just store results.
+import { parseDeadline } from '@landed/schema/pipeline'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
 import type { Sql } from '../db.ts'
@@ -14,7 +15,7 @@ type Row = Record<string, any>
 export const LEAD_COLUMNS = [
   'id', 'fingerprint', 'ats_key', 'canonical_url', 'company_key', 'title_key', 'company_name', 'title',
   'job_url', 'location', 'description', 'sources', 'status', 'application_id', 'first_seen_at', 'last_seen_at',
-  'created_at',
+  'created_at', 'deadline',
 ] as const
 
 export const SUGGESTION_COLUMNS = [
@@ -74,7 +75,11 @@ export function inboxRoutes(sql: Sql) {
     const patch: Row = {}
     if (body.status !== undefined) patch.status = body.status
     if (body.application_id !== undefined) patch.application_id = body.application_id
-    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: status, application_id)')
+    if (body.deadline !== undefined) {
+      patch.deadline = body.deadline === null || body.deadline === '' ? null : parseDeadline(body.deadline)
+      if (body.deadline && !patch.deadline) fail(400, 'deadline must be a date')
+    }
+    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: status, application_id, deadline)')
     const [row] = await sql`
       update job_leads set ${sql(patch)} where id = ${c.req.param('id')} and user_id = ${c.get('user').id}
       returning ${sql(LEAD_COLUMNS as unknown as string[])}`

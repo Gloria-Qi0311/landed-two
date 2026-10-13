@@ -15,7 +15,8 @@ import {
   useDroppable,
   DragOverlay,
 } from '@dnd-kit/core';
-import { latestRound, roundLabel } from '@landed/schema/pipeline';
+import { currentRound, formatWhen, roundLabel } from '@landed/schema/pipeline';
+import { DeadlineChip, byDeadline } from './deadline-chip';
 import { CompanyMark, PortalDot, Icon, stageColors } from './primitives';
 import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
@@ -24,7 +25,8 @@ import { findDuplicateAppIds } from '../lib/duplicates';
 // Pure card markup (shared between sortable card + DragOverlay preview).
 // Extracted so the floating overlay can render identical visuals.
 // ────────────────────────────────────────────────────────────────────────
-function CardContent({ app, comp, c, isDuplicate }) {
+function CardContent({ app, comp, c, isDuplicate, onSetDeadline }) {
+  const round = columnOf(app.stage) === 'interview' ? currentRound(app.interviews) : null;
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -41,15 +43,19 @@ function CardContent({ app, comp, c, isDuplicate }) {
           Ghosted
         </span>
       )}
-      {columnOf(app.stage) === 'interview' && latestRound(app.interviews) && (
+      {round && (
         <span title={app.interviews.length > 1 ? `${app.interviews.length} rounds so far` : undefined} style={{
           fontSize: 10.5, color: stageColors.interview.fg, background: stageColors.interview.bg, border: `0.5px solid ${stageColors.interview.ring}`,
-          padding: '1px 6px', borderRadius: 4, width: 'fit-content', display: 'flex', alignItems: 'center', gap: 4,
+          padding: '1px 6px', borderRadius: 4, width: 'fit-content', display: 'flex', flexDirection: 'column', gap: 1,
         }}>
-          <Icon name={latestRound(app.interviews).format === 'onsite' ? 'map' : 'device'} size={10} />
-          {roundLabel(latestRound(app.interviews))}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Icon name={round.format === 'onsite' ? 'map' : 'device'} size={10} />
+            {roundLabel(round)}
+          </span>
+          {round.at && <span style={{ fontWeight: 600 }}>{formatWhen(round.at)}</span>}
         </span>
       )}
+      {app.stage === 'saved' && onSetDeadline && <DeadlineChip compact deadline={app.deadline} onSave={(d) => onSetDeadline(app.id, d)} />}
       {isDuplicate && (
         <div
           title="Same company + role exists on another application — possible duplicate from a second portal."
@@ -83,7 +89,7 @@ function CardContent({ app, comp, c, isDuplicate }) {
 // Draggable card. PointerSensor's activationConstraint distinguishes drag
 // from click — a quick tap fires onOpen; a >5px drag enters drag mode.
 // ────────────────────────────────────────────────────────────────────────
-function DraggableCard({ app, comp, c, onOpen, isDuplicate }) {
+function DraggableCard({ app, comp, c, onOpen, isDuplicate, onSetDeadline }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: app.id });
   return (
     <div
@@ -105,7 +111,7 @@ function DraggableCard({ app, comp, c, onOpen, isDuplicate }) {
       }}
       className="kanban-card"
     >
-      <CardContent app={app} comp={comp} c={c} isDuplicate={isDuplicate} />
+      <CardContent app={app} comp={comp} c={c} isDuplicate={isDuplicate} onSetDeadline={onSetDeadline} />
     </div>
   );
 }
@@ -161,7 +167,7 @@ function hueOf(name) {
   return h;
 }
 
-function LeadCardContent({ lead, onDismiss, onOpen }) {
+function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline }) {
   const agents = [...new Set(lead.sources.map((s) => PROVIDER_LABELS[s.provider] ?? s.provider ?? 'agent'))];
   const stop = (e) => e.stopPropagation();
   return (
@@ -188,6 +194,7 @@ function LeadCardContent({ lead, onDismiss, onOpen }) {
         )}
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{lead.title}</div>
+      {onSetDeadline && <DeadlineChip compact deadline={lead.deadline} onSave={(d) => onSetDeadline(lead.id, d)} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--fg-muted)' }}>
         <Icon name="wand" size={10} />
         <span>found by {agents.join(', ')}{lead.sources.length > 1 ? ` · ${lead.sources.length}×` : ''}</span>
@@ -204,18 +211,18 @@ const leadCardStyle = {
   display: 'flex', flexDirection: 'column', gap: 8,
 };
 
-function DraggableLeadCard({ lead, onDismiss, onOpen }) {
+function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: LEAD_PREFIX + lead.id });
   return (
     <div ref={setNodeRef} {...attributes} {...listeners} className="kanban-card"
       title={lead.description || undefined}
       style={{ ...leadCardStyle, cursor: isDragging ? 'grabbing' : 'grab', visibility: isDragging ? 'hidden' : 'visible' }}>
-      <LeadCardContent lead={lead} onDismiss={onDismiss} onOpen={onOpen} />
+      <LeadCardContent lead={lead} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetDeadline} />
     </div>
   );
 }
 
-function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds }) {
+function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline }) {
   // Dropping an application here puts it back to "not applied yet".
   const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
   const count = leads.length + saved.length;
@@ -233,9 +240,10 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
         <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: 3 }}>Not applied yet — drag into a stage when you apply</div>
       </div>
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1 }}>
-        {leads.map((l) => <DraggableLeadCard key={l.id} lead={l} onDismiss={onDismiss} onOpen={onOpen} />)}
-        {saved.map((a) => (
-          <DraggableCard key={a.id} app={a} comp={getCompany(a.companyId)} c={stageColors.saved} onOpen={onOpenApp} isDuplicate={duplicateIds.has(a.id)} />
+        {/* Soonest deadline first. */}
+        {[...leads].sort(byDeadline).map((l) => <DraggableLeadCard key={l.id} lead={l} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetLeadDeadline} />)}
+        {[...saved].sort(byDeadline).map((a) => (
+          <DraggableCard key={a.id} app={a} comp={getCompany(a.companyId)} c={stageColors.saved} onOpen={onOpenApp} isDuplicate={duplicateIds.has(a.id)} onSetDeadline={onSetAppDeadline} />
         ))}
         {count === 0 && (
           <div style={{ fontSize: 11, color: 'var(--fg-muted)', textAlign: 'center', padding: 16, border: '1px dashed var(--border)', borderRadius: 6, lineHeight: 1.5 }}>
@@ -253,9 +261,10 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
 // ────────────────────────────────────────────────────────────────────────
 /**
  * @param {{ apps: any[], companies: any[], onOpen: (id: string) => void, onMoveCard: (id: string, stage: string) => void,
- *   leads?: any[], onAddLead?: (lead: any, stage: any) => void, onDismissLead?: (id: string) => void, onOpenLead?: (lead: any) => void }} props
+ *   leads?: any[], onAddLead?: (lead: any, stage: any) => void, onDismissLead?: (id: string) => void, onOpenLead?: (lead: any) => void,
+ *   onSetLeadDeadline?: (id: string, deadline: string | null) => void, onSetAppDeadline?: (id: string, deadline: string | null) => void }} props
  */
-export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead }) => {
+export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline }) => {
   const [activeId, setActiveId] = useState(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -301,7 +310,8 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
     >
       <div style={{ display: 'flex', gap: 12, padding: '8px 28px 24px', overflowX: 'auto', height: '100%', alignItems: 'stretch' }}>
         <LeadsColumn leads={leads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
-          onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds} />
+          onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds}
+          onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} />
         {pipelineStages.map(stage => (
           <DroppableColumn
             key={stage.id}

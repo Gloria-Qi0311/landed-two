@@ -43,7 +43,7 @@ const COLUMNS = {
   applications: [
     'id', 'company_id', 'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at',
     'next_step', 'referral', 'source', 'job_id', 'portal_application_url', 'notes', 'starred',
-    'last_activity_at', 'created_at', 'interviews',
+    'last_activity_at', 'created_at', 'interviews', 'deadline',
   ],
   portal_connections: [
     'id', 'company_id', 'provider', 'portal_host', 'status', 'last_sync_at', 'last_seen_login_at',

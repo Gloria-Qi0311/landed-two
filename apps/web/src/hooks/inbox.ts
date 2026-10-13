@@ -109,6 +109,7 @@ export function useLeadActions() {
     add: useInvalidating(({ lead, stage }: { lead: DbJobLead; stage: Stage }) => addLeadToPipeline(store, lead, stage)),
     dismiss: useInvalidating((id: string) => dismissLead(store, id)),
     restore: useInvalidating((id: string) => restoreLead(store, id)),
+    setDeadline: useInvalidating(({ id, deadline }: { id: string; deadline: string | null }) => store.updateJobLead(id, { deadline })),
   }
 }
 

@@ -1,9 +1,10 @@
 // Detail drawer for a single application
 import React, { useEffect } from 'react';
 import { CompanyMark, Icon, PortalDot, stageColors } from './primitives';
-import { STAGES, STAGE_LABELS, PORTAL_STATUS, columnOf } from '../data';
+import { STAGES, PORTAL_STATUS, columnOf } from '../data';
 import { InterviewRounds } from './interview-rounds';
 import { EditableText } from './editable';
+import { DeadlineChip } from './deadline-chip';
 
 const label = { fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 };
 const REMOTES = ['Remote', 'Hybrid', 'On-site'];
@@ -24,13 +25,6 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
   const portal = PORTAL_STATUS[company.id];
   const col = stageColors[app.stage];
 
-  // Fake event history
-  const events = [
-    { date: 'Apr 19', type: 'auto', text: 'Status pulled from portal: no change' },
-    app.stage !== 'saved' && app.stage !== 'applied' && { date: `Apr ${19 - Math.max(1, Math.floor(app.appliedDays / 2))}`, type: 'milestone', text: `Advanced to ${STAGE_LABELS[app.stage] ?? app.stage}` },
-    { date: `Apr ${19 - app.appliedDays}`, type: 'milestone', text: 'Application submitted' },
-    app.referral && { date: `Apr ${19 - app.appliedDays - 2}`, type: 'note', text: 'Referral submitted' },
-  ].filter(Boolean);
 
   return (
     <div style={{
@@ -154,6 +148,10 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
             <div style={{ fontSize: 12.5 }}><EditableText label="source" value={app.source} placeholder="Add" onSave={(source) => onUpdate(app.id, { source: source || null })} /></div>
           </div>
           <div>
+            <div style={label}>Apply by</div>
+            <DeadlineChip deadline={app.deadline} onSave={(deadline) => onUpdate(app.id, { deadline })} />
+          </div>
+          <div>
             <div style={label}>Applied</div>
             <div style={{ fontSize: 12.5 }}>{app.stage === 'saved' ? 'Not yet' : app.appliedDays === 0 ? 'Today' : `${app.appliedDays} days ago`}</div>
           </div>
@@ -203,21 +201,6 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
           <div style={{ fontSize: 12.5, padding: 10, background: 'var(--surface-2)', borderRadius: 6, border: '0.5px solid var(--border)', minHeight: 36, lineHeight: 1.5 }}>
             <EditableText label="notes" multiline value={app.notes} placeholder="Add notes about this application…  (⌘/Ctrl+Enter to save)"
               onSave={(notes) => onUpdate(app.id, { notes: notes || null })} />
-          </div>
-        </div>
-
-        {/* Timeline */}
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Activity</div>
-          <div style={{ position: 'relative', paddingLeft: 14 }}>
-            <div style={{ position: 'absolute', left: 4, top: 4, bottom: 4, width: 1, background: 'var(--border)' }} />
-            {events.map((e, i) => (
-              <div key={i} style={{ position: 'relative', marginBottom: 10 }}>
-                <div style={{ position: 'absolute', left: -14, top: 4, width: 9, height: 9, borderRadius: 5, background: e.type === 'milestone' ? col.dot : 'var(--border-strong)', boxShadow: '0 0 0 3px var(--surface)' }} />
-                <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{e.date}</div>
-                <div style={{ fontSize: 12, color: 'var(--fg)' }}>{e.text}</div>
-              </div>
-            ))}
           </div>
         </div>
       </div>

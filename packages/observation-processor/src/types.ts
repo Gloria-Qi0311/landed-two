@@ -1,3 +1,5 @@
+import type { InterviewRound } from '@landed/schema/pipeline'
+
 // Shapes the processor reads and writes. Mirrors the job_leads /
 // status_suggestions tables (apps/server/migrations/0005, local Dexie v3) and
 // the parts of applications/companies/agent_observations it needs.
@@ -40,6 +42,8 @@ export type JobLead = {
   job_url: string | null
   location: string | null
   description: string | null
+  /** apply-by date, "YYYY-MM-DD" */
+  deadline: string | null
   sources: LeadSource[]
   status: LeadStatus
   application_id: string | null
@@ -87,6 +91,7 @@ export type ApplicationRef = {
   stage: Stage | string
   location: string | null
   portal_application_url: string | null
+  interviews?: InterviewRound[]
 }
 
 export type CompanyRef = { id: string; name: string }
@@ -114,6 +119,7 @@ export type NewApplication = {
   stage: Stage
   job_url: string | null
   location: string | null
+  interviews?: InterviewRound[]
 }
 
 export type Effect =
@@ -124,6 +130,8 @@ export type Effect =
   /** Move an existing application forward; the matching suggestion is saved
    *  as auto_applied alongside, so it can be reviewed and undone. */
   | { type: 'set_stage'; application_id: string; from: Stage; to: Stage }
+  /** An email scheduled an interview: the application's rounds with it added. */
+  | { type: 'set_interviews'; application_id: string; interviews: InterviewRound[] }
   /** Create an application (auto-add); the runner fills the new id into the
    *  suggestion it came with. */
   | { type: 'create_application'; application: NewApplication; suggestion_id: string }

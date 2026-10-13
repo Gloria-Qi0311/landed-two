@@ -83,6 +83,7 @@ const PAYLOAD_VALIDATORS: Record<string, (p: Row) => void> = {
     text(p.location, 'payload.location', 200, false)
     text(p.source, 'payload.source', 80, false)
     text(p.description, 'payload.description', 20_000, false)
+    text(p.deadline, 'payload.deadline', 80, false)
   },
   application_status(p) {
     const status = text(p.status, 'payload.status', 40)!
@@ -94,6 +95,10 @@ const PAYLOAD_VALIDATORS: Record<string, (p: Row) => void> = {
     httpUrl(p.job_url, 'payload.job_url')
     if (p.confidence !== undefined && (typeof p.confidence !== 'number' || p.confidence < 0 || p.confidence > 1)) {
       fail(400, 'payload.confidence must be a number between 0 and 1')
+    }
+    timestamp(p.interview_at, 'payload.interview_at', false)
+    if (p.interview_format !== undefined && !['onsite', 'remote'].includes(p.interview_format)) {
+      fail(400, 'payload.interview_format must be onsite or remote')
     }
     const ev = object(p.evidence, 'payload.evidence', false)
     if (ev) {

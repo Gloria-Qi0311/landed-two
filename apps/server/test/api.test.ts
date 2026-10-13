@@ -1016,6 +1016,10 @@ describe('pipeline: one interview stage with rounds', () => {
     } })
     assert.deepEqual([edited.body.role, edited.body.notes, edited.body.next_step, edited.body.portal_application_url],
       ['Associate PM', 'Recruiter: Sam', 'Final round · Oct 20', 'https://jobs.lever.co/acme/1'], 'every detail is editable')
+    const due = await call('PATCH', `/api/applications/${plain.body.id}`, { token: owner, body: { deadline: 'Oct 21, 2026 5pm PT' } })
+    assert.equal(due.body.deadline, '2026-10-21', 'deadlines are normalized')
+    assert.equal((await call('PATCH', `/api/applications/${plain.body.id}`, { token: owner, body: { deadline: 'soon' } })).status, 400)
+    assert.equal((await call('PATCH', `/api/applications/${plain.body.id}`, { token: owner, body: { deadline: null } })).body.deadline, null)
 
     // 0011 moved rows written before the interview stage existed
     const [old] = await sql`insert into applications (user_id, company_id, role, stage) values (${phone.body.user_id}, ${phone.body.company_id}, 'Legacy', 'onsite') returning id`

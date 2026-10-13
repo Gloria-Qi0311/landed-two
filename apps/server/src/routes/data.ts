@@ -7,7 +7,7 @@
 // cross-user references are rejected by Postgres (see migrations/0001) and
 // mapped to 400 by the app-level error handler.
 import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
-import { normalizeStage, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
+import { normalizeStage, parseDeadline, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
 import type { Config } from '../config.ts'
@@ -18,10 +18,11 @@ import { encryptSecret } from '../secrets.ts'
 const APPLICATION_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
   'referral', 'source', 'job_id', 'portal_application_url', 'notes', 'starred', 'last_activity_at', 'interviews',
+  'deadline',
 ] as const
 const APPLICATION_PATCH_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url',
+  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline',
 ] as const
 const COMPANY_FIELDS = ['name', 'hue', 'logo_chars', 'sector', 'loc', 'portal_url'] as const
 
@@ -44,6 +45,11 @@ function applicationColumns(sql: Sql, input: Row, fields: readonly string[], opt
     if (!n) fail(400, `stage must be one of: ${STAGE_VALUES.join(', ')}`)
     out.stage = n.stage
     if (opts.create && n.round && out.interviews === undefined) out.interviews = [n.round]
+  }
+  if (out.deadline !== undefined) {
+    const raw = out.deadline
+    out.deadline = raw === null || raw === '' ? null : parseDeadline(raw)
+    if (raw && !out.deadline) fail(400, 'deadline must be a date')
   }
   if (out.interviews !== undefined) {
     const rounds = parseInterviews(out.interviews)

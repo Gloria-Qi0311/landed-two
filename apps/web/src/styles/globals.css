@@ -109,6 +109,9 @@
   /* click-to-edit text (components/editable.tsx): a soft halo, no layout shift */
   .editable:hover, .editable:focus-visible { background: var(--surface-2); box-shadow: 0 0 0 3px var(--surface-2); outline: none; }
   .kanban-card:hover { background: var(--surface-2); border-color: var(--border-strong); transform: translateY(-1px); transition: all 120ms; }
+  /* "+ Apply-by date" on cards only shows on hover (components/deadline-chip.tsx) */
+  .kanban-card .deadline-add { opacity: 0; transition: opacity 120ms; }
+  .kanban-card:hover .deadline-add, .kanban-card .deadline-add:focus-visible { opacity: 1; }
   .table-row:hover { background: var(--surface-2); }
   .timeline-row:hover > div:last-child { background: var(--surface-2); }
   .role-row:hover { background: var(--surface-2); }

@@ -43,8 +43,10 @@ export type DbApplication = {
   starred: boolean
   last_activity_at: string
   created_at: string
-  /** Interview rounds (stage `interview`): round, onsite/remote, who. */
+  /** Interview rounds (stage `interview`): round, onsite/remote, who, when. */
   interviews: InterviewRound[]
+  /** apply-by date "YYYY-MM-DD" (mostly for ones not applied to yet) */
+  deadline: string | null
 }
 
 /** My Resume: uploads (`source`) → one `master` (most complete, every
@@ -181,7 +183,7 @@ export type ApplicationInput = Partial<Omit<DbApplication, 'id' | 'user_id' | 'c
 
 export const APPLICATION_PATCH_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url',
+  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline',
 ] as const
 export type ApplicationPatch = Partial<Pick<DbApplication, typeof APPLICATION_PATCH_FIELDS[number]>>
 
@@ -282,7 +284,7 @@ export interface DataStore {
   listJobLeads(): Promise<DbJobLead[]> // last_seen_at desc
   /** Insert or replace by id; a second lead with the same fingerprint is a 409. */
   saveJobLead(lead: Owned<DbJobLead>): Promise<DbJobLead>
-  updateJobLead(id: string, patch: Partial<Pick<DbJobLead, 'status' | 'application_id'>>): Promise<DbJobLead>
+  updateJobLead(id: string, patch: Partial<Pick<DbJobLead, 'status' | 'application_id' | 'deadline'>>): Promise<DbJobLead>
 
   listSuggestions(): Promise<DbSuggestion[]> // created_at desc
   /** Insert or replace by id; a second suggestion with the same dedupe_key is a 409. */

@@ -23,6 +23,9 @@ export type EmailFinding = {
   status: EmailFindingStatus
   confidence: number | null
   job_url: string | null
+  /** when the interview is, if the email schedules or confirms one (ISO) */
+  interview_at: string | null
+  interview_format: 'onsite' | 'remote' | null
   evidence: {
     message_id?: string
     thread_id?: string
@@ -94,6 +97,8 @@ export function parseEmailFindings(raw: unknown): EmailFinding[] {
       company, status, confidence, evidence,
       role: text(f.role, 200),
       job_url: url && /^https?:\/\/[^\s/?#]+\.[^\s]*$/i.test(url) ? url : null,
+      interview_at: status === 'interview' ? iso(f.interview_at) : null,
+      interview_format: f.interview_format === 'onsite' || f.interview_format === 'remote' ? f.interview_format : null,
     })
     if (out.length >= MAX_EMAIL_FINDINGS) break
   }

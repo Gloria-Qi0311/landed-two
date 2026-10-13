@@ -102,7 +102,7 @@
 | `applied` | `applied` |
 | `recruiter_response` | 不改阶段，只在活动记录里加一条"Recruiter 回复了" |
 | `assessment`（在线测评 / 笔试 / take-home 邀请） | 当前是 saved / applied 时建议 `oa`；已经过了 OA 就只记活动 |
-| `interview` | 当前是 saved / applied / oa 时建议 `interview`；已经在 interview 了就只记活动（又一轮，轮次由用户在卡片上标） |
+| `interview` | 当前是 saved / applied / oa 时建议 `interview`；已经在 interview 了就只记活动（又一轮）。邮件里写了面试时间（`interview_at`）时，自动生效的同时会给这条投递新增一轮面试，带上时间和线上 / 线下形式；同一个时间不会重复添加 |
 | `rejected` | `rejected` |
 | `offer` | `offer` |
 | `other` | 只记活动 |

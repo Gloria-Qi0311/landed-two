@@ -1,6 +1,7 @@
-// Interview rounds on an application (detail drawer): which round, onsite or
-// remote, and who interviewed you — tag any mix of peer, teammate, leader,
-// HR. "Round 4 · Remote · Leader" then shows on the Interview card.
+// Interview rounds on an application (detail drawer): which round, when,
+// onsite or remote, and who interviewed you — tag any mix of peer,
+// teammate, leader, HR. The next round (or the latest) shows on the
+// Interview card. Times also arrive on their own from interview emails.
 // Shape + validation: packages/schema/src/pipeline.ts.
 import { INTERVIEWER_LABEL, INTERVIEWERS, type InterviewRound, type Interviewer } from '@landed/schema/pipeline'
 import { Icon } from './primitives'
@@ -52,6 +53,12 @@ export function InterviewRounds({ rounds, onChange }: {
               <Icon name="x" size={12} />
             </button>
           </div>
+          <label style={{ fontSize: 11.5, color: 'var(--fg-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            When
+            <input type="datetime-local" value={toLocalInput(r.at)} aria-label="Interview time"
+              onChange={(e) => set(i, { at: e.target.value ? new Date(e.target.value).toISOString() : null })}
+              style={{ fontSize: 12, fontFamily: 'inherit', padding: '2px 6px' }} />
+          </label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginRight: 2 }}>With</span>
             {INTERVIEWERS.map((who) => (
@@ -69,4 +76,12 @@ export function InterviewRounds({ rounds, onChange }: {
       </div>
     </div>
   )
+}
+
+/** ISO time → the value a datetime-local input wants, in local time. */
+function toLocalInput(iso: string | null): string {
+  if (!iso || Number.isNaN(Date.parse(iso))) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }

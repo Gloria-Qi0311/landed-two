@@ -31,11 +31,13 @@ Idempotency-Key: <stable key, e.g. "<run_id>:<job_url or email message id>">
 
 | Type | Required | Optional |
 |---|---|---|
-| `job_discovered` | `title`, `company` | `job_url` (http/https), `location`, `source`, `description` (≤ 20k chars) |
-| `application_status` | `status` (one of `applied` · `recruiter_response` · `assessment` · `interview` · `rejected` · `offer` · `other`), `company` | `role`, `job_url`, `confidence` (0–1), `evidence` (below) |
+| `job_discovered` | `title`, `company` | `job_url` (http/https), `location`, `source`, `description` (≤ 20k chars), `deadline` (the application deadline, e.g. `2026-10-21`) |
+| `application_status` | `status` (one of `applied` · `recruiter_response` · `assessment` · `interview` · `rejected` · `offer` · `other`), `company` | `role`, `job_url`, `confidence` (0–1), `evidence` (below), `interview_at` (ISO time of a scheduled interview), `interview_format` (`onsite` · `remote`) |
 | `sync_error` | `message` | `source` |
 
 `assessment` means an invitation to an online assessment, coding test or take-home; it moves an application to the OA stage. It was added in v0.1 without a version bump, since older agents simply never send it.
+
+`deadline` puts an apply-by date on the lead. `interview_at` adds the interview as a new round, with its time, when Landed applies the update. Both fields are optional and were added without a version bump.
 
 `evidence` fields: `source` (required, e.g. `gmail`), plus optional `message_id`, `thread_id`, `sender_domain`, `subject`, `received_at` (ISO), `summary`.
 

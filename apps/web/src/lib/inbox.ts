@@ -17,7 +17,10 @@ import type { DataStore, DbApplication, DbJobLead, DbSuggestion } from './store/
 const strip = <T extends { user_id: string }>({ user_id: _, ...rest }: T) => rest
 
 function toRef(a: DbApplication): ApplicationRef {
-  return { id: a.id, company_id: a.company_id, role: a.role, stage: a.stage, location: a.location, portal_application_url: a.portal_application_url }
+  return {
+    id: a.id, company_id: a.company_id, role: a.role, stage: a.stage, location: a.location,
+    portal_application_url: a.portal_application_url, interviews: a.interviews ?? [],
+  }
 }
 
 /** Activity log entry (audit trail) when an agent's report
@@ -56,11 +59,13 @@ async function applyOutcome(store: DataStore, outcome: Outcome, start: Context):
       const s = outcome.effects.find((x) => x.type === 'save_suggestion')
       if (s?.type === 'save_suggestion') await logStageChange(store, s.suggestion, e.from, e.to, 'auto')
     }
+    if (e.type === 'set_interviews') await store.updateApplication(e.application_id, { interviews: e.interviews })
     if (e.type === 'create_application') {
       const created = await store.addApplication({ name: e.application.company_name }, {
         role: e.application.role, stage: e.application.stage, location: e.application.location,
         portal_application_url: e.application.job_url, source: 'Agent (email)',
         applied_at: new Date().toISOString(), next_step: 'Awaiting response',
+        ...(e.application.interviews ? { interviews: e.application.interviews } : {}),
       })
       await store.updateSuggestion(e.suggestion_id, { application_id: created.id })
       ctx = {
@@ -153,7 +158,10 @@ export async function ingestEmailFindings(
       observation_type: 'application_status',
       observed_at: observedAt,
       provider: source.agent,
-      payload_json: { payload: { status: f.status, company: f.company, role: f.role, job_url: f.job_url, confidence: f.confidence, evidence } },
+      payload_json: { payload: {
+        status: f.status, company: f.company, role: f.role, job_url: f.job_url, confidence: f.confidence, evidence,
+        interview_at: f.interview_at, interview_format: f.interview_format,
+      } },
     }, ctx, { now: observedAt, newId: () => crypto.randomUUID() })
     try {
       ctx = await applyOutcome(store, outcome, ctx)
@@ -212,7 +220,9 @@ export async function ingestFoundJobs(
       observation_type: 'job_discovered',
       observed_at: observedAt,
       provider: source.agent,
-      payload_json: { payload: { company: job.company, title: job.title, job_url: job.job_url, location: job.location, description: describe(job) } },
+      payload_json: { payload: {
+        company: job.company, title: job.title, job_url: job.job_url, location: job.location, description: describe(job), deadline: job.deadline,
+      } },
     }, ctx, { now: observedAt, newId: () => crypto.randomUUID() })
     const applied: Effect[] = []
     try {
@@ -247,6 +257,7 @@ export async function addLeadToPipeline(store: DataStore, lead: DbJobLead, stage
     source: providers ? `Agent (${providers})` : 'Agent',
     applied_at: stage === 'saved' ? null : new Date().toISOString(),
     next_step: stage === 'saved' ? 'Tailor resume' : 'Awaiting response',
+    deadline: lead.deadline ?? null,
   })
   await store.updateJobLead(lead.id, { status: 'saved', application_id: app.id })
   return app

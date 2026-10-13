@@ -55,7 +55,8 @@ Stages and interview rounds live in `packages/schema/src/pipeline.ts` (shared by
 
 - **`saved` is shown as a lead**: the Leads column holds both agent-found jobs (`job_leads`) and applications not applied to yet (stage `saved`). There is no Saved column.
 - **`ghosted` is a kind of closed**: it shows in the Rejected column with a tag.
-- **One `interview` stage** replaced phone + onsite. Each application carries `interviews: [{round, format: onsite|remote, interviewers: [peer|teammate|leader|hr], at, note}]`, edited in the detail drawer, and the latest round shows on the card.
+- **One `interview` stage** replaced phone + onsite. Each application carries `interviews: [{round, format: onsite|remote, interviewers: [peer|teammate|leader|hr], at, note}]`. Rounds are edited in the detail drawer, and the card shows the next upcoming round, or the latest one. An interview email that gives a time (`interview_at`) adds a round on its own when the processor auto-applies it (effect `set_interviews`).
+- **Deadlines**: job leads and applications carry `deadline` ("YYYY-MM-DD", normalized by `parseDeadline`). Searches and agents fill it in, and the user can set it on any card. The Leads column sorts by it, soonest first.
 - `phone` / `onsite` are legacy. Postgres can't drop enum values, so they stay in the type, but every write path normalizes them to `interview` plus the round they stood for: server routes, snapshot upload, local store, and Dexie v5 for data already in the browser. Never write them again. Board columns and filters go through `columnOf()` in `apps/web/src/data.js`.
 
 ## My Resume: uploads → master → versions

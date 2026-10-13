@@ -82,3 +82,64 @@ export function latestRound(rounds: InterviewRound[] | null | undefined): Interv
   if (!rounds?.length) return null
   return [...rounds].sort((a, b) => (a.round ?? 0) - (b.round ?? 0)).at(-1) ?? null
 }
+
+/** The round to show on a card: the next one coming up, else the latest. */
+export function currentRound(rounds: InterviewRound[] | null | undefined, now = Date.now()): InterviewRound | null {
+  if (!rounds?.length) return null
+  const upcoming = rounds
+    .filter((r) => r.at && Date.parse(r.at) >= now - 2 * 3_600_000)
+    .sort((a, b) => Date.parse(a.at!) - Date.parse(b.at!))
+  return upcoming[0] ?? latestRound(rounds)
+}
+
+/** "Mon, Oct 20, 2:00 PM" in the viewer's time zone. */
+export function formatWhen(iso: string | null | undefined): string | null {
+  if (!iso || Number.isNaN(Date.parse(iso))) return null
+  return new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+// ── application deadlines (leads + applications not applied to yet) ──────
+
+/** A deadline from anywhere ("2026-10-21", "Oct 21, 2026 5pm PT", an ISO
+ *  time) → "YYYY-MM-DD", or null if it isn't a date. */
+export function parseDeadline(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  const t = raw.trim()
+  const ymd = (y: number, m: number, d: number) => {
+    const date = new Date(y, m - 1, d)
+    if (y < 2000 || y > 2100 || date.getMonth() !== m - 1 || date.getDate() !== d) return null
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  }
+  // 2026-10-21 (also the date part of an ISO time), 2026/10/21, 2026年10月21日
+  let m = t.match(/^(\d{4})[-/年.](\d{1,2})[-/月.](\d{1,2})/)
+  if (m) return ymd(+m[1], +m[2], +m[3])
+  // 10/21/2026 (US order)
+  m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\b/)
+  if (m) return ymd(+m[3], +m[1], +m[2])
+  // "Oct 21, 2026 5pm PT", "21 October 2026": drop times and zones, then let Date read it
+  const dateOnly = t
+    .replace(/\b\d{1,2}(:\d{2})?\s*(am|pm)\b/gi, '')
+    .replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, '')
+    .replace(/\b(PT|PST|PDT|ET|EST|EDT|CT|CST|CDT|MT|MST|MDT|UTC|GMT)\b/gi, '')
+    .replace(/\b(at|by)\b/gi, '')
+    .replace(/[,\s]+$/, '')
+    .trim()
+  const ms = Date.parse(dateOnly)
+  if (Number.isNaN(ms)) return null
+  const d = new Date(ms)
+  if (!/\b\d{4}\b/.test(dateOnly)) {
+    // "Dec 1": the next Dec 1 (JS would say 2001), unless it was within the last two months.
+    const now = new Date()
+    d.setFullYear(now.getFullYear())
+    if (now.getTime() - d.getTime() > 60 * 86_400_000) d.setFullYear(now.getFullYear() + 1)
+  }
+  return ymd(d.getFullYear(), d.getMonth() + 1, d.getDate())
+}
+
+/** Days from today to a deadline (0 = today, negative = passed). */
+export function daysUntil(deadline: string, now = new Date()): number {
+  const [y, m, d] = deadline.split('-').map(Number)
+  const due = new Date(y, m - 1, d)
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((due.getTime() - today.getTime()) / 86_400_000)
+}

@@ -33,6 +33,8 @@ export type FoundJob = {
   job_url: string | null
   location: string | null
   posted: string | null
+  /** apply-by date as the agent gave it; the processor normalizes it (parseDeadline) */
+  deadline: string | null
   salary: string | null
   sponsorship: string | null
   /** Why it fits the brief, one sentence. */
@@ -110,6 +112,7 @@ export function parseFoundJobs(raw: unknown): FoundJob[] {
       company, title, job_url,
       location: text(j.location, 120),
       posted: text(j.posted, 60),
+      deadline: text(j.deadline, 80),
       salary: text(j.salary, 120),
       sponsorship: text(j.sponsorship, 200),
       why: text(j.why, 400),

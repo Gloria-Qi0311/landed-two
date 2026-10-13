@@ -3,6 +3,7 @@
 // the effects to whichever store the account uses. Re-processing the same
 // observation against a context that already contains its effects yields no
 // new effects (idempotent). Rules: docs/observation-processor.md.
+import { parseDeadline, type InterviewRound } from '@landed/schema/pipeline'
 import { atsJobKey, canonicalUrl, companyKey, locationsCompatible, titleKey, titleSimilarity } from './normalize'
 import type {
   ApplicationRef, Context, Effect, EmailStatus, Evidence, JobLead, Observation, Outcome,
@@ -68,6 +69,7 @@ function processJob(o: Observation, ctx: Context, opts: ProcessOptions): Outcome
       ats_key: existing.ats_key ?? keys.ats,
       location: existing.location ?? location,
       description: existing.description ?? str(p.description),
+      deadline: existing.deadline ?? parseDeadline(p.deadline),
       sources: [...existing.sources, source],
       last_seen_at: o.observed_at > existing.last_seen_at ? o.observed_at : existing.last_seen_at,
       first_seen_at: o.observed_at < existing.first_seen_at ? o.observed_at : existing.first_seen_at,
@@ -88,6 +90,7 @@ function processJob(o: Observation, ctx: Context, opts: ProcessOptions): Outcome
     job_url: jobUrl,
     location,
     description: str(p.description),
+    deadline: parseDeadline(p.deadline),
     sources: [source],
     status: app ? 'already_applied' : 'new',
     application_id: app?.id ?? null,
@@ -174,6 +177,20 @@ function evidenceOf(p: Record<string, unknown>): Evidence {
   return out
 }
 
+/** An interview time the email gives (ISO with a time) and its format. */
+function scheduledRound(p: Record<string, unknown>): { at: string; format: InterviewRound['format'] } | null {
+  const at = str(p.interview_at)
+  if (!at || Number.isNaN(Date.parse(at))) return null
+  return { at: new Date(Date.parse(at)).toISOString(), format: p.interview_format === 'onsite' || p.interview_format === 'remote' ? p.interview_format : null }
+}
+
+/** The rounds with this scheduled interview added — null if it's already there. */
+function withRound(rounds: InterviewRound[], s: { at: string; format: InterviewRound['format'] }): InterviewRound[] | null {
+  if (rounds.some((r) => r.at && Math.abs(Date.parse(r.at) - Date.parse(s.at)) < 60_000)) return null
+  const next = Math.max(0, ...rounds.map((r) => r.round ?? 0)) + 1
+  return [...rounds, { round: next, format: s.format, interviewers: [], at: s.at, note: null }]
+}
+
 function processStatus(o: Observation, ctx: Context, opts: ProcessOptions): Outcome {
   const p = payloadOf(o)
   const company = str(p.company)
@@ -241,10 +258,14 @@ function processStatus(o: Observation, ctx: Context, opts: ProcessOptions): Outc
     }
     const effects: Effect[] = [{ type: 'save_suggestion', suggestion }]
     if (auto) {
+      const scheduled = status === 'interview' ? scheduledRound(p) : null
       effects.push({
         type: 'create_application',
         suggestion_id: suggestion.id,
-        application: { company_name: company, role: role ?? 'Unknown role', stage, job_url: jobUrl, location: null },
+        application: {
+          company_name: company, role: role ?? 'Unknown role', stage, job_url: jobUrl, location: null,
+          ...(scheduled ? { interviews: withRound([], scheduled)! } : {}),
+        },
       })
     }
     return {
@@ -264,10 +285,15 @@ function processStatus(o: Observation, ctx: Context, opts: ProcessOptions): Outc
       ...base, kind: 'note', state: auto ? 'auto_applied' : 'pending', application_id: app.id,
       proposed_stage: null, resolved_at: auto ? opts.now : null,
     }
+    const effects: Effect[] = [{ type: 'save_suggestion', suggestion }]
+    // Another interview while interviewing: a new round, with its time.
+    const scheduled = auto && status === 'interview' ? scheduledRound(p) : null
+    const rounds = scheduled && withRound(app.interviews ?? [], scheduled)
+    if (rounds) effects.push({ type: 'set_interviews', application_id: app.id, interviews: rounds })
     return {
       status: auto ? 'processed' : 'needs-review',
-      result: { suggestion_id: suggestion.id, application_id: app.id },
-      effects: [{ type: 'save_suggestion', suggestion }],
+      result: { suggestion_id: suggestion.id, application_id: app.id, ...(rounds ? { interview_round_added: true } : {}) },
+      effects,
     }
   }
 
@@ -286,6 +312,9 @@ function processStatus(o: Observation, ctx: Context, opts: ProcessOptions): Outc
   }
   const effects: Effect[] = [{ type: 'save_suggestion', suggestion }]
   if (auto) effects.push({ type: 'set_stage', application_id: app.id, from: app.stage as Stage, to: stage })
+  const scheduled = auto && stage === 'interview' ? scheduledRound(p) : null
+  const rounds = scheduled && withRound(app.interviews ?? [], scheduled)
+  if (rounds) effects.push({ type: 'set_interviews', application_id: app.id, interviews: rounds })
   return {
     status: auto ? 'processed' : 'needs-review',
     result: { suggestion_id: suggestion.id, application_id: app.id, auto_applied: auto },
@@ -313,6 +342,7 @@ export function applyToContext(ctx: Context, effects: Effect[]): Context {
     if (e.type === 'save_lead') leads = [...leads.filter((l) => l.id !== e.lead.id), e.lead]
     if (e.type === 'save_suggestion') suggestions = [...suggestions.filter((s) => s.id !== e.suggestion.id), e.suggestion]
     if (e.type === 'set_stage') applications = applications.map((a) => (a.id === e.application_id ? { ...a, stage: e.to } : a))
+    if (e.type === 'set_interviews') applications = applications.map((a) => (a.id === e.application_id ? { ...a, interviews: e.interviews } : a))
   }
   return { ...ctx, leads, suggestions, applications }
 }

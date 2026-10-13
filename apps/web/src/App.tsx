@@ -334,6 +334,7 @@ function ApplicationsPage({
   // Jobs agents found but the user hasn't acted on — the Kanban's Leads column.
   const leads = (useJobLeads().data ?? []).filter((l) => l.status === 'new');
   const leadActions = useLeadActions();
+  const updateApplication = useUpdateApplication();
   const recordApplyClick = useRecordApplyClick();
 
   const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0 && leads.length === 0);
@@ -392,6 +393,8 @@ function ApplicationsPage({
           onAddLead={(lead: DbJobLead, stage: Stage) => leadActions.add.mutate({ lead, stage })}
           onDismissLead={(id: string) => leadActions.dismiss.mutate(id)}
           onOpenLead={(lead: DbJobLead) => recordApplyClick({ kind: 'lead', lead })}
+          onSetLeadDeadline={(id: string, deadline: string | null) => leadActions.setDeadline.mutate({ id, deadline })}
+          onSetAppDeadline={(id: string, deadline: string | null) => updateApplication.mutate({ id, patch: { deadline } })}
         />
       </div>
     </>

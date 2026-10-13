@@ -294,6 +294,36 @@ describe('application_status — manual mode (autoApply off)', () => {
   })
 })
 
+describe('deadlines and interview times', () => {
+  test('a lead keeps the apply-by date (normalized); a later report fills it in', () => {
+    const { ctx: c } = run([
+      job({ title: 'APM', company: 'Figma', job_url: 'https://job-boards.greenhouse.io/figma/jobs/6180116004' }),
+      job({ title: 'APM', company: 'Figma', job_url: 'https://job-boards.greenhouse.io/figma/jobs/6180116004', deadline: 'Oct 21, 2026 5pm PT' }),
+      job({ title: 'PM', company: 'Ramp', deadline: 'whenever' }),
+    ], ctx())
+    expect(c.leads.find((l) => l.company_name === 'Figma')!.deadline).toBe('2026-10-21')
+    expect(c.leads.find((l) => l.company_name === 'Ramp')!.deadline).toBeNull()
+  })
+
+  test('an interview email with a time adds a round (once); while interviewing, the next round', () => {
+    const at = '2026-10-20T21:00:00Z'
+    const sure = (id: string, extra: Record<string, unknown> = {}) => ({ status: 'interview', company: 'Ramp', confidence: 0.95, evidence: gmail(id), interview_at: at, ...extra })
+    const applied = ctx({ companies, applications: [app('r', 'co-ramp', 'Ops', 'applied')] })
+    const first = processObservation(status(sure('i1', { interview_format: 'remote' })), applied, opts)
+    expect(first.effects.map((e) => e.type)).toEqual(['save_suggestion', 'set_stage', 'set_interviews'])
+    expect(first.effects[2]).toMatchObject({ interviews: [{ round: 1, format: 'remote', at: '2026-10-20T21:00:00.000Z' }] })
+
+    const interviewing = applyToContext(applied, first.effects)
+    // a second email about the same slot (e.g. a reminder) adds nothing
+    expect(processObservation(status(sure('i2')), interviewing, opts).effects.map((e) => e.type)).toEqual(['save_suggestion'])
+    const next = processObservation(status(sure('i3', { interview_at: '2026-10-27T17:00:00Z', interview_format: 'onsite' })), interviewing, opts)
+    expect(next.effects[1]).toMatchObject({ type: 'set_interviews', interviews: [{ round: 1 }, { round: 2, format: 'onsite' }] })
+
+    const manual = ctx({ settings: { autoApply: false }, companies, applications: [app('r', 'co-ramp', 'Ops', 'interview')] })
+    expect(processObservation(status(sure('i4')), manual, opts).effects.map((e) => e.type)).toEqual(['save_suggestion'])
+  })
+})
+
 describe('other types', () => {
   test('sync_error has no effects; unknown types are rejected', () => {
     expect(processObservation(job({ message: 'Gmail auth expired' }, { observation_type: 'sync_error' }), ctx(), opts))
