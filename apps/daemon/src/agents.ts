@@ -131,10 +131,10 @@ function collect(args: string[], timeoutMs: number, onLine?: (line: string) => v
 
 export async function detectMail(): Promise<MailAccess | null> {
   const server = mailServer(parseMcpList(await collect(['mcp', 'list'], 45_000)))
-  if (!server) {
-    saveMailCache(null)
-    return null
-  }
+  // Not listed this time: `claude mcp list` is flaky too, so keep the last
+  // good lookup. If the connector really is gone, an email check fails with a
+  // clear message (and the requireServer retries) instead of quietly passing.
+  if (!server) return cachedMail()
   const found: string[] = []
   await collect([
     '-p', `Call the ToolSearch tool exactly once with {"query": "+${server.keyword}", "max_results": 50}. Then reply DONE.`,

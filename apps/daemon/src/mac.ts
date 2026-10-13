@@ -107,12 +107,29 @@ export function installService(opts: { dryRun?: boolean } = {}): { plist: string
   mkdirSync(agentsDir(), { recursive: true })
   const plist = launchAgentPlist({ node: stableNode(), script, path: servicePath(), logFile: join(home(), 'daemon.log') })
   writeFileSync(plistPath(), plist)
-  if (!opts.dryRun) {
-    launchctl('bootout', `${domain()}/${LABEL}`) // fine if it wasn't loaded
-    const r = launchctl('bootstrap', domain(), plistPath())
-    if (r.status !== 0 && !/already/i.test(r.stderr)) throw new Error(`launchctl bootstrap failed: ${r.stderr.trim()}`)
-  }
+  if (!opts.dryRun) reload()
   return { plist: plistPath(), script }
+}
+
+const loaded = () => launchctl('print', `${domain()}/${LABEL}`).status === 0
+const pause = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+/** Unload (if loaded) and load the service again. launchd finishes an unload
+ *  asynchronously, and loading too soon fails ("Input/output error"), so
+ *  wait for it to be gone and retry the load a few times. */
+function reload() {
+  if (loaded()) {
+    launchctl('bootout', `${domain()}/${LABEL}`)
+    for (let i = 0; i < 50 && loaded(); i++) pause(100)
+  }
+  let last = ''
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const r = launchctl('bootstrap', domain(), plistPath())
+    if (r.status === 0 || loaded()) return
+    last = r.stderr.trim()
+    pause(500 * (attempt + 1))
+  }
+  throw new Error(`Couldn't start the Landed background service (launchctl: ${last})`)
 }
 
 export function uninstallService() {
@@ -122,8 +139,10 @@ export function uninstallService() {
 
 export const serviceInstalled = () => existsSync(plistPath())
 
-/** Restart the service (e.g. after a new pairing). */
+/** Restart the service (e.g. after a new pairing); load it if it isn't. */
 export function restartService() {
+  if (process.env.LANDED_DRY_RUN === '1') return
+  if (!loaded()) return reload()
   launchctl('kickstart', '-k', `${domain()}/${LABEL}`)
 }
 
