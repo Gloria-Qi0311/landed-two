@@ -4,22 +4,11 @@ import { CompanyMark, Icon, PortalDot, stageColors } from './primitives';
 import { STAGES, STAGE_LABELS, PORTAL_STATUS, columnOf } from '../data';
 import { InterviewRounds } from './interview-rounds';
 import { EditableText } from './editable';
-import { useNavigate } from 'react-router-dom';
-
-// "Open in portal" target — per spec.md §6:
-// portal_application_url > company.portal_url > generic Google search fallback.
-function buildPortalUrl(app, company) {
-  if (app.portal_application_url) return app.portal_application_url;
-  if (company.portal_url) return company.portal_url;
-  const q = encodeURIComponent(`${company.name} ${app.role} application status`);
-  return `https://www.google.com/search?q=${q}`;
-}
 
 const label = { fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 };
 const REMOTES = ['Remote', 'Hybrid', 'On-site'];
 
 export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpenPosting }) => {
-  const navigate = useNavigate();
   // Esc to close. Listener lives on document so it works even if focus is
   // outside the drawer (e.g. user just dragged a card from below and the
   // pointer is still over the main view).
@@ -177,9 +166,18 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <div style={label}>Job link</div>
-            <div style={{ fontSize: 12.5, wordBreak: 'break-all' }}>
-              <EditableText label="job link" value={app.portal_application_url} placeholder="Paste the posting or portal link"
-                onSave={(url) => onUpdate(app.id, { portal_application_url: url || null })} />
+            <div style={{ fontSize: 12.5, wordBreak: 'break-all', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <EditableText label="job link" value={app.portal_application_url} placeholder="Paste the posting or portal link"
+                  onSave={(url) => onUpdate(app.id, { portal_application_url: url || null })} />
+              </span>
+              {app.portal_application_url && (
+                <a href={app.portal_application_url} target="_blank" rel="noopener noreferrer" title="Open the posting" aria-label="Open the posting"
+                  className="icon-btn" onClick={() => onOpenPosting?.(app, company)}
+                  style={{ color: 'var(--fg-muted)', padding: 3, borderRadius: 4, display: 'flex', flexShrink: 0 }}>
+                  <Icon name="external" size={13} />
+                </a>
+              )}
             </div>
           </div>
         </div>
@@ -222,26 +220,6 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
             ))}
           </div>
         </div>
-      </div>
-
-      <div style={{ padding: 14, borderTop: '0.5px solid var(--border)', display: 'flex', gap: 6 }}>
-        <a
-          href={buildPortalUrl(app, company)}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() => app.portal_application_url && onOpenPosting?.(app, company)}
-          className="btn-primary"
-          style={{ flex: 1, textDecoration: 'none', justifyContent: 'center' }}
-        >
-          <Icon name="external" size={13} /> Open in portal
-        </a>
-        <button className="btn-secondary" title="Write a resume version for this application from your master resume"
-          onClick={() => navigate(`/resumes?tailor=${app.id}`)}>
-          <Icon name="wand" size={13} /> Tailor resume
-        </button>
-        <button className="btn-secondary icon-only" title="More">
-          <Icon name="dots" size={14} />
-        </button>
       </div>
     </div>
   );

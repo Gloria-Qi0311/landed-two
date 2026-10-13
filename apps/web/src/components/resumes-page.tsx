@@ -14,7 +14,6 @@
 // gets the loop's pace + keeps this PR reviewable. "Replace from JSON"
 // (re-paste the whole thing) is the v1 mutation path.
 import React, { useState, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import {
   generatePrompt,
   launchAI,
@@ -39,9 +38,6 @@ import {
 } from '../hooks/resumes'
 
 export function ResumesPage() {
-  // ?tailor=<application id> (from an application's "Tailor resume")
-  const [params, setParams] = useSearchParams()
-  const tailorFor = params.get('tailor')
   const resumesQuery = useResumes()
   const addResume = useAddResume()
   const deleteResume = useDeleteResume()
@@ -51,7 +47,7 @@ export function ResumesPage() {
 
   const resumes = resumesQuery.data ?? []
   // 'master' | 'new-version' | 'new' (upload) | a resume id
-  const [activeId, setActiveId] = useState<string | null>(tailorFor ? 'new-version' : null)
+  const [activeId, setActiveId] = useState<string | null>(null)
 
   // Default: the current resume, else the master, else the first upload.
   const effectiveActiveId = useMemo(() => {
@@ -104,11 +100,7 @@ export function ResumesPage() {
           {effectiveActiveId === 'master' ? (
             <MasterPane onUpload={() => setActiveId('new')} />
           ) : effectiveActiveId === 'new-version' ? (
-            <NewVersionPane
-              prefillApplicationId={tailorFor}
-              onCreated={(id) => { setActiveId(id); if (tailorFor) setParams({}, { replace: true }) }}
-              onOpenMaster={() => setActiveId('master')}
-            />
+            <NewVersionPane onCreated={setActiveId} onOpenMaster={() => setActiveId('master')} />
           ) : effectiveActiveId === 'new' || activeResume === null ? (
             <UploadPane
               onOpenMaster={() => setActiveId('master')}

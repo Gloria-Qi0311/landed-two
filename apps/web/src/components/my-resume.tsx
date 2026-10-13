@@ -409,12 +409,7 @@ function BulletRow({ bullet, sourceName, onPrefer, onEdit, onRemoveVariant, onRe
 
 type AppShape = { id: string; companyId: string; role: string; stage: string; portal_application_url: string | null }
 
-export function NewVersionPane({ onCreated, onOpenMaster, prefillApplicationId }: {
-  onCreated: (id: string) => void
-  onOpenMaster: () => void
-  /** from an application's "Tailor resume" */
-  prefillApplicationId?: string | null
-}) {
+export function NewVersionPane({ onCreated, onOpenMaster }: { onCreated: (id: string) => void; onOpenMaster: () => void }) {
   const { master } = useResumeGroups()
   const runtimes = useRuntimes()
   const task = useResumeTask((s) => s.task)
@@ -445,16 +440,6 @@ export function NewVersionPane({ onCreated, onOpenMaster, prefillApplicationId }
       fill: { role: l.title, company: l.company_name, job_url: l.job_url ?? '', application_id: '' },
     })),
   ], [apps, companies, leads])
-
-  // Opened from an application: fill the form from it once its data is here.
-  const prefilled = useRef<string | null>(null)
-  useEffect(() => {
-    if (!prefillApplicationId || prefilled.current === prefillApplicationId) return
-    const o = options.find((x) => x.key === `a:${prefillApplicationId}`)
-    if (!o) return
-    prefilled.current = prefillApplicationId
-    setForm((f) => ({ ...f, ...o.fill }))
-  }, [prefillApplicationId, options])
 
   if (!master?.master_json) {
     return (
