@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+// A fake `codex` for tests: records its arguments and stdin, then prints
+// the JSONL a run would (FAKE_CODEX_MODE: ok | nosearch | signedout).
+import { appendFileSync, readFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-cli 9.9.9'); process.exit(0) }
+if (args[0] === 'login') { console.log('Logged in using ChatGPT'); process.exit(0) }
+const mode = process.env.FAKE_CODEX_MODE ?? 'ok'
+const stdin = readFileSync(0, 'utf8')
+const schemaAt = args.indexOf('--output-schema')
+appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ args, stdin, schema: schemaAt >= 0 ? JSON.parse(readFileSync(args[schemaAt + 1], 'utf8')) : null }) + '\n')
+const out = (e) => console.log(JSON.stringify(e))
+out({ type: 'thread.started', thread_id: 't-1' })
+out({ type: 'turn.started' })
+if (mode === 'signedout') {
+  out({ type: 'error', message: 'unexpected status 401 Unauthorized: Missing bearer' })
+  out({ type: 'turn.failed', error: { message: 'unexpected status 401 Unauthorized: Missing bearer' } })
+  process.exit(1)
+}
+if (mode !== 'nosearch') {
+  out({ type: 'item.started', item: { id: 'i1', type: 'web_search', query: 'backend jobs seattle', action: { type: 'search' } } })
+  out({ type: 'item.completed', item: { id: 'i1', type: 'web_search', query: 'backend jobs seattle', action: { type: 'search' } } })
+}
+out({ type: 'item.completed', item: { id: 'i2', type: 'agent_message', text: JSON.stringify({ summary: 'found one', jobs: [{ company: 'Blorp', title: 'Engineer', job_url: 'https://blorp.example/jobs/1', location: null, deadline: null }] }) } })
+out({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } })

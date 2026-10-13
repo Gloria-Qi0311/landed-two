@@ -12,7 +12,11 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { acpCandidates, ACP_KINDS, probeAcp, runAcp, type AcpAgent } from './acp.ts'
+import { CODEX_KINDS, detectCodex, runCodex } from './codex.ts'
 import { knownSessions, loadMailCache, rememberSession, saveMailCache, workspace } from './config.ts'
+import { pdfText } from './pdf.ts'
+import type { Spec, Task, TaskEvent } from './types.ts'
 
 /** `mail`: the mailbox the agent can read (e.g. "Gmail"), if any.
  *  `browser`: "Chrome" when Claude in Chrome is connected (portal checks). */
@@ -20,17 +24,14 @@ export type AgentInfo = {
   id: string; label: string; version: string | null; kinds: string[]; mail: string | null; browser: string | null
 }
 
-export type TaskEvent =
-  | { type: 'started'; agent: string }
-  | { type: 'delta'; text: string }
-  | { type: 'tool'; name: string }
-  | { type: 'done'; text: string; session_id?: string; jobs?: unknown[]; findings?: unknown[]; results?: unknown[]; output?: unknown }
-  | { type: 'error'; message: string }
+export type { Task, TaskEvent } from './types.ts'
 
-export type Task = { id: string; agent: string; kind: string; input: Record<string, unknown> }
-
-// Codex / Gemini CLI get runners next; only agents we can run are reported,
-// with the task kinds they can run (the server only sends those).
+// Claude Code is driven here; Codex (codex.ts) and every ACP agent (acp.ts:
+// Gemini CLI, Copilot, Cursor, Goose, OpenCode…) work from the same task
+// description (`specFor`). Only agents that can run are reported, with the
+// task kinds they can run (the server only sends those). Email and portal
+// checks need Claude Code's connectors and Claude in Chrome, so for now
+// they are Claude Code's alone.
 const SUPPORTED = [{ id: 'claude', label: 'Claude Code', bin: 'claude', kinds: ['chat', 'job_search', 'resume_parse', 'resume_merge', 'resume_tailor', 'automation_sync'] }]
 
 const WEB_TOOLS = ['WebSearch', 'WebFetch']
@@ -221,11 +222,18 @@ function cachedMail(): MailAccess | null {
 }
 
 let claudeMail: MailAccess | null = null
+/** ACP agents that started and opened a session at the last full detection. */
+let acpReady: (AcpAgent & { version: string | null })[] = []
 
-/** `quick`: use the cached mailbox lookup instead of a fresh one (startup, so
- *  the daemon connects in seconds; the full detection follows in the background). */
+/** Why an installed agent isn't usable (e.g. not signed in), for the log. */
+export let detectionNotes: string[] = []
+
+/** `quick`: use the cached mailbox lookup instead of a fresh one, and skip
+ *  starting the ACP agents (startup, so the daemon connects in seconds; the
+ *  full detection follows in the background). */
 export async function detectAgents(opts: { quick?: boolean } = {}): Promise<AgentInfo[]> {
   const found: AgentInfo[] = []
+  const notes: string[] = []
   for (const a of SUPPORTED) {
     const r = spawnSync(a.bin, ['--version'], { encoding: 'utf8', timeout: 15_000 })
     if (r.status !== 0) continue
@@ -238,7 +246,30 @@ export async function detectAgents(opts: { quick?: boolean } = {}): Promise<Agen
       browser: chrome ? 'Chrome' : null,
     })
   }
+  const codex = detectCodex()
+  if (codex && 'version' in codex) {
+    found.push({ id: 'codex', label: 'Codex', version: codex.version, kinds: withSync(CODEX_KINDS, found), mail: null, browser: null })
+  } else if (codex) notes.push(codex.missing)
+  if (!opts.quick) {
+    const probed = await Promise.all(acpCandidates().map(async (a) => ({ a, r: await probeAcp(a) })))
+    acpReady = probed.flatMap(({ a, r }) => ('version' in r ? [{ ...a, version: r.version }] : []))
+    notes.push(...probed.flatMap(({ r }) => ('missing' in r ? [r.missing] : [])))
+  }
+  for (const a of acpReady) {
+    found.push({ id: a.id, label: a.label, version: a.version, kinds: withSync(ACP_KINDS, found), mail: null, browser: null })
+  }
+  detectionNotes = notes
   return found
+}
+
+/** Scheduled work is synced through the daemon, not an agent: the first
+ *  agent reported carries `automation_sync`. */
+const withSync = (kinds: string[], found: AgentInfo[]) => (found.some((a) => a.kinds.includes('automation_sync')) ? [...kinds] : [...kinds, 'automation_sync'])
+
+/** Which agent here runs a kind on its own (scheduled work): Claude Code
+ *  first, as the agent with connectors. */
+export function agentForKind(agents: AgentInfo[], kind: string): string | null {
+  return agents.find((a) => a.kinds.includes(kind))?.id ?? null
 }
 
 // ── chat ──────────────────────────────────────────────────────────────────
@@ -593,9 +624,11 @@ export const TAILOR_SCHEMA = {
     resume: {
       type: 'object',
       properties: {
-        basic: { type: 'object' },
+        // Explicit fields (not just "object"): strict-schema agents (Codex)
+        // can only fill in what's listed.
+        basic: { type: 'object', properties: Object.fromEntries(['name', 'email', 'phone', 'location', 'linkedin', 'github', 'portfolio', 'wechat', 'englishName', 'chineseName'].map((k) => [k, { type: 'string' }])) },
         summary: { type: 'string' },
-        education: { type: 'array', items: { type: 'object' } },
+        education: { type: 'array', items: { type: 'object', properties: Object.fromEntries(['school', 'degree', 'major', 'gpa', 'start_date', 'end_date', 'location', 'description'].map((k) => [k, { type: 'string' }])) } },
         experience: { type: 'array', items: { type: 'object', properties: Object.fromEntries(['company', 'title', 'location', 'start_date', 'end_date', 'description'].map((k) => [k, { type: 'string' }])) } },
         internship: { type: 'array', items: { type: 'object', properties: Object.fromEntries(['company', 'title', 'location', 'start_date', 'end_date', 'description'].map((k) => [k, { type: 'string' }])) } },
         projects: { type: 'array', items: { type: 'object', properties: Object.fromEntries(['name', 'role', 'link', 'start_date', 'end_date', 'description'].map((k) => [k, { type: 'string' }])) } },
@@ -871,8 +904,80 @@ export function runClaude(
 
 const fail = (emit: (e: TaskEvent) => void, message: string) => Promise.resolve(emit({ type: 'error', message }))
 
+// ── any other agent: the task as a Spec (codex.ts, acp.ts) ────────────────
+
+/** Claude Code's prompts say "return … with the structured output tool";
+ *  other agents answer with the JSON itself. */
+const generic = (system: string) => system.replace(/ with the structured output tool/g, ' as your final answer')
+
+/** The task for an agent other than Claude Code, or why it can't run it. */
+export function specFor(task: Task): Spec | string {
+  const input = task.input
+  if (task.kind === 'chat') {
+    const message = String(input.message ?? '')
+    if (!message.trim()) return 'Bad chat task.'
+    // A fresh session every turn: the agent gets the conversation so far.
+    const history = Array.isArray(input.history) ? (input.history as { role: string; text: string }[]) : []
+    return { kind: 'chat', system: CHAT_SYSTEM_PROMPT, prompt: chatWithHistory(history, message), schema: null, web: 'search', timeoutMs: CHAT_TIMEOUT_MS }
+  }
+  if (task.kind === 'job_search') {
+    const brief = input.brief as Brief | undefined
+    if (!brief || !Array.isArray(brief.roles) || brief.roles.length === 0) return 'Bad search task.'
+    return {
+      kind: 'job_search', system: generic(SEARCH_SYSTEM_PROMPT), prompt: searchPrompt(brief, new Date()),
+      schema: SEARCH_RESULT_SCHEMA, web: 'search', requireWeb: true, timeoutMs: SEARCH_TIMEOUT_MS,
+    }
+  }
+  if (task.kind === 'resume_parse') {
+    const p = input as ResumeParseInput
+    const base = { kind: 'resume_parse', system: generic(PARSE_SYSTEM_PROMPT), schema: RESUME_SCHEMA, web: 'none' as const, timeoutMs: RESUME_TIMEOUT_MS }
+    if (p.file) {
+      const ext = FILE_EXT[p.file.type]
+      if (!ext) return 'Unsupported file type.'
+      const dir = join(workspace(), 'uploads', task.id.replace(/[^a-zA-Z0-9-]/g, ''))
+      mkdirSync(dir, { recursive: true, mode: 0o700 })
+      const file = join(dir, `resume.${ext}`)
+      writeFileSync(file, Buffer.from(p.file.data_base64, 'base64'), { mode: 0o600 })
+      const cleanup = () => rmSync(dir, { recursive: true, force: true })
+      if (ext === 'pdf') {
+        // Read here (macOS PDFKit), so the agent needs no file access at all.
+        const text = pdfText(file)
+        cleanup()
+        if (!text) return "This PDF has no text to read (a scan?). Upload it as an image or a Word file instead."
+        return { ...base, prompt: `My resume (the text of ${p.name}):\n\n${text}` }
+      }
+      return { ...base, prompt: `My resume is the attached image (${p.name}).`, images: [file], cleanup }
+    }
+    if (!p.text?.trim()) return 'Bad upload task.'
+    return { ...base, prompt: `My resume:\n\n${p.text}` }
+  }
+  if (task.kind === 'resume_merge') {
+    const m = input as ResumeMergeInput
+    if (!Array.isArray(m.sources) || m.sources.length === 0) return 'Bad merge task.'
+    return { kind: 'resume_merge', system: generic(MERGE_SYSTEM_PROMPT), prompt: mergePrompt(m), schema: MASTER_SCHEMA, web: 'none', timeoutMs: RESUME_TIMEOUT_MS }
+  }
+  if (task.kind === 'resume_tailor') {
+    const t = input as ResumeTailorInput
+    if (!t.master || !t.target?.role) return 'Bad tailor task.'
+    const web = !!t.target.job_url && !t.target.jd_text
+    return { kind: 'resume_tailor', system: generic(TAILOR_SYSTEM_PROMPT), prompt: tailorPrompt(t), schema: TAILOR_SCHEMA, web: web ? 'fetch' : 'none', timeoutMs: RESUME_TIMEOUT_MS }
+  }
+  return task.kind === 'email_check' || task.kind === 'portal_check'
+    ? 'Email and portal checks run with Claude Code (its Gmail connector and Claude in Chrome).'
+    : `Unsupported task: ${task.kind}`
+}
+
+/** Run a task with the agent it names. */
 export function runTask(task: Task, emit: (e: TaskEvent) => void): Promise<void> {
-  if (task.agent !== 'claude') return fail(emit, `${task.agent} isn't supported yet.`)
+  if (task.agent === 'claude') return runClaudeTask(task, emit)
+  const acp = acpReady.find((a) => a.id === task.agent)
+  if (task.agent !== 'codex' && !acp) return fail(emit, `${task.agent} isn't available on this computer right now.`)
+  const spec = specFor(task)
+  if (typeof spec === 'string') return fail(emit, spec)
+  return acp ? runAcp(acp, spec, emit) : runCodex(spec, emit)
+}
+
+function runClaudeTask(task: Task, emit: (e: TaskEvent) => void): Promise<void> {
 
   if (task.kind === 'chat') {
     const conversationId = String(task.input.conversation_id ?? '')

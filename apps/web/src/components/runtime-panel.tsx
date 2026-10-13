@@ -46,7 +46,7 @@ export function RuntimePanel() {
       </div>
       <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={muted}>
-          Run Landed's AI work with the agents already on your computer — Claude Code today, Codex and Gemini CLI next.
+          Run Landed's AI work with the agents already on your computer — Claude Code, Codex, Gemini CLI, and any agent that speaks ACP (Copilot, Cursor, Goose, OpenCode, Qwen…).
           It uses your own subscription, so there's no extra cost, and the work happens on your machine; Landed only passes messages through.
         </div>
         {error && <PairingError error={error} />}
@@ -133,7 +133,7 @@ export function PairingSteps({ token, onCancel }: { token: string; onCancel: () 
             <span style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginLeft: 'auto' }}>Waiting for your computer to connect…</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
-            The command includes this computer's key, shown only now. Needs Node 20+ and Claude Code installed and signed in.
+            The command includes this computer's key, shown only now. Needs Node 23.6+ and at least one agent (Claude Code, Codex, Gemini CLI…) installed and signed in.
           </div>
         </>
       )}

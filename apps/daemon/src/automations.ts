@@ -53,14 +53,19 @@ function save() {
 
 let myRuntimeId: string | null = null
 let runTaskFn: ((task: Task, emit: (e: TaskEvent) => void) => Promise<void>) | null = null
+let pickAgent: (kind: AutomationKind) => string | null = () => 'claude'
 let log: (msg: string) => void = () => {}
 const running = new Set<AutomationKind>()
 
-/** Wire up (cli.ts): this computer's runtime id (from hello), how to run a task, logging. */
-export function setupAutomations(opts: { runtimeId: string; runTask: typeof runTaskFn; log: (msg: string) => void }) {
+/** Wire up (cli.ts): this computer's runtime id (from hello), how to run a
+ *  task and with which agent here, logging. */
+export function setupAutomations(opts: {
+  runtimeId: string; runTask: typeof runTaskFn; log: (msg: string) => void; pickAgent?: (kind: AutomationKind) => string | null
+}) {
   myRuntimeId = opts.runtimeId
   runTaskFn = opts.runTask
   log = opts.log
+  if (opts.pickAgent) pickAgent = opts.pickAgent
 }
 
 function output(): SyncOutput {
@@ -120,7 +125,10 @@ async function runAutomation(kind: AutomationKind) {
   const started = new Date().toISOString()
   const run: AutomationRun = { id, kind, started_at: started, finished_at: null, status: 'running', summary: null, error: null }
   st.runs = [run, ...st.runs].slice(0, MAX_RUNS)
-  const input = inputFor(kind, st.context, st)
+  const agent = pickAgent(kind)
+  const input = agent ? inputFor(kind, st.context, st) : kind === 'email_check'
+    ? 'No agent on this computer can read your email (Claude Code with a Gmail connector can).'
+    : 'No agent on this computer can search for jobs.'
   if (typeof input === 'string') {
     Object.assign(run, { status: 'error', error: input, finished_at: started })
     st.last_failure[kind] = started
@@ -132,7 +140,7 @@ async function runAutomation(kind: AutomationKind) {
   log(`automation: ${kind} started`)
   let end: TaskEvent | null = null
   try {
-    await runTaskFn({ id, agent: 'claude', kind, input }, (e) => { if (e.type === 'done' || e.type === 'error') end = e })
+    await runTaskFn({ id, agent: agent!, kind, input }, (e) => { if (e.type === 'done' || e.type === 'error') end = e })
   } finally {
     running.delete(kind)
   }
@@ -162,5 +170,6 @@ export function resetAutomationsForTests() {
   rmSync(file(), { force: true })
   state = null
   myRuntimeId = null
+  pickAgent = () => 'claude'
   running.clear()
 }

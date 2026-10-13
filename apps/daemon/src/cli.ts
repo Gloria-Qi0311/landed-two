@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // landed — connect this computer to Landed and run its tasks with the agent
-// CLIs installed here (Claude Code today; Codex and Gemini CLI next).
+// CLIs installed here: Claude Code, Codex, and any agent that speaks ACP
+// (Gemini CLI, GitHub Copilot CLI, Cursor, Goose, OpenCode, Qwen Code…).
 //
 // Most people never type these: Landed.app (scripts/build-mac.mjs) runs
 // `setup` when opened and `open-url` when Landed's "Connect this computer"
@@ -18,7 +19,7 @@
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
-import { detectAgents, runTask, type AgentInfo, type Task } from './agents.ts'
+import { agentForKind, detectAgents, detectionNotes, runTask, type AgentInfo, type Task } from './agents.ts'
 import { handleSync, setupAutomations, tick } from './automations.ts'
 import type { SyncInput } from '@landed/schema/automation'
 import { clearConfig, home, loadConfig, saveConfig, type Config } from './config.ts'
@@ -28,7 +29,7 @@ import {
 } from './mac.ts'
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 
-const VERSION = '0.4.0'
+const VERSION = '0.5.0'
 const MAX_PARALLEL = 2
 
 const describe = (agents: AgentInfo[]) =>
@@ -45,7 +46,7 @@ const REDETECT_MS = 30 * 60_000
 async function run(config: Config, opts: { service?: boolean } = {}): Promise<'revoked' | 'no-agent'> {
   let agents = await detectAgents({ quick: true })
   if (agents.length === 0) {
-    log('No supported agent found. Install Claude Code (https://claude.com/claude-code) and sign in, then run `landed start` again.')
+    log('No supported agent found. Install and sign in to Claude Code (https://claude.com/claude-code), Codex, Gemini CLI or another ACP agent, then run `landed start` again.')
     if (!opts.service) process.exit(1)
     return 'no-agent'
   }
@@ -78,9 +79,14 @@ async function run(config: Config, opts: { service?: boolean } = {}): Promise<'r
 
   // Full detection (mailbox lookup) in the background, then every 30
   // minutes: connectors come and go, and claude.ai's load unreliably.
+  let lastNotes = ''
   const redetect = async () => {
     try {
       const next = await detectAgents()
+      if (detectionNotes.join() !== lastNotes) {
+        lastNotes = detectionNotes.join()
+        for (const note of detectionNotes) log(note)
+      }
       if (JSON.stringify(next) !== JSON.stringify(agents)) {
         agents = next
         await client.hello({ name, agents, daemon_version: VERSION })
@@ -103,7 +109,7 @@ async function run(config: Config, opts: { service?: boolean } = {}): Promise<'r
     try {
       const me = await client.hello({ name, agents, daemon_version: VERSION }) as { id: string }
       // Which computer this is: the browser names the one that runs the schedule.
-      setupAutomations({ runtimeId: me.id, runTask, log })
+      setupAutomations({ runtimeId: me.id, runTask, log, pickAgent: (kind) => agentForKind(agents, kind) })
       await client.stream(work, () => {
         backoff = 1000
         log(`connected to ${config.server} as "${name}" — agents: ${describe(agents)}`)
@@ -240,7 +246,8 @@ async function main() {
     console.log(config ? `Paired with ${config.server}${config.name ? ` as "${config.name}"` : ''}` : 'Not paired.')
     const agents = await detectAgents()
     console.log(agents.length ? `Agents: ${agents.map((a) => `${a.label} (${a.version})`).join(', ')}` : 'No supported agents found.')
-    for (const a of agents) {
+    for (const note of detectionNotes) console.log(note)
+    for (const a of agents.filter((x) => x.id === 'claude')) {
       console.log(a.mail
         ? `${a.label} can read your ${a.mail} (read-only), so Landed can check your email for application updates.`
         : `${a.label} has no mail connector, so email checks are off. To turn them on, connect Gmail in Claude (claude.ai → Settings → Connectors); a running daemon picks it up within 30 minutes.`)

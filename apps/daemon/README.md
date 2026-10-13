@@ -5,7 +5,16 @@ The Landed daemon connects your computer to Landed and runs Landed's AI tasks wi
 - The tasks use your own subscription (Claude Pro or Max, ChatGPT Plus, …), so neither you nor Landed pays for API usage.
 - Your computer does the work. The Landed server only relays tasks and their output, held in memory and never stored.
 
-**Supported agents:** Claude Code. Codex and Gemini CLI are next.
+**Supported agents:**
+- **Claude Code** — every task, including email checks (through the Gmail connector you gave Claude) and portal checks (Claude in Chrome).
+- **Codex** — chat, job search and My Resume, run with `codex exec` in its read-only sandbox with the shell switched off.
+- **Any agent that speaks [ACP](https://agentclientprotocol.com)** — Gemini CLI, GitHub Copilot CLI, Cursor, Goose, OpenCode, Qwen Code, Kimi, Kilo, Auggie, Cline, Devin, Factory Droid, Mistral Vibe, Qoder, Grok — the same tasks as Codex. Landed answers every permission request itself: web search and page reads when a task needs them, never editing files or running commands. An agent that runs a command anyway is stopped.
+
+An agent is used when it is installed and signed in; `landed status` says why one isn't. To add an ACP agent that isn't on the list, put it in `~/.landed/agents.json`:
+
+```json
+[{ "id": "my-agent", "label": "My Agent", "command": "/usr/local/bin/my-agent", "args": ["acp"] }]
+```
 
 ## Use it
 
@@ -25,7 +34,7 @@ pnpm landed status                                                      # what's
 
 Only one daemon runs per computer (`~/.landed/daemon.pid`). If the background service is installed, `connect` hands it the new connection instead of starting a second daemon. `pnpm landed uninstall` removes the service.
 
-You need Node 20+ and at least one supported agent CLI, installed and signed in. Removing the computer in Landed revokes its key. A terminal daemon then exits, and the service waits for a new connection.
+You need Node 23.6+ and at least one supported agent CLI, installed and signed in. Removing the computer in Landed revokes its key. A terminal daemon then exits, and the service waits for a new connection.
 
 ## What an agent can do here
 
@@ -35,7 +44,7 @@ You need Node 20+ and at least one supported agent CLI, installed and signed in.
   - `email_check`: only offered if your agent can read email, and only once you turn on email watching in Landed. To give Claude Code email access, connect Gmail in Claude (claude.ai → Settings → Connectors). The daemon allows only the mailbox's read tools, never send, draft, label or delete.
   - `portal_check`: when an application has gone quiet for 3 weeks and you click "Look at its portal" in Landed, the agent opens its candidate portal (Workday, LinkedIn, Handshake, …) in your Chrome through Claude in Chrome and reads the status. It is read-only by construction: it gets the tools to open tabs, navigate and read pages, and no tool to click, type, fill forms, run scripts or read network traffic. It never signs in; a portal behind a login comes back as "needs you to sign in". Tip: connect Claude in Chrome in a Chrome profile that is only signed in to job sites.
 
-  - `resume_parse`: reads a resume you uploaded in Landed. PDFs and images are saved to a temporary folder in `~/.landed/workspace/uploads`. The agent may read that one file and nothing else, and the folder is deleted when it's done.
+  - `resume_parse`: reads a resume you uploaded in Landed. PDFs and images are saved to a temporary folder in `~/.landed/workspace/uploads`. Claude Code may read that one file and nothing else; other agents get the PDF's text (read by macOS) or the image itself, and no file access. The folder is deleted when it's done.
   - `resume_merge` / `resume_tailor`: My Resume. These merge your uploaded resumes into one master resume, keeping every phrasing of every bullet, and tailor versions from it for a role. Both are text work only, with no tools or connectors; tailoring may read the job posting when it only has a link.
 
   - `automation_sync`: Landed's Automation page. The daemon keeps the schedule you set (email checks, job searches) in `~/.landed/automations.json` and runs it itself, so it works even when Landed is closed. Results wait there until Landed is open again and has stored them.

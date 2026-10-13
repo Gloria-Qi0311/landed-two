@@ -23,7 +23,7 @@ import { formatRelative } from '../lib/time'
 import { deleteConversation, renameConversation, useAgentChat, type Turn } from '../lib/agent-chat'
 import type { DbConversation } from '../lib/store'
 import { useConversations } from '../hooks/conversations'
-import { useRuntimes, type Runtime } from '../hooks/runtimes'
+import { canRun, useRuntimes, type Runtime, type RuntimeAgent } from '../hooks/runtimes'
 
 const SUGGESTIONS = [
   'Help me work out what jobs to look for',
@@ -45,8 +45,13 @@ export function AgentPage() {
 
   // A pairing that never connected (command never run) counts as not set up.
   const paired = (runtimes.data ?? []).filter((r) => !r.revoked_at && r.last_seen_at)
-  const ready = paired.find((r) => r.online && r.agents.length > 0)
-  const agent = ready?.agents[0]
+  // Every agent that can chat, on every online computer; the user picks one
+  // (Claude Code, Codex, Gemini CLI…), remembered on this device.
+  const choices = paired.filter((r) => r.online).flatMap((runtime) => runtime.agents.filter((a) => canRun(a, 'chat')).map((agent) => ({ runtime, agent })))
+  const [preferred, setPreferred] = useState(readChatAgent)
+  const pick = choices.find((c) => `${c.runtime.id}:${c.agent.id}` === preferred) ?? choices[0]
+  const ready = pick?.runtime
+  const agent = pick?.agent
   const saved = (conversations.data ?? []).find((c) => c.id === activeId)
   const hasChat = !!activeId && !!(live[activeId] || saved)
 
@@ -57,7 +62,9 @@ export function AgentPage() {
         subtitle={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 7, height: 7, borderRadius: 4, background: ready ? 'oklch(0.65 0.17 155)' : 'var(--border-strong)' }} />
-            {ready && agent ? `${agent.label} on ${ready.name}, with your own subscription` : paired.length ? `${paired[0].name} is offline` : 'Not connected yet'}
+            {ready && agent && choices.length > 1 ? (
+              <AgentPicker choices={choices} value={`${ready.id}:${agent.id}`} onChange={(v) => { setPreferred(v); writeChatAgent(v) }} />
+            ) : ready && agent ? `${agent.label} on ${ready.name}, with your own subscription` : paired.length ? `${paired[0].name} is offline` : 'Not connected yet'}
           </span>
         }
         actions={
@@ -96,6 +103,47 @@ export function AgentPage() {
         )}
       </div>
     </>
+  )
+}
+
+// ── which agent to chat with ─────────────────────────────────────────────
+
+const CHAT_AGENT_KEY = 'landed:chat-agent'
+function readChatAgent(): string | null {
+  try {
+    return localStorage.getItem(CHAT_AGENT_KEY)
+  } catch {
+    return null
+  }
+}
+function writeChatAgent(value: string) {
+  try {
+    localStorage.setItem(CHAT_AGENT_KEY, value)
+  } catch {
+    // private window: just this visit
+  }
+}
+
+function AgentPicker({ choices, value, onChange }: {
+  choices: { runtime: Runtime; agent: RuntimeAgent }[]; value: string; onChange: (value: string) => void
+}) {
+  const several = new Set(choices.map((c) => c.runtime.id)).size > 1
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <select
+        aria-label="Agent to chat with"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ font: 'inherit', fontSize: 12, color: 'var(--fg)', background: 'transparent', border: '0.5px solid var(--border)', borderRadius: 6, padding: '1px 4px' }}
+      >
+        {choices.map((c) => (
+          <option key={`${c.runtime.id}:${c.agent.id}`} value={`${c.runtime.id}:${c.agent.id}`}>
+            {c.agent.label}{several ? ` on ${c.runtime.name}` : ''}
+          </option>
+        ))}
+      </select>
+      <span>{several ? 'with your own subscription' : `on ${choices[0].runtime.name}, with your own subscription`}</span>
+    </span>
   )
 }
 
@@ -187,8 +235,8 @@ function Setup() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ fontSize: 15, fontWeight: 600 }}>Connect your own AI agent first</div>
       <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-        Landed talks to the agent you already use — Claude Code today — running on your computer, on your own
-        subscription. Connect your computer once (one click on a Mac) and chat here any time: shape your job search,
+        Landed talks to the agent you already use — Claude Code, Codex, Gemini CLI, Copilot, Cursor and other ACP
+        agents — running on your computer, on your own subscription. Connect your computer once (one click on a Mac) and chat here any time: shape your job search,
         then let the agent go find roles for you.
       </div>
       <RuntimePanel />
