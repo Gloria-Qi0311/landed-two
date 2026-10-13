@@ -29,8 +29,6 @@ import { currentStore, type ApplicationPatch, type DbJobLead, type Snapshot } fr
 import type { Stage } from '@landed/observation-processor';
 import { Icon } from './components/primitives';
 import { KanbanView } from './components/kanban';
-import { TableView } from './components/table';
-import { TimelineView, CardsView, MapView } from './components/other-views';
 import { DetailDrawer } from './components/drawer';
 import { AddApplicationModal } from './components/add-application-modal';
 import { ResumesPage } from './components/resumes-page';
@@ -301,15 +299,7 @@ function ApplicationsPage({
   importing: boolean;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const view = searchParams.get('view') || 'kanban';
   const filter = searchParams.get('filter') || 'all';
-  const setView = (id: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (id === 'kanban') next.delete('view');
-    else next.set('view', id);
-    setSearchParams(next, { replace: true });
-  };
-  const [query, setQuery] = useState('');
   // Ask Agent side panel, kept in the URL (?agent=chat|settings) so it
   // survives reloads and old /agents links can open it.
   const agentView = (searchParams.get('agent') as AgentPanelView | null) ?? null;
@@ -347,36 +337,8 @@ function ApplicationsPage({
     else if (filter === 'starred') list = list.filter((a) => a.starred);
     else if (filter !== 'all' && STAGES.some((s: any) => s.id === filter))
       list = list.filter((a) => columnOf(a.stage) === filter);
-    if (query) {
-      const q = query.toLowerCase();
-      list = list.filter((a) => {
-        const c = companies.find((x: any) => x.id === a.companyId);
-        return (
-          (c?.name || '').toLowerCase().includes(q) ||
-          a.role.toLowerCase().includes(q) ||
-          (a.team || '').toLowerCase().includes(q)
-        );
-      });
-    }
     return list;
-  }, [apps, companies, filter, query]);
-
-  const views = [
-    { id: 'kanban', icon: 'kanban', label: 'Kanban' },
-    { id: 'table', icon: 'table', label: 'Table' },
-    { id: 'timeline', icon: 'timeline', label: 'Timeline' },
-    { id: 'cards', icon: 'cards', label: 'Cards' },
-    { id: 'map', icon: 'map', label: 'Map' },
-  ];
-
-  const ViewCompMap: Record<string, any> = {
-    kanban: KanbanView,
-    table: TableView,
-    timeline: TimelineView,
-    cards: CardsView,
-    map: MapView,
-  };
-  const ViewComp = ViewCompMap[view] || KanbanView;
+  }, [apps, filter]);
 
   // Jobs agents found but the user hasn't acted on — the Kanban's Leads column.
   const leads = (useJobLeads().data ?? []).filter((l) => l.status === 'new');
@@ -421,55 +383,6 @@ function ApplicationsPage({
         }
         actions={
           <>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 8, top: 6, color: 'var(--fg-muted)' }}>
-                <Icon name="search" size={13} />
-              </span>
-              <input
-                type="text"
-                placeholder="Search…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                style={{ paddingLeft: 28, width: 200 }}
-              />
-            </div>
-            <button className="btn-secondary">
-              <Icon name="filter" size={13} /> Filter
-            </button>
-            <button className="btn-secondary">
-              <Icon name="sort" size={13} /> Sort
-            </button>
-            <div
-              style={{
-                display: 'flex',
-                gap: 2,
-                background: 'var(--surface-2)',
-                padding: 3,
-                borderRadius: 7,
-                border: '0.5px solid var(--border)',
-              }}
-            >
-              {views.map((v) => (
-                <button
-                  key={v.id}
-                  onClick={() => setView(v.id)}
-                  title={v.label}
-                  style={{
-                    padding: 5,
-                    background: view === v.id ? 'var(--surface)' : 'transparent',
-                    color: view === v.id ? 'var(--fg)' : 'var(--fg-muted)',
-                    border: 'none',
-                    borderRadius: 5,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    boxShadow: view === v.id ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
-                  }}
-                >
-                  <Icon name={v.icon} size={14} />
-                </button>
-              ))}
-            </div>
             <button className="btn-primary" onClick={onOpenAddModal}>
               <Icon name="plus" size={13} stroke={2} /> Add
             </button>
@@ -479,7 +392,7 @@ function ApplicationsPage({
       />
       <AgentUpdatesBar />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        <ViewComp
+        <KanbanView
           apps={filteredApps}
           companies={companies}
           onOpen={onOpenApp}

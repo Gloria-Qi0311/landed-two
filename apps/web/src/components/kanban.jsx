@@ -251,6 +251,10 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
 // KanbanView — wraps everything in DndContext. handleDragEnd resolves the
 // active card + over column and calls onMoveCard for optimistic update.
 // ────────────────────────────────────────────────────────────────────────
+/**
+ * @param {{ apps: any[], companies: any[], onOpen: (id: string) => void, onMoveCard: (id: string, stage: string) => void,
+ *   leads?: any[], onAddLead?: (lead: any, stage: any) => void, onDismissLead?: (id: string) => void, onOpenLead?: (lead: any) => void }} props
+ */
 export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead }) => {
   const [activeId, setActiveId] = useState(null);
   const sensors = useSensors(
