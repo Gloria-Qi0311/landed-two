@@ -23,6 +23,8 @@ import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
 import { LEAD_COLUMNS, SUGGESTION_COLUMNS } from './inbox.ts'
 import { SEARCH_COLUMNS } from './searches.ts'
+import { CONVERSATION_COLUMNS } from './conversations.ts'
+import { parseConversation } from '@landed/schema/conversation'
 
 // Loosely-typed JSON row (request bodies, jsonb values) for the sql() helpers.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,7 +35,7 @@ export const BACKUP_VERSION = 1
 
 const TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
-  'job_leads', 'status_suggestions', 'job_searches',
+  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations',
 ] as const
 const MAX_ROWS_PER_TABLE = 20_000
 const CHUNK = 500
@@ -61,6 +63,7 @@ const COLUMNS = {
   job_leads: LEAD_COLUMNS,
   status_suggestions: SUGGESTION_COLUMNS,
   job_searches: SEARCH_COLUMNS,
+  agent_conversations: CONVERSATION_COLUMNS,
 } as const
 
 // NOT NULL columns get their DB default when a snapshot row omits them, so
@@ -76,7 +79,7 @@ function defaults(now: string): Row {
 
 const JSON_COLUMNS = new Set([
   'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
-  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json',
+  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json', 'turns',
 ])
 
 function chunks<T>(rows: T[]): T[][] {
@@ -250,6 +253,12 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
       if (active) activeTaken = true
       return normalize('job_searches', r, { brief: parseBrief(r.brief), status: active ? 'active' : 'archived' })
     }), true)
+
+  // chat history — validated like a PUT; an id the account already has is kept as is
+  counts.agent_conversations = await insertRows('agent_conversations', list('agent_conversations')
+    .map((r) => parseConversation(r))
+    .filter((c): c is NonNullable<typeof c> => !!c)
+    .map((c) => normalize('agent_conversations', c, { turns: c.turns, updated_at: c.updated_at ?? base.created_at })))
 
   const onboarded = snap.profile?.onboarded_at
   if (typeof onboarded === 'string') {

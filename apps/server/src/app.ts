@@ -16,6 +16,7 @@ import { agentAccountRoutes, agentIngestRoutes } from './routes/agent.ts'
 import { dataRoutes } from './routes/data.ts'
 import { inboxRoutes } from './routes/inbox.ts'
 import { searchRoutes } from './routes/searches.ts'
+import { conversationRoutes } from './routes/conversations.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
 import { runtimeAccountRoutes, runtimeDaemonRoutes } from './routes/runtime.ts'
@@ -74,6 +75,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtim
   cloud.route('/', syncRoutes(sql))
   cloud.route('/', inboxRoutes(sql))
   cloud.route('/', searchRoutes(sql))
+  cloud.route('/', conversationRoutes(sql))
   api.route('/', cloud)
   app.route('/api', api)
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))

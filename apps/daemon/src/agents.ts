@@ -245,6 +245,13 @@ const CHAT_SYSTEM_PROMPT = [
 
 /** Arguments for one `claude -p` chat turn. The conversation id doubles as
  *  the Claude Code session id, so later turns resume the same session. */
+/** The message, preceded by the earlier turns when the agent hasn't seen them. */
+export function chatWithHistory(history: { role: string; text: string }[], message: string): string {
+  if (history.length === 0) return message
+  const lines = history.map((t) => `${t.role === 'user' ? 'User' : 'You (the assistant)'}: ${t.text}`)
+  return ['(Our conversation so far, for context:)', ...lines, '', '(The user now says:)', message].join('\n\n')
+}
+
 export function claudeChatArgs(conversationId: string, resume: boolean): string[] {
   return [
     '-p',
@@ -810,8 +817,13 @@ export function runTask(task: Task, emit: (e: TaskEvent) => void): Promise<void>
     const message = String(task.input.message ?? '')
     if (!/^[0-9a-f-]{36}$/i.test(conversationId) || !message.trim()) return fail(emit, 'Bad chat task.')
     const resume = knownSessions().has(conversationId)
+    const history = Array.isArray(task.input.history) ? (task.input.history as { role: string; text: string }[]) : []
     return runClaude({
-      args: claudeChatArgs(conversationId, resume), stdin: message, timeoutMs: CHAT_TIMEOUT_MS,
+      args: claudeChatArgs(conversationId, resume),
+      // New session for an old conversation (another computer, or the session
+      // is gone): give the agent the conversation so far.
+      stdin: resume ? message : chatWithHistory(history, message),
+      timeoutMs: CHAT_TIMEOUT_MS,
       onDone: () => rememberSession(conversationId),
     }, emit)
   }

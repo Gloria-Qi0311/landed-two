@@ -2,7 +2,7 @@
 // server (apps/server). Active for accounts with Landed Cloud sync on.
 import { api } from '../api'
 import type {
-  DataStore, DbAgentObservation, DbApplication, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
+  DataStore, DbAgentObservation, DbApplication, DbConversation, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
 } from './types'
 
 export function createCloudStore(): DataStore {
@@ -58,6 +58,10 @@ export function createCloudStore(): DataStore {
     listJobSearches: () => api.get<DbJobSearch[]>('/job-searches'),
     addJobSearch: (brief) => api.post<DbJobSearch>('/job-searches', { brief }),
     updateJobSearch: (id, patch) => api.patch<DbJobSearch>(`/job-searches/${id}`, patch),
+
+    listConversations: () => api.get<DbConversation[]>('/agent-conversations'),
+    saveConversation: (c) => api.put<DbConversation>(`/agent-conversations/${c.id}`, c),
+    deleteConversation: (id) => api.del(`/agent-conversations/${id}`),
 
     exportSnapshot: () => api.get<Snapshot>('/export'),
   }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  CHROME_READ_TOOLS, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
+  CHROME_READ_TOOLS, chatWithHistory, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
   parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
@@ -138,6 +138,12 @@ test('resume parse: the agent may read that one file and nothing else', () => {
   const text = claudeParseArgs(null)
   assert.equal(text[text.indexOf('--tools') + 1], '')
   assert.ok(!text.includes('--allowedTools'))
+})
+
+test('chat: an old conversation on a computer without its session gets the history', () => {
+  assert.equal(chatWithHistory([], 'hi'), 'hi')
+  const text = chatWithHistory([{ role: 'user', text: 'AI PM roles in the US?' }, { role: 'agent', text: 'Do you need sponsorship?' }], 'Yes, H-1B')
+  assert.match(text, /User: AI PM roles in the US\?[\s\S]*You \(the assistant\): Do you need sponsorship\?[\s\S]*Yes, H-1B$/)
 })
 
 test('SSE parser handles split chunks, comments and multi-line data', () => {

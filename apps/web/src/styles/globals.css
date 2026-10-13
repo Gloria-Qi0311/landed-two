@@ -106,6 +106,9 @@
   .icon-btn:hover { background: var(--surface-3); }
 
   .sidebar-item:hover { background: var(--surface-3); }
+  /* Agent page chat list: delete only on hover / focus */
+  .conversation-item .conversation-delete { opacity: 0; }
+  .conversation-item:hover .conversation-delete, .conversation-item:focus-within .conversation-delete { opacity: 1; }
   /* click-to-edit text (components/editable.tsx): a soft halo, no layout shift */
   .editable:hover, .editable:focus-visible { background: var(--surface-2); box-shadow: 0 0 0 3px var(--surface-2); outline: none; }
   .kanban-card:hover { background: var(--surface-2); border-color: var(--border-strong); transform: translateY(-1px); transition: all 120ms; }

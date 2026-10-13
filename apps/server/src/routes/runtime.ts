@@ -23,6 +23,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { parseEmailCheckInput, parseEmailFindings } from '@landed/schema/email-check'
 import { parseLooseResume, parseMasterResume, parseResumeParseInput, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'
+import { parseChatHistory } from '@landed/schema/conversation'
 import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -104,7 +105,8 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
       if (typeof raw.conversation_id !== 'string' || !UUID.test(raw.conversation_id)) {
         fail(400, 'input.conversation_id must be a uuid')
       }
-      input = { message: raw.message, conversation_id: raw.conversation_id }
+      // Recent turns, for a computer that doesn't have this conversation's session.
+      input = { message: raw.message, conversation_id: raw.conversation_id, history: parseChatHistory(raw.history) }
     } else if (body.kind === 'resume_parse') {
       const parse = parseResumeParseInput(raw)
       if (!parse) fail(400, 'input needs a PDF or image file (at most 8 MB) or the resume as text')

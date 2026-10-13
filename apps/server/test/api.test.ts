@@ -534,7 +534,7 @@ describe('sync: local device <-> Landed Cloud', () => {
     assert.deepEqual(up.body, {
       companies: 2, companies_merged: 0, applications: 2, portal_connections: 1,
       portal_events: 2, resumes: 1, ai_runs: 1, agent_observations: 0, job_leads: 0, status_suggestions: 0,
-      job_searches: 0,
+      job_searches: 0, agent_conversations: 0,
     })
 
     const exp = await call('GET', '/api/export', { token: erin })
@@ -1136,6 +1136,57 @@ describe('portal_check: read-only look at candidate portals', () => {
     assert.equal(res.status, 200)
     reader.cancel().catch(() => {})
     daemonAbort.abort()
+  })
+})
+
+describe('agent chat history (Cloud)', () => {
+  test('conversations: upsert, list newest first, ownership, sync-off stays on the device, snapshots', async () => {
+    const off = await signup('chat-off@example.com', undefined, { cloud: false })
+    assert.equal((await call('GET', '/api/agent-conversations', { token: off })).status, 409)
+
+    const owner = await signup('chat-owner@example.com')
+    const other = await signup('chat-other@example.com')
+    const a = crypto.randomUUID()
+    const b = crypto.randomUUID()
+    const put = (token: string, id: string, body: Record<string, unknown>) => call('PUT', `/api/agent-conversations/${id}`, { token, body })
+    const first = await put(owner, a, { turns: [{ role: 'user', text: 'AI PM roles?' }, { role: 'agent', text: 'Sure', tools: ['WebSearch'] }, { role: 'system', text: 'x' }] })
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.equal(first.body.title, 'AI PM roles?', 'title from the first message')
+    assert.equal(first.body.turns.length, 2, 'unknown roles dropped')
+    await put(owner, b, { title: 'Second', turns: [] })
+    await put(owner, a, { title: 'Job direction', turns: [...first.body.turns, { role: 'user', text: 'H-1B' }] })
+    const list = (await call('GET', '/api/agent-conversations', { token: owner })).body
+    assert.deepEqual(list.map((c: any) => [c.title, c.turns.length]), [['Job direction', 3], ['Second', 0]])
+    assert.equal((await put(other, a, { title: 'mine now', turns: [] })).status, 404, "can't overwrite someone else's")
+    assert.equal((await call('DELETE', `/api/agent-conversations/${b}`, { token: other })).status, 404)
+    assert.equal((await call('DELETE', `/api/agent-conversations/${b}`, { token: owner })).status, 204)
+
+    const snap = (await call('GET', '/api/export', { token: owner })).body
+    assert.equal(snap.agent_conversations.length, 1)
+    const fresh = await signup('chat-fresh@example.com')
+    const device = { ...snap, agent_conversations: snap.agent_conversations.map((c: any) => ({ ...c, id: crypto.randomUUID() })) }
+    assert.equal((await call('POST', '/api/sync/upload', { token: fresh, body: device })).body.agent_conversations, 1)
+  })
+
+  test('chat tasks carry only recent, valid history', async () => {
+    const owner = await signup('chat-history@example.com', undefined, { cloud: false })
+    const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat'] }] } })
+    const abort = new AbortController()
+    const reader = (await app.request('/api/runtime/stream', { headers: { Authorization: `Bearer ${rt}` }, signal: abort.signal })).body!.getReader()
+    let buf = ''
+    const until = async (needle: string) => {
+      while (!buf.includes(needle)) buf += new TextDecoder().decode((await reader.read()).value)
+      return buf
+    }
+    await until('event: ready')
+    const history = [...Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'agent' : 'user', text: `turn ${i}` })), { role: 'agent', text: 'oops', error: true }, { role: 'root', text: 'x' }]
+    assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), message: 'next', history } } })).status, 202)
+    const job = JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
+    assert.equal(job.input.history.length, 24)
+    assert.deepEqual(job.input.history.at(-1), { role: 'agent', text: 'turn 29' })
+    reader.cancel().catch(() => {})
+    abort.abort()
   })
 })
 

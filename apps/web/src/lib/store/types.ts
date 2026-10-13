@@ -6,6 +6,7 @@
 // snake_case shape in both places — the server's JSON shape — so hooks and
 // components never care which backend they're talking to.
 import type { Resume } from '@landed/schema'
+import type { Conversation } from '@landed/schema/conversation'
 import type { MasterResume, ResumeTarget, TailorNotes } from '@landed/schema/master-resume'
 import type { InterviewRound } from '@landed/schema/pipeline'
 import type { SearchBrief } from '@landed/schema/search-brief'
@@ -171,6 +172,9 @@ export type DbJobSearch = {
   updated_at: string
 }
 
+/** A conversation on the Agent page (id = its Claude Code session id). */
+export type DbConversation = Conversation & { user_id: string }
+
 /** Account-level (users row on the server, not part of either store);
  *  carried in snapshots only for backup-file compatibility. */
 export type Profile = { onboarded_at: string | null }
@@ -233,11 +237,12 @@ export type Snapshot = {
   job_leads?: Owned<DbJobLead>[]
   status_suggestions?: Owned<DbSuggestion>[]
   job_searches?: Owned<DbJobSearch>[]
+  agent_conversations?: Owned<DbConversation>[]
 }
 
 export const SNAPSHOT_TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
-  'job_leads', 'status_suggestions', 'job_searches',
+  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations',
 ] as const
 
 export function snapshotRowCount(s: Snapshot): number {
@@ -301,6 +306,11 @@ export interface DataStore {
     id: string,
     patch: Partial<Pick<DbJobSearch, 'status' | 'last_run_at' | 'last_run_result'>>,
   ): Promise<DbJobSearch>
+
+  listConversations(): Promise<DbConversation[]> // updated_at desc
+  /** Insert or replace the whole conversation (title + turns); bumps updated_at. */
+  saveConversation(c: Pick<Conversation, 'id' | 'title' | 'turns'> & Partial<Pick<Conversation, 'created_at'>>): Promise<DbConversation>
+  deleteConversation(id: string): Promise<void>
 
   exportSnapshot(): Promise<Snapshot>
 }

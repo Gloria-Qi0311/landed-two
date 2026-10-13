@@ -6,12 +6,13 @@
 // same defaults, same enum checks, same "reference must exist" rules — so a
 // device's data always uploads cleanly when the user turns Cloud on.
 import Dexie, { type Table } from 'dexie'
+import { parseConversation } from '@landed/schema/conversation'
 import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { normalizeStage, parseDeadline, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
-  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
+  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
   type DbPortalEvent, type DbResume, type DemoImport, type PortalEventInput, type Snapshot,
 } from './types'
@@ -72,6 +73,7 @@ class LandedDB extends Dexie {
   job_leads!: Table<DbJobLead, string>
   status_suggestions!: Table<DbSuggestion, string>
   job_searches!: Table<DbJobSearch, string>
+  agent_conversations!: Table<DbConversation, string>
 
   constructor(name: string) {
     super(name)
@@ -117,6 +119,10 @@ class LandedDB extends Dexie {
         r.master_json ??= null
         r.target_json ??= null
       })
+    })
+    // v7: Agent chat history.
+    this.version(7).stores({
+      agent_conversations: 'id, updated_at',
     })
   }
 }
@@ -487,6 +493,29 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       })
     },
 
+    async listConversations() {
+      return (await db.agent_conversations.toArray()).sort(byDesc('updated_at'))
+    },
+    async saveConversation(input) {
+      const conv = parseConversation(input)
+      if (!conv) throw new LocalStoreError(400, 'not a conversation')
+      askPersist()
+      return db.transaction('rw', db.agent_conversations, async () => {
+        const existing = await db.agent_conversations.get(conv.id)
+        const at = now()
+        const row: DbConversation = {
+          id: conv.id, user_id: LOCAL_USER, title: conv.title, turns: conv.turns,
+          created_at: existing?.created_at ?? conv.created_at ?? at, updated_at: at,
+        }
+        await db.agent_conversations.put(row)
+        return row
+      })
+    },
+    async deleteConversation(id) {
+      if (!(await db.agent_conversations.get(id))) throw new LocalStoreError(404, 'conversation not found')
+      await db.agent_conversations.delete(id)
+    },
+
     async receiveAgentObservations(rows) {
       return db.transaction('rw', db.agent_observations, async () => {
         const stored: string[] = []
@@ -518,6 +547,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         job_leads: (await db.job_leads.toArray()).map(strip),
         status_suggestions: (await db.status_suggestions.toArray()).map(strip),
         job_searches: (await db.job_searches.toArray()).map(strip),
+        agent_conversations: (await db.agent_conversations.toArray()).map(strip),
       }))
     },
 
@@ -546,6 +576,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         await db.job_leads.bulkAdd(own(snapshot.job_leads) as DbJobLead[])
         await db.status_suggestions.bulkAdd(own(snapshot.status_suggestions) as DbSuggestion[])
         await db.job_searches.bulkAdd(own(snapshot.job_searches) as DbJobSearch[])
+        await db.agent_conversations.bulkAdd(own(snapshot.agent_conversations) as DbConversation[])
       })
     },
     async clearAll() {

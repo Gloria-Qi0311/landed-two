@@ -1,25 +1,29 @@
 // Agent — its own page (sidebar: Applications → Agent → My Resume). Chat
 // with your own agent, running on your computer through the Landed daemon.
-// Not set up yet → connect a computer here; computer offline → how to
-// start it; ready → just chat. When the agent proposes a search brief, it
-// shows as a card: confirm it and every connected agent searches; results
-// land in the Leads column. The page also carries email watching and
-// Landed's questions ("did you apply?", "no news for 3 weeks" → portal
-// check). ?view=settings shows agent settings (computer, cloud agents,
-// email updates).
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+// Past chats are listed on the left (saved in the account's data store —
+// lib/agent-chat.ts); pick one up any time. Not set up yet → connect a
+// computer here; computer offline → past chats stay readable. When the
+// agent proposes a search brief, it shows as a card: confirm it and every
+// connected agent searches; results land in the Leads column. The page also
+// carries email watching and Landed's questions ("did you apply?", "no
+// news for 3 weeks" → portal check). ?view=settings shows agent settings.
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { extractBrief } from '@landed/schema/search-brief'
 import { Icon } from './primitives'
 import { Markdown } from './markdown'
 import { PageHeader } from './shell'
+import { EditableText } from './editable'
 import { BriefCard, SearchStatus } from './search-brief'
 import { EmailStatus } from './email-watch'
 import { PanelQuestions } from './panel-questions'
 import { PairingError, PairingSteps, RuntimePanel, usePairing } from './runtime-panel'
 import { AgentSettings } from './agent-settings'
 import { useAuth } from '../lib/auth'
-import { useAgentChat } from '../lib/agent-chat'
+import { formatRelative } from '../lib/time'
+import { deleteConversation, renameConversation, useAgentChat, type Turn } from '../lib/agent-chat'
+import type { DbConversation } from '../lib/store'
+import { useConversations } from '../hooks/conversations'
 import { useRuntimes, type Runtime } from '../hooks/runtimes'
 
 const SUGGESTIONS = [
@@ -34,16 +38,18 @@ export function AgentPage() {
   const [params, setParams] = useSearchParams()
   const view = params.get('view') === 'settings' ? 'settings' : 'chat'
   const setView = (v: 'chat' | 'settings') => setParams(v === 'settings' ? { view: 'settings' } : {}, { replace: true })
-  const user = useAuth((s) => s.user)!
   const offline = useAuth((s) => s.offline || s.unreachable)
   const runtimes = useRuntimes()
-  const chat = useAgentChat()
-  useEffect(() => chat.load(user.id), [user.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  const conversations = useConversations()
+  const activeId = useAgentChat((s) => s.activeId)
+  const live = useAgentChat((s) => s.live)
 
   // A pairing that never connected (command never run) counts as not set up.
   const paired = (runtimes.data ?? []).filter((r) => !r.revoked_at && r.last_seen_at)
   const ready = paired.find((r) => r.online && r.agents.length > 0)
   const agent = ready?.agents[0]
+  const saved = (conversations.data ?? []).find((c) => c.id === activeId)
+  const hasChat = !!activeId && !!(live[activeId] || saved)
 
   return (
     <>
@@ -56,36 +62,119 @@ export function AgentPage() {
           </span>
         }
         actions={
-          <>
-            {view === 'chat' && chat.turns.length > 0 && (
-              <button className="btn-secondary" onClick={() => chat.newChat()}><Icon name="plus" size={13} /> New chat</button>
-            )}
-            <button className="btn-secondary" onClick={() => setView(view === 'settings' ? 'chat' : 'settings')}>
-              <Icon name={view === 'settings' ? 'sparkle' : 'settings'} size={13} /> {view === 'settings' ? 'Back to chat' : 'Settings'}
-            </button>
-          </>
+          <button className="btn-secondary" onClick={() => setView(view === 'settings' ? 'chat' : 'settings')}>
+            <Icon name={view === 'settings' ? 'sparkle' : 'settings'} size={13} /> {view === 'settings' ? 'Back to chat' : 'Settings'}
+          </button>
         }
       />
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         {view === 'settings' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 28px' }}><div style={COLUMN}><AgentSettings /></div></div>
-        ) : offline ? (
-          <Centered>Landed's server can't be reached right now, so your agent can't either. Try again in a moment.</Centered>
-        ) : runtimes.isLoading ? (
-          <Centered>Loading…</Centered>
-        ) : ready && agent ? (
-          <Chat runtime={ready} agentId={agent.id} agentLabel={agent.label} />
         ) : (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 28px' }}>
-            <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {/* Questions don't need an agent — ask them in every state. */}
-              <PanelQuestions />
-              {paired.length > 0 ? <Offline runtime={paired[0]} /> : <Setup />}
+          <>
+            <ConversationList conversations={conversations.data ?? []} loading={conversations.isLoading} />
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+              {offline ? (
+                <Centered>Landed's server can't be reached right now, so your agent can't either. Try again in a moment.</Centered>
+              ) : runtimes.isLoading ? (
+                <Centered>Loading…</Centered>
+              ) : ready && agent ? (
+                <Chat runtime={ready} agentId={agent.id} agentLabel={agent.label} saved={saved} />
+              ) : hasChat ? (
+                // Past chats stay readable while the computer is away.
+                <Chat runtime={null} agentId="" agentLabel="your agent" saved={saved} />
+              ) : (
+                <div style={{ flex: 1, overflowY: 'auto', padding: '16px 28px' }}>
+                  <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {/* Questions don't need an agent — ask them in every state. */}
+                    <PanelQuestions />
+                    {paired.length > 0 ? <Offline runtime={paired[0]} /> : <Setup />}
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          </>
         )}
       </div>
     </>
+  )
+}
+
+// ── chat history ──────────────────────────────────────────────────────────
+
+const DAY = 86_400_000
+function groupOf(iso: string): string {
+  const startOfToday = new Date(new Date().toDateString()).getTime()
+  const t = Date.parse(iso)
+  if (t >= startOfToday) return 'Today'
+  if (t >= startOfToday - DAY) return 'Yesterday'
+  if (t >= startOfToday - 7 * DAY) return 'Previous 7 days'
+  if (t >= startOfToday - 30 * DAY) return 'Previous 30 days'
+  return 'Older'
+}
+
+function ConversationList({ conversations, loading }: { conversations: DbConversation[]; loading: boolean }) {
+  const activeId = useAgentChat((s) => s.activeId)
+  const live = useAgentChat((s) => s.live)
+  const open = useAgentChat((s) => s.open)
+  const newChat = useAgentChat((s) => s.newChat)
+  const groups = useMemo(() => {
+    const out: { label: string; items: DbConversation[] }[] = []
+    for (const c of conversations) {
+      const label = groupOf(c.updated_at)
+      const g = out.find((x) => x.label === label)
+      if (g) g.items.push(c)
+      else out.push({ label, items: [c] })
+    }
+    return out
+  }, [conversations])
+
+  return (
+    <aside aria-label="Chats" style={{ width: 250, flexShrink: 0, borderRight: '0.5px solid var(--border)', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{ padding: 10 }}>
+        <button type="button" className={activeId ? 'btn-secondary' : 'btn-primary'} onClick={newChat} style={{ width: '100%', justifyContent: 'center' }}>
+          <Icon name="plus" size={13} /> New chat
+        </button>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 10px' }}>
+        {loading && <div style={{ fontSize: 12, color: 'var(--fg-muted)', padding: 8 }}>Loading…</div>}
+        {!loading && conversations.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--fg-muted)', padding: '8px 6px', lineHeight: 1.5 }}>Your chats will show up here.</div>
+        )}
+        {groups.map((g) => (
+          <div key={g.label} style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '8px 8px 4px' }}>{g.label}</div>
+            {g.items.map((c) => (
+              <ConversationItem key={c.id} conv={c} active={c.id === activeId}
+                replying={!!live[c.id]?.turns.some((t) => t.pending)}
+                title={live[c.id]?.title ?? c.title} onOpen={() => open(c)} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </aside>
+  )
+}
+
+function ConversationItem({ conv, active, replying, title, onOpen }: {
+  conv: DbConversation; active: boolean; replying: boolean; title: string; onOpen: () => void
+}) {
+  return (
+    <div role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => { if (e.key === 'Enter') onOpen() }}
+      className="sidebar-item conversation-item" title={`${title} · ${formatRelative(conv.updated_at)}`}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6, padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5,
+        background: active ? 'var(--surface)' : 'transparent', border: `0.5px solid ${active ? 'var(--border)' : 'transparent'}`,
+        color: active ? 'var(--fg)' : 'var(--fg-muted)', fontWeight: active ? 500 : 400,
+      }}>
+      {replying && <span title="Replying…" style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--accent)', flexShrink: 0, animation: 'pulse 1.6s ease-in-out infinite' }} />}
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+      <button type="button" className="icon-btn conversation-delete" title="Delete chat" aria-label="Delete chat"
+        onClick={(e) => { e.stopPropagation(); if (confirm(`Delete “${title}”?`)) void deleteConversation(conv.id) }}
+        style={{ background: 'transparent', border: 'none', color: 'var(--fg-muted)', cursor: 'pointer', padding: 2, display: 'flex', flexShrink: 0 }}>
+        <Icon name="x" size={11} />
+      </button>
+    </div>
   )
 }
 
@@ -144,8 +233,18 @@ function Offline({ runtime }: { runtime: Runtime }) {
   )
 }
 
-function Chat({ runtime, agentId, agentLabel }: { runtime: Runtime; agentId: string; agentLabel: string }) {
-  const { turns, send } = useAgentChat()
+function Chat({ runtime, agentId, agentLabel, saved }: {
+  /** null: the computer is away — the chat is read-only */
+  runtime: Runtime | null
+  agentId: string
+  agentLabel: string
+  saved: DbConversation | undefined
+}) {
+  const activeId = useAgentChat((s) => s.activeId)
+  const live = useAgentChat((s) => (s.activeId ? s.live[s.activeId] : undefined))
+  const send = useAgentChat((s) => s.send)
+  const turns: Turn[] = live?.turns ?? saved?.turns ?? []
+  const title = live?.title ?? saved?.title
   const [draft, setDraft] = useState('')
   const busy = turns.some((t) => t.pending)
   const scroller = useRef<HTMLDivElement>(null)
@@ -158,12 +257,12 @@ function Chat({ runtime, agentId, agentLabel }: { runtime: Runtime; agentId: str
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight })
-  }, [turns.length, last?.text])
+  }, [activeId, turns.length, last?.text])
 
   const submit = (text = draft) => {
-    if (!text.trim() || busy) return
+    if (!text.trim() || busy || !runtime) return
     setDraft('')
-    void send(runtime.id, agentId, text)
+    void send(runtime.id, agentId, text, saved)
   }
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter is a new line; never send mid-IME composition (Chinese/Japanese input).
@@ -177,61 +276,68 @@ function Chat({ runtime, agentId, agentLabel }: { runtime: Runtime; agentId: str
     <>
       <div style={{ padding: '12px 28px 0' }}>
         <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {saved && title && (
+            <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <EditableText label="chat title" value={title} onSave={(t) => t && void renameConversation(saved, t)} />
+              </span>
+            </div>
+          )}
           <SearchStatus />
           <EmailStatus />
         </div>
       </div>
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto', padding: '14px 28px' }}>
-       <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {turns.length === 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-            <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-              You're talking to {agentLabel} on {runtime.name}. Start with what you're looking for — it'll ask what it needs.
-            </div>
-            {SUGGESTIONS.map((s) => (
-              <button key={s} type="button" onClick={() => submit(s)} className="btn-secondary"
-                style={{ justifyContent: 'flex-start', textAlign: 'left', whiteSpace: 'normal', lineHeight: 1.4 }}>
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-        {turns.map((t, i) => (
-          <div key={i} style={{
-            alignSelf: t.role === 'user' ? 'flex-end' : 'stretch', maxWidth: t.role === 'user' ? '85%' : '100%',
-            padding: t.role === 'user' ? '8px 12px' : '2px 0', borderRadius: 10, fontSize: 13,
-            background: t.role === 'user' ? 'var(--surface-3)' : 'transparent',
-            color: t.error ? 'oklch(0.45 0.15 30)' : 'var(--fg)', whiteSpace: t.role === 'user' ? 'pre-wrap' : undefined,
-          }}>
-            {t.tools?.length ? (
-              <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Icon name="search" size={10} /> {[...new Set(t.tools)].map((n) => (n === 'WebSearch' ? 'searched the web' : n === 'WebFetch' ? 'read a page' : n)).join(' · ')}
+        <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {turns.length === 0 && runtime && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+              <div style={{ fontSize: 13, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
+                You're talking to {agentLabel} on {runtime.name}. Start with what you're looking for — it'll ask what it needs.
               </div>
-            ) : null}
-            {t.role === 'agent' && !t.error ? <AgentReply text={t.text} latest={i === latestBrief} /> : t.text}
-          </div>
-        ))}
-        <PanelQuestions />
-       </div>
+              {SUGGESTIONS.map((s) => (
+                <button key={s} type="button" onClick={() => submit(s)} className="btn-secondary"
+                  style={{ justifyContent: 'flex-start', textAlign: 'left', whiteSpace: 'normal', lineHeight: 1.4 }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          {turns.map((t, i) => (
+            <div key={i} style={{
+              alignSelf: t.role === 'user' ? 'flex-end' : 'stretch', maxWidth: t.role === 'user' ? '85%' : '100%',
+              padding: t.role === 'user' ? '8px 12px' : '2px 0', borderRadius: 10, fontSize: 13,
+              background: t.role === 'user' ? 'var(--surface-3)' : 'transparent',
+              color: t.error ? 'oklch(0.45 0.15 30)' : 'var(--fg)', whiteSpace: t.role === 'user' ? 'pre-wrap' : undefined,
+            }}>
+              {t.tools?.length ? (
+                <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="search" size={10} /> {[...new Set(t.tools)].map((n) => (n === 'WebSearch' ? 'searched the web' : n === 'WebFetch' ? 'read a page' : n)).join(' · ')}
+                </div>
+              ) : null}
+              {t.role === 'agent' && !t.error ? <AgentReply text={t.text} pending={!!t.pending} latest={i === latestBrief} /> : t.text}
+            </div>
+          ))}
+          <PanelQuestions />
+        </div>
       </div>
       <div style={{ padding: '10px 28px 16px', borderTop: '0.5px solid var(--border)' }}>
-       <div style={{ ...COLUMN, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-        <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} rows={2}
-          placeholder={`Message ${agentLabel}…`}
-          style={{ flex: 1, resize: 'none', padding: '9px 12px', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.5, maxHeight: 180, borderRadius: 10 }} />
-        <button type="button" className="btn-primary" onClick={() => submit()} disabled={busy || !draft.trim()}
-          style={{ opacity: busy || !draft.trim() ? 0.6 : 1 }}>
-          {busy ? '…' : 'Send'}
-        </button>
-       </div>
+        <div style={{ ...COLUMN, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} rows={2} disabled={!runtime}
+            placeholder={runtime ? `Message ${agentLabel}…` : 'Your computer is offline — start the Landed daemon to continue this chat'}
+            style={{ flex: 1, resize: 'none', padding: '9px 12px', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.5, maxHeight: 180, borderRadius: 10 }} />
+          <button type="button" className="btn-primary" onClick={() => submit()} disabled={busy || !draft.trim() || !runtime}
+            style={{ opacity: busy || !draft.trim() || !runtime ? 0.6 : 1 }}>
+            {busy ? '…' : 'Send'}
+          </button>
+        </div>
       </div>
     </>
   )
 }
 
 /** An agent reply: Markdown, with a proposed search brief shown as a card. */
-function AgentReply({ text, latest }: { text: string; latest: boolean }) {
-  if (!text) return <span style={{ color: 'var(--fg-muted)' }}>Thinking…</span>
+function AgentReply({ text, latest, pending }: { text: string; latest: boolean; pending: boolean }) {
+  if (!text) return <span style={{ color: 'var(--fg-muted)' }}>{pending ? 'Thinking…' : '(no reply)'}</span>
   const reply = extractBrief(text)
   return (
     <>

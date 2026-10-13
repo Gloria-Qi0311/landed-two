@@ -8,6 +8,7 @@ import { useJobLeads, useLeadActions, useObservationProcessor, useRecordApplyCli
 import { usePanelQuestions } from './components/panel-questions';
 import { usePortalRunner } from './hooks/portal';
 import { useResumeTaskRunner } from './hooks/resumes';
+import { useAgentChatRunner } from './hooks/conversations';
 import { useSearchRunner } from './hooks/search';
 import { useEmailWatcher } from './hooks/email';
 import { AgentPage } from './components/agent-page';
@@ -116,6 +117,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useEmailWatcher();
   usePortalRunner();
   useResumeTaskRunner();
+  useAgentChatRunner();
   // Badges: updates waiting on Applications; Landed's questions on the Agent page.
   const sidebarCounts = { applications: usePendingUpdateCount(), agent: usePanelQuestions().count };
   const recordApplyClick = useRecordApplyClick();

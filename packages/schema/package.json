@@ -12,7 +12,8 @@
     "./email-check": "./src/email-check.ts",
     "./portal-check": "./src/portal-check.ts",
     "./pipeline": "./src/pipeline.ts",
-    "./master-resume": "./src/master-resume.ts"
+    "./master-resume": "./src/master-resume.ts",
+    "./conversation": "./src/conversation.ts"
   },
   "scripts": {
     "build": "echo 'no build \u2014 consumed as source via workspace alias'",
