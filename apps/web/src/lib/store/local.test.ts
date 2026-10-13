@@ -205,6 +205,8 @@ describe('pipeline: one interview stage with rounds', () => {
     expect(moved.interviews).toEqual([{ round: 4, format: 'remote', interviewers: ['peer', 'leader'], at: null, note: null }])
     expect((await store.updateApplication(fresh2.id, { stage: 'onsite' as never })).stage).toBe('interview')
     await expect(store.updateApplication(fresh2.id, { stage: 'hired' as never })).rejects.toThrow(/stage/)
+    const edited = await store.updateApplication(fresh2.id, { portal_application_url: 'https://jobs.lever.co/acme/1', notes: 'Recruiter: Sam' })
+    expect(edited).toMatchObject({ portal_application_url: 'https://jobs.lever.co/acme/1', notes: 'Recruiter: Sam' })
     await expect(store.updateApplication(fresh2.id, { interviews: 'lots' as never })).rejects.toThrow(/interviews/)
   })
 

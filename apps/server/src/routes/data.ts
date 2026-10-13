@@ -21,7 +21,7 @@ const APPLICATION_FIELDS = [
 ] as const
 const APPLICATION_PATCH_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'notes', 'starred', 'interviews',
+  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url',
 ] as const
 const COMPANY_FIELDS = ['name', 'hue', 'logo_chars', 'sector', 'loc', 'portal_url'] as const
 

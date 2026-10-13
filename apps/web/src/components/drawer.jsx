@@ -3,6 +3,8 @@ import React, { useEffect } from 'react';
 import { CompanyMark, Icon, PortalDot, stageColors } from './primitives';
 import { STAGES, STAGE_LABELS, PORTAL_STATUS, columnOf } from '../data';
 import { InterviewRounds } from './interview-rounds';
+import { EditableText } from './editable';
+import { useNavigate } from 'react-router-dom';
 
 // "Open in portal" target — per spec.md §6:
 // portal_application_url > company.portal_url > generic Google search fallback.
@@ -13,7 +15,11 @@ function buildPortalUrl(app, company) {
   return `https://www.google.com/search?q=${q}`;
 }
 
+const label = { fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 };
+const REMOTES = ['Remote', 'Hybrid', 'On-site'];
+
 export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpenPosting }) => {
+  const navigate = useNavigate();
   // Esc to close. Listener lives on document so it works even if focus is
   // outside the drawer (e.g. user just dragged a card from below and the
   // pointer is still over the main view).
@@ -60,9 +66,13 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
       </div>
 
       <div style={{ padding: '18px 20px', flex: 1, overflowY: 'auto' }}>
-        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.01em', marginBottom: 4 }}>{app.role}</div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.01em', marginBottom: 4 }}>
+          <EditableText label="role" value={app.role} placeholder="Role"
+            onSave={(role) => role && onUpdate(app.id, { role })} />
+        </div>
         <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginBottom: 14 }}>
-          {app.team} · ID: <span style={{ fontFamily: 'var(--font-mono)' }}>{app.jobId}</span>
+          <EditableText label="team" value={app.team} placeholder="Add team" onSave={(team) => onUpdate(app.id, { team: team || null })} />
+          {app.jobId && <> · ID: <span style={{ fontFamily: 'var(--font-mono)' }}>{app.jobId}</span></>}
         </div>
 
         {/* stage selector */}
@@ -133,47 +143,68 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
           )}
         </div>
 
-        {/* Meta grid */}
+        {/* Details — click any value to edit */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
-          {[
-            { label: 'Comp', value: app.salary },
-            { label: 'Location', value: app.location },
-            { label: 'Remote', value: app.remote },
-            { label: 'Source', value: app.source },
-            { label: 'Applied', value: app.appliedDays === 0 ? 'Draft' : `${app.appliedDays} days ago` },
-            { label: 'Referral', value: app.referral ? 'Yes' : 'No' },
-          ].map(({ label, value }) => (
-            <div key={label}>
-              <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{label}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--fg)' }}>{value}</div>
+          <div>
+            <div style={label}>Comp</div>
+            <div style={{ fontSize: 12.5 }}><EditableText label="compensation" value={app.salary === '—' ? '' : app.salary} placeholder="Add" onSave={(salary) => onUpdate(app.id, { salary: salary || null })} /></div>
+          </div>
+          <div>
+            <div style={label}>Location</div>
+            <div style={{ fontSize: 12.5 }}><EditableText label="location" value={app.location} placeholder="Add" onSave={(location) => onUpdate(app.id, { location: location || null })} /></div>
+          </div>
+          <div>
+            <div style={label}>Remote</div>
+            <select aria-label="Remote" value={app.remote || 'Hybrid'} onChange={(e) => onUpdate(app.id, { remote: e.target.value })}
+              style={{ fontSize: 12.5, fontFamily: 'inherit', padding: '1px 4px', border: '0.5px solid var(--border)', borderRadius: 5, background: 'var(--surface)', color: 'var(--fg)' }}>
+              {REMOTES.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={label}>Source</div>
+            <div style={{ fontSize: 12.5 }}><EditableText label="source" value={app.source} placeholder="Add" onSave={(source) => onUpdate(app.id, { source: source || null })} /></div>
+          </div>
+          <div>
+            <div style={label}>Applied</div>
+            <div style={{ fontSize: 12.5 }}>{app.stage === 'saved' ? 'Not yet' : app.appliedDays === 0 ? 'Today' : `${app.appliedDays} days ago`}</div>
+          </div>
+          <div>
+            <div style={label}>Referral</div>
+            <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!app.referral} onChange={(e) => onUpdate(app.id, { referral: e.target.checked })} />
+              {app.referral ? 'Yes' : 'No'}
+            </label>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <div style={label}>Job link</div>
+            <div style={{ fontSize: 12.5, wordBreak: 'break-all' }}>
+              <EditableText label="job link" value={app.portal_application_url} placeholder="Paste the posting or portal link"
+                onSave={(url) => onUpdate(app.id, { portal_application_url: url || null })} />
             </div>
-          ))}
+          </div>
         </div>
 
         {/* Next step */}
-        {app.nextStep && app.nextStep !== '—' && (
-          <div style={{
-            background: col.bg, border: `0.5px solid ${col.ring}`, borderRadius: 8,
-            padding: 12, marginBottom: 18,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: col.fg, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
-              <Icon name="calendar" size={11} /> Next step
-            </div>
-            <div style={{ fontSize: 13, color: col.fg, fontWeight: 500 }}>{app.nextStep}</div>
+        <div style={{
+          background: app.nextStep && app.nextStep !== '—' ? col.bg : 'var(--surface-2)',
+          border: `0.5px solid ${app.nextStep && app.nextStep !== '—' ? col.ring : 'var(--border)'}`, borderRadius: 8,
+          padding: 12, marginBottom: 18,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: col.fg, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+            <Icon name="calendar" size={11} /> Next step
           </div>
-        )}
+          <div style={{ fontSize: 13, color: col.fg, fontWeight: 500 }}>
+            <EditableText label="next step" value={app.nextStep === '—' ? '' : app.nextStep} placeholder="e.g. Final round · Apr 23"
+              onSave={(next_step) => onUpdate(app.id, { next_step: next_step || null })} />
+          </div>
+        </div>
 
         {/* Notes */}
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Notes</div>
-          <div style={{
-            fontSize: 12.5, color: app.notes ? 'var(--fg)' : 'var(--fg-muted)',
-            padding: 10, background: 'var(--surface-2)', borderRadius: 6,
-            border: '0.5px solid var(--border)', minHeight: 36,
-            fontStyle: app.notes ? 'normal' : 'italic',
-            lineHeight: 1.5,
-          }}>
-            {app.notes || 'Add notes about this application…'}
+          <div style={{ fontSize: 12.5, padding: 10, background: 'var(--surface-2)', borderRadius: 6, border: '0.5px solid var(--border)', minHeight: 36, lineHeight: 1.5 }}>
+            <EditableText label="notes" multiline value={app.notes} placeholder="Add notes about this application…  (⌘/Ctrl+Enter to save)"
+              onSave={(notes) => onUpdate(app.id, { notes: notes || null })} />
           </div>
         </div>
 
@@ -204,7 +235,8 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
         >
           <Icon name="external" size={13} /> Open in portal
         </a>
-        <button className="btn-secondary">
+        <button className="btn-secondary" title="Write a resume version for this application from your master resume"
+          onClick={() => navigate(`/resumes?tailor=${app.id}`)}>
           <Icon name="wand" size={13} /> Tailor resume
         </button>
         <button className="btn-secondary icon-only" title="More">

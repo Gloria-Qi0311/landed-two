@@ -87,8 +87,10 @@ export function useUpdateApplication() {
     onMutate: async ({ id, patch }) => {
       await qc.cancelQueries({ queryKey: key })
       const previous = qc.getQueryData<any[]>(key)
+      // The card shape names next_step `nextStep`.
+      const shaped = patch.next_step !== undefined ? { ...patch, nextStep: patch.next_step ?? '' } : patch
       qc.setQueryData<any[]>(key, (old) =>
-        (old ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a)),
+        (old ?? []).map((a) => (a.id === id ? { ...a, ...shaped } : a)),
       )
       return { previous }
     },

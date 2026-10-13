@@ -14,6 +14,7 @@
 // gets the loop's pace + keeps this PR reviewable. "Replace from JSON"
 // (re-paste the whole thing) is the v1 mutation path.
 import React, { useState, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   generatePrompt,
   launchAI,
@@ -21,10 +22,11 @@ import {
   PROVIDERS,
   type Provider,
 } from '@landed/ai-roundtrip'
-import { ResumeSchema, safeNormalize, isResumeFilled, type Resume } from '@landed/schema'
+import { ResumeSchema, emptyResume, safeNormalize, isResumeFilled, type Resume } from '@landed/schema'
 import { masterStats } from '@landed/schema/master-resume'
 import { PageHeader } from './shell'
 import { MasterPane, NewVersionPane, UploadPane, VersionNotes } from './my-resume'
+import { ResumeEditor } from './resume-editor'
 import { Icon } from './primitives'
 import {
   useResumes,
@@ -37,6 +39,9 @@ import {
 } from '../hooks/resumes'
 
 export function ResumesPage() {
+  // ?tailor=<application id> (from an application's "Tailor resume")
+  const [params, setParams] = useSearchParams()
+  const tailorFor = params.get('tailor')
   const resumesQuery = useResumes()
   const addResume = useAddResume()
   const deleteResume = useDeleteResume()
@@ -46,7 +51,7 @@ export function ResumesPage() {
 
   const resumes = resumesQuery.data ?? []
   // 'master' | 'new-version' | 'new' (upload) | a resume id
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(tailorFor ? 'new-version' : null)
 
   // Default: the current resume, else the master, else the first upload.
   const effectiveActiveId = useMemo(() => {
@@ -99,7 +104,11 @@ export function ResumesPage() {
           {effectiveActiveId === 'master' ? (
             <MasterPane onUpload={() => setActiveId('new')} />
           ) : effectiveActiveId === 'new-version' ? (
-            <NewVersionPane onCreated={setActiveId} onOpenMaster={() => setActiveId('master')} />
+            <NewVersionPane
+              prefillApplicationId={tailorFor}
+              onCreated={(id) => { setActiveId(id); if (tailorFor) setParams({}, { replace: true }) }}
+              onOpenMaster={() => setActiveId('master')}
+            />
           ) : effectiveActiveId === 'new' || activeResume === null ? (
             <UploadPane
               onOpenMaster={() => setActiveId('master')}
@@ -553,13 +562,14 @@ function ResumeView({
         </div>
       )}
 
-      {!filled && parsed && (
+      {!filled && (
         <div style={{ fontSize: 12, color: 'var(--fg-muted)', padding: 12, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 8 }}>
-          This resume has no content yet. Use <strong>Replace from JSON</strong> to paste the AI's reply.
+          This resume is empty. Click any field below to fill it in.
         </div>
       )}
 
-      {parsed && filled && <ResumeSummary resume={parsed} />}
+      {/* Click any text to edit it; saved as you go. */}
+      <ResumeEditor resume={parsed ?? emptyResume()} onChange={(next) => void onReplace(next)} />
     </div>
   )
 }

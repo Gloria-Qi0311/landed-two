@@ -1011,6 +1011,11 @@ describe('pipeline: one interview stage with rounds', () => {
     assert.deepEqual(tagged.body.interviews, [{ round: 4, format: 'remote', interviewers: ['leader', 'hr'], at: null, note: null }])
     assert.equal((await call('PATCH', `/api/applications/${plain.body.id}`, { token: owner, body: { interviews: 'many' } })).status, 400)
     assert.equal((await call('PATCH', `/api/applications/${plain.body.id}`, { token: owner, body: { stage: 'onsite' } })).body.stage, 'interview')
+    const edited = await call('PATCH', `/api/applications/${plain.body.id}`, { token: owner, body: {
+      role: 'Associate PM', notes: 'Recruiter: Sam', next_step: 'Final round · Oct 20', portal_application_url: 'https://jobs.lever.co/acme/1',
+    } })
+    assert.deepEqual([edited.body.role, edited.body.notes, edited.body.next_step, edited.body.portal_application_url],
+      ['Associate PM', 'Recruiter: Sam', 'Final round · Oct 20', 'https://jobs.lever.co/acme/1'], 'every detail is editable')
 
     // 0011 moved rows written before the interview stage existed
     const [old] = await sql`insert into applications (user_id, company_id, role, stage) values (${phone.body.user_id}, ${phone.body.company_id}, 'Legacy', 'onsite') returning id`
