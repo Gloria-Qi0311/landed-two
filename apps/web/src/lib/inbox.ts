@@ -13,7 +13,7 @@ import type { EmailFinding } from '@landed/schema/email-check'
 import type { PortalResult } from '@landed/schema/portal-check'
 import { describeFoundJob, type FoundJob } from '@landed/schema/search-brief'
 import type { ReportedApplication } from '@landed/schema/reported-application'
-import { orderRounds } from '@landed/schema/pipeline'
+import { orderRounds, sortRounds } from '@landed/schema/pipeline'
 import type { DataStore, DbApplication, DbJobLead, DbSuggestion } from './store/types'
 
 const strip = <T extends { user_id: string }>({ user_id: _, ...rest }: T) => rest
@@ -651,7 +651,7 @@ export async function addReportedApplication(store: DataStore, r: ReportedApplic
 export async function repairRoundOrder(store: DataStore): Promise<number> {
   let fixed = 0
   for (const a of await store.listApplications()) {
-    const ordered = orderRounds(a.interviews ?? [])
+    const ordered = sortRounds(orderRounds(a.interviews ?? []))
     if (JSON.stringify(ordered) === JSON.stringify(a.interviews ?? [])) continue
     await store.updateApplication(a.id, { interviews: ordered })
     fixed++

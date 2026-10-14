@@ -275,6 +275,26 @@ test('upgrading a browser database from v4 moves phone/onsite to interview round
 })
 
 describe('upgrades', () => {
+  test('v10: a round added by hand after v9 is numbered with the others, by time', async () => {
+    const name = `landed-upgrade-${++n}`
+    const old = new Dexie(name)
+    old.version(9).stores({
+      companies: 'id, name', applications: 'id, company_id, last_activity_at', resumes: 'id, created_at',
+      portal_connections: 'id, [company_id+provider]', portal_events: 'id, created_at', ai_runs: 'id', meta: 'key',
+      agent_observations: 'id, created_at, &[connection_id+idempotency_key], processing_status',
+      job_leads: 'id, &fingerprint, status, last_seen_at', status_suggestions: 'id, &dedupe_key, state, created_at',
+      job_searches: 'id, status, created_at', agent_conversations: 'id, updated_at',
+    })
+    const round = (n: number, at: string) => ({ round: n, format: 'remote', interviewers: [], at, note: null })
+    await old.table('applications').add({
+      id: 'a1', company_id: 'c1', role: 'PM', stage: 'interview', last_activity_at: '2026-10-14T00:00:00Z', created_at: '2026-10-01T00:00:00Z',
+      interviews: [round(2, '2026-09-28T20:00:00.000Z'), round(3, '2026-10-08T20:00:00.000Z'), round(4, '2026-10-18T20:00:00.000Z'), round(3, '2026-09-21T19:00:00.000Z')],
+    })
+    old.close()
+    const [app] = await createLocalStore(name).listApplications()
+    expect(app.interviews.map((r) => [r.round, r.at!.slice(5, 10)])).toEqual([[1, '09-21'], [2, '09-28'], [3, '10-08'], [4, '10-18']])
+  })
+
   test('v9: rounds an out-of-order email check numbered backwards are put in time order', async () => {
     const name = `landed-upgrade-${++n}`
     // A database as v8 left it.

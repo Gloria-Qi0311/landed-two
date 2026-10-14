@@ -78,15 +78,32 @@ export function roundLabel(r: InterviewRound): string {
 }
 
 /** Rounds numbered in time order. When every round has a time (the usual
- *  case when they came from emails), they're numbered by it from `start`
- *  (default: the lowest number already used); otherwise left as they are.
- *  Emails don't arrive in order — a re-read goes newest first — so "the next
- *  number" would number them backwards. */
+ *  case when they came from emails), the numbers follow the times: with a
+ *  `start`, renumbered from it; without one, kept when they already rise
+ *  with time (rounds 2, 3, 4 — round 1 just wasn't recorded), else
+ *  renumbered from 1. Otherwise left as they are. Emails don't arrive in
+ *  order — a re-read goes newest first — so "the next number" would number
+ *  them backwards. */
 export function orderRounds(rounds: InterviewRound[], start?: number): InterviewRound[] {
   if (rounds.length < 2 || !rounds.every((r) => r.at && !Number.isNaN(Date.parse(r.at)))) return rounds
-  const from = Math.max(1, start ?? Math.min(...rounds.map((r) => r.round ?? 1)))
-  return [...rounds].sort((a, b) => Date.parse(a.at!) - Date.parse(b.at!)).map((r, i) => ({ ...r, round: from + i }))
+  const byTime = [...rounds].sort((a, b) => Date.parse(a.at!) - Date.parse(b.at!))
+  if (start === undefined && byTime.every((r, i) => r.round !== null && (i === 0 || r.round > (byTime[i - 1].round ?? 0)))) return byTime
+  const from = Math.max(1, start ?? 1)
+  return byTime.map((r, i) => ({ ...r, round: from + i }))
 }
+
+const roundTime = (r: InterviewRound) => (r.at ? Date.parse(r.at) : Infinity)
+const roundNumber = (r: InterviewRound) => r.round ?? Infinity
+
+/** The order to list rounds in: by number, then by time (no number / no time last). */
+export function compareRounds(a: InterviewRound, b: InterviewRound): number {
+  const n = roundNumber(a) - roundNumber(b)
+  if (n) return Number.isNaN(n) ? 0 : n
+  const t = roundTime(a) - roundTime(b)
+  return Number.isNaN(t) ? 0 : t
+}
+
+export const sortRounds = (rounds: InterviewRound[]) => [...rounds].sort(compareRounds)
 
 /** The round to show on a card: the highest-numbered, else the last added. */
 export function latestRound(rounds: InterviewRound[] | null | undefined): InterviewRound | null {

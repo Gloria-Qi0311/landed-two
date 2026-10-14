@@ -2,8 +2,11 @@
 // onsite or remote, and who interviewed you — tag any mix of peer,
 // teammate, leader, HR. The next round (or the latest) shows on the
 // Interview card. Times also arrive on their own from interview emails.
-// Shape + validation: packages/schema/src/pipeline.ts.
-import { INTERVIEWER_LABEL, INTERVIEWERS, type InterviewRound, type Interviewer } from '@landed/schema/pipeline'
+// Listed by round; when every round has a time, the numbers follow the
+// times (orderRounds) — set or change a time and they renumber; a number
+// typed by hand stays. Shape + validation: packages/schema/src/pipeline.ts.
+import { useEffect } from 'react'
+import { compareRounds, INTERVIEWER_LABEL, INTERVIEWERS, orderRounds, sortRounds, type InterviewRound, type Interviewer } from '@landed/schema/pipeline'
 import { Icon } from './primitives'
 
 const chip = (on: boolean) => ({
@@ -18,7 +21,18 @@ export function InterviewRounds({ rounds, onChange }: {
   rounds: InterviewRound[]
   onChange: (next: InterviewRound[]) => void
 }) {
-  const set = (i: number, patch: Partial<InterviewRound>) => onChange(rounds.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const set = (i: number, patch: Partial<InterviewRound>) => {
+    const next = rounds.map((r, j) => (j === i ? { ...r, ...patch } : r))
+    // A new or changed time puts the numbers in time order; a typed number stays.
+    onChange(sortRounds('at' in patch ? orderRounds(next) : next))
+  }
+  // Numbers that disagree with the times (left by an older email check):
+  // put them right once, when the application is opened.
+  const ordered = sortRounds(orderRounds(rounds))
+  const off = ordered.some((r, i) => r.round !== rounds[i]?.round || r.at !== rounds[i]?.at)
+  useEffect(() => {
+    if (off && rounds.every((r) => r.at)) onChange(ordered)
+  }, [off]) // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = (i: number, who: Interviewer) => {
     const has = rounds[i].interviewers.includes(who)
     // keep the canonical order so labels read the same everywhere
@@ -31,7 +45,7 @@ export function InterviewRounds({ rounds, onChange }: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {rounds.map((r, i) => (
+      {rounds.map((r, i) => [r, i] as const).sort(([a], [b]) => compareRounds(a, b)).map(([r, i]) => (
         <div key={i} style={{ border: '0.5px solid var(--border)', borderRadius: 8, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 7, background: 'var(--surface-2)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <label style={{ fontSize: 11.5, color: 'var(--fg-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>

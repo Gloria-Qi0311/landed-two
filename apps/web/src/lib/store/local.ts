@@ -8,7 +8,7 @@
 import Dexie, { type Table } from 'dexie'
 import { parseConversation } from '@landed/schema/conversation'
 import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
-import { normalizeStage, orderRounds, parseDeadline, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
+import { normalizeStage, orderRounds, parseDeadline, parseInterviews, sortRounds, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import { companyKey, titleKey } from '@landed/observation-processor'
 import {
@@ -138,6 +138,13 @@ class LandedDB extends Dexie {
     this.version(9).stores({}).upgrade(async (tx) => {
       await tx.table('applications').toCollection().modify((a: DbApplication) => {
         if (Array.isArray(a.interviews)) a.interviews = orderRounds(a.interviews)
+      })
+    })
+    // v10: again with the final rule — numbers that disagree with the times
+    // restart from 1 (v9 kept the lowest number), listed by round.
+    this.version(10).stores({}).upgrade(async (tx) => {
+      await tx.table('applications').toCollection().modify((a: DbApplication) => {
+        if (Array.isArray(a.interviews)) a.interviews = sortRounds(orderRounds(a.interviews))
       })
     })
   }
