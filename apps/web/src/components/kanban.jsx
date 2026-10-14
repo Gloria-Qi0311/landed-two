@@ -58,7 +58,7 @@ function CardContent({ app, comp, c, isDuplicate, onSetDeadline }) {
       {app.stage === 'saved' && onSetDeadline && <DeadlineChip compact deadline={app.deadline} onSave={(d) => onSetDeadline(app.id, d)} />}
       {isDuplicate && (
         <div
-          title="Same company + role exists on another application — possible duplicate from a second portal."
+          title="Looks like another application here (same company, same role or link). Merge them on the Agent page."
           style={{
             fontSize: 10, color: 'oklch(0.42 0.12 60)',
             background: 'oklch(0.97 0.04 60)',
@@ -274,10 +274,9 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
   const pipelineStages = STAGES;
   const getCompany = (id) => companies.find(c => c.id === id);
 
-  // Group apps by (companyId, normalized role) — same key on 2+ apps means
-  // the user has applied for the same role at the same company via two
-  // different portals. We surface a "Possible duplicate" badge per spec.md §8 #1.
-  const duplicateIds = useMemo(() => findDuplicateAppIds(apps), [apps]);
+  // Applications that look like the same one (lib/duplicates.ts): badged
+  // here, merged from the Agent page.
+  const duplicateIds = useMemo(() => findDuplicateAppIds(apps, companies), [apps, companies]);
 
   const handleDragEnd = ({ active, over }) => {
     setActiveId(null);

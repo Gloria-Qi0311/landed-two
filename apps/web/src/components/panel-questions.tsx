@@ -4,7 +4,9 @@
 //   - "No news for 3+ weeks" for applications in progress: mark ghosted,
 //     keep waiting, or have your agent look at their candidate portals in
 //     Chrome now — read-only (the Automation page can also do this on a
-//     schedule).
+//     schedule);
+//   - "These look like the same application": merge, or keep both
+//     (components/duplicates.tsx).
 // Each closes itself when an email, a portal check or a manual move answers
 // it (settleQuestions in lib/inbox.ts).
 import { useMemo, type ReactNode } from 'react'
@@ -17,6 +19,7 @@ import { useJobLeads, useSuggestionActions, useSuggestions } from '../hooks/inbo
 import { useApplications, useCompanies } from '../hooks/queries'
 import { browserAgent, portalTarget } from '../hooks/portal'
 import { useRuntimes } from '../hooks/runtimes'
+import { DuplicatesReview, useDuplicates } from './duplicates'
 
 type AppShape = {
   id: string; companyId: string; role: string; stage: string; location: string
@@ -33,8 +36,9 @@ export function usePanelQuestions() {
   const leads = useJobLeads().data
   const apps = useApplications().data as AppShape[] | undefined
   const companies = useCompanies().data as CompanyShape[] | undefined
+  const dups = useDuplicates().data?.length ?? 0
   return useMemo(() => {
-    if (!suggestions || !leads || !apps || !companies) return { click: [], quiet: [], count: 0 }
+    if (!suggestions || !leads || !apps || !companies) return { click: [], quiet: [], dups, count: dups }
     const refs = apps.map((a) => ({
       id: a.id, company_id: a.companyId, role: a.role, stage: a.stage, location: a.location || null,
       portal_application_url: a.portal_application_url,
@@ -45,9 +49,9 @@ export function usePanelQuestions() {
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
     const click = open.filter(isClickQuestion)
     const quiet = open.filter(isQuietQuestion).sort((a, b) => quietDays(b) - quietDays(a))
-    // The quiet ones are asked as one group.
-    return { click, quiet, count: click.length + (quiet.length ? 1 : 0) }
-  }, [suggestions, leads, apps, companies])
+    // The quiet ones are asked as one group; each duplicate group is one question.
+    return { click, quiet, dups, count: click.length + (quiet.length ? 1 : 0) + dups }
+  }, [suggestions, leads, apps, companies, dups])
 }
 
 function Asks({ children }: { children: ReactNode }) {
@@ -64,14 +68,15 @@ const cardStyle = {
 } as const
 
 export function PanelQuestions() {
-  const { click, quiet } = usePanelQuestions()
+  const { click, quiet, dups } = usePanelQuestions()
   const check = usePortalCheck((s) => s.check)
   const recentCheck = check && (check.status === 'running' || Date.now() - Date.parse(check.started_at) < 3_600_000)
-  if (click.length === 0 && quiet.length === 0 && !recentCheck) return null
+  if (click.length === 0 && quiet.length === 0 && !recentCheck && dups === 0) return null
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {click.slice(0, 5).map((q) => <ClickQuestion key={q.id} q={q} />)}
       {quiet.length > 0 ? <QuietQuestions quiet={quiet} /> : recentCheck && <div style={cardStyle}><PortalStatus check={check} /></div>}
+      {dups > 0 && <DuplicatesReview limit={3} />}
     </div>
   )
 }
