@@ -14,6 +14,7 @@
 # turn off sleep on the Mac mini. The public address (Cloudflare Tunnel or
 # Tailscale Funnel) is set up separately: deploy/mac-mini/tunnel.sh.
 set -euo pipefail
+export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
 LOGS="$HOME/Library/Logs/Landed"
@@ -29,9 +30,10 @@ command -v brew >/dev/null || { echo "Homebrew is missing — install it from ht
 step() { printf '\n== %s\n' "$1"; }
 
 step "packages"
-for formula in postgresql@17 node pnpm; do
-  brew list --formula "$formula" >/dev/null 2>&1 || brew install "$formula"
-done
+brew list --formula postgresql@17 >/dev/null 2>&1 || brew install postgresql@17
+# Node and pnpm may already be here some other way (e.g. pnpm through npm).
+command -v node >/dev/null || brew install node
+command -v pnpm >/dev/null || brew install pnpm
 PG="$(brew --prefix postgresql@17)/bin"
 export PATH="$PG:$PATH"
 brew services list | grep -q '^postgresql@17 *started' || brew services start postgresql@17
