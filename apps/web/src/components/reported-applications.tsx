@@ -77,7 +77,12 @@ export function ReportedApplicationsCard({ applications }: { applications: Repor
                 <div style={muted}>
                   {[r.applied_on && `applied ${r.applied_on}`, r.location, r.note].filter(Boolean).join(' · ')}
                   {m?.kind === 'lead' && <>{r.applied_on || r.location || r.note ? ' · ' : ''}in your Leads — adding moves it into the pipeline</>}
-                  {m?.kind === 'existing' && <>{r.applied_on || r.location || r.note ? ' · ' : ''}already in Applications as <StagePill stage={m.app.stage} /></>}
+                  {m?.kind === 'existing' && (
+                    <>
+                      {r.applied_on || r.location || r.note ? ' · ' : ''}already in Applications
+                      {m.app.role !== r.role || m.company !== r.company ? <> as “{m.company} — {m.app.role}”</> : null}, <StagePill stage={m.app.stage} />
+                    </>
+                  )}
                 </div>
               </div>
               {done ? (

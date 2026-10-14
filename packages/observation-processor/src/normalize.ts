@@ -4,7 +4,19 @@
 const LEGAL_SUFFIXES = new Set([
   'inc', 'incorporated', 'llc', 'ltd', 'limited', 'corp', 'corporation', 'co', 'company',
   'gmbh', 'plc', 'ag', 'sa', 'bv', 'pte', 'pty', 'srl', 'oy', 'ab', 'kk',
+  '股份有限公司', '有限责任公司', '有限公司', '公司', '集团', '株式会社',
 ])
+// …and the same written onto the name: 蚂蚁集团 → 蚂蚁, 某某有限公司 → 某某.
+const CJK_COMPANY_SUFFIX = /(股份有限公司|有限责任公司|有限公司|集团|公司|株式会社)$/
+
+// Chinese, Japanese and Korean are written without spaces between words, so
+// a run of them is one "word" here, and titles compare them by character
+// pairs (产品经理 → 产品 品经 经理). Everything else that's a letter or a
+// digit, in any script, is kept — an earlier version kept only a–z/0–9, so
+// every Chinese company name became "" and they all matched each other.
+const CJK = '\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}'
+const CJK_CHAR = new RegExp(`[${CJK}]`, 'u')
+const SCRIPT_RUNS = new RegExp(`[${CJK}]+|[^${CJK}]+`, 'gu')
 
 // Hand-maintained to start; user merges can feed it later.
 const COMPANY_ALIASES: Record<string, string> = {
@@ -22,14 +34,23 @@ const COMPANY_ALIASES: Record<string, string> = {
 
 function words(s: string): string[] {
   return s
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '') // strip accents
+    .normalize('NFKD') // also turns full-width （ＡＢ） into (AB)
+    .replace(/[\u0300-\u036f]/g, '') // strip accents
+    .normalize('NFC') // put Hangul syllables back together
     .toLowerCase()
     .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
     .split(/\s+/)
     .filter(Boolean)
+    .flatMap((w) => w.match(SCRIPT_RUNS) ?? []) // "ai产品经理" → "ai", "产品经理"
+}
+
+/** 产品经理 → 产品 品经 经理 (a single character stays as it is). */
+function pairs(run: string): string[] {
+  const chars = [...run]
+  if (chars.length < 2) return chars
+  return chars.slice(1).map((c, i) => chars[i] + c)
 }
 
 /** "The Acme Corp., Inc." → "acme" */
@@ -38,6 +59,11 @@ export function companyKey(name: string | null | undefined): string {
   const w = words(name)
   if (w[0] === 'the' && w.length > 1) w.shift()
   while (w.length > 1 && LEGAL_SUFFIXES.has(w[w.length - 1])) w.pop()
+  const last = w[w.length - 1]
+  if (last && CJK_CHAR.test(last)) {
+    const stripped = last.replace(CJK_COMPANY_SUFFIX, '')
+    if ([...stripped].length >= 2) w[w.length - 1] = stripped
+  }
   const key = w.join(' ')
   return COMPANY_ALIASES[key] ?? key
 }
@@ -58,12 +84,20 @@ const TITLE_EXPANSIONS: Record<string, string[]> = {
   ai: ['ai'],
 }
 
+type TitleOptions = {
+  /** keep what's in brackets: for telling apart rows of the same list
+   *  (产品管培生（上海） vs 产品管培生（广东省）), not for matching an email */
+  keepBrackets?: boolean
+}
+
 /** Title words with abbreviations expanded and bracketed noise (locations,
- *  req ids) removed. Seniority words are kept: Senior PM ≠ PM. */
-export function titleWords(title: string | null | undefined): string[] {
+ *  req ids) removed. Seniority words are kept: Senior PM ≠ PM. CJK runs
+ *  become character pairs. */
+export function titleWords(title: string | null | undefined, opts: TitleOptions = {}): string[] {
   if (!title) return []
-  const cleaned = title.replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
-  return words(cleaned).flatMap((w) => TITLE_EXPANSIONS[w] ?? [w])
+  const t = title.normalize('NFKC')
+  const cleaned = opts.keepBrackets ? t : t.replace(/\([^)]*\)|\[[^\]]*\]|【[^】]*】|〔[^〕]*〕/g, ' ')
+  return words(cleaned).flatMap((w) => (CJK_CHAR.test(w) ? pairs(w) : TITLE_EXPANSIONS[w] ?? [w]))
 }
 
 export function titleKey(title: string | null | undefined): string {
@@ -71,9 +105,9 @@ export function titleKey(title: string | null | undefined): string {
 }
 
 /** Jaccard similarity of normalized title words (0..1). */
-export function titleSimilarity(a: string | null | undefined, b: string | null | undefined): number {
-  const A = new Set(titleWords(a))
-  const B = new Set(titleWords(b))
+export function titleSimilarity(a: string | null | undefined, b: string | null | undefined, opts: TitleOptions = {}): number {
+  const A = new Set(titleWords(a, opts))
+  const B = new Set(titleWords(b, opts))
   if (A.size === 0 || B.size === 0) return 0
   let inter = 0
   for (const w of A) if (B.has(w)) inter++

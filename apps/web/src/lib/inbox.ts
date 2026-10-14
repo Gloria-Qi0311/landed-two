@@ -580,10 +580,14 @@ export const canUndo = (s: DbSuggestion) =>
 export type ReportedMatch =
   | { kind: 'new' }
   | { kind: 'lead'; lead: DbJobLead }
-  | { kind: 'existing'; app: DbApplication; forward: boolean }
+  | { kind: 'existing'; app: DbApplication; company: string; forward: boolean }
 
 const REPORTED_ORDER = ['saved', 'applied', 'oa', 'interview', 'offer']
-const MIN_ROLE_SIMILARITY = 0.6
+// Rows of one screenshot are often the same title in different places or
+// tracks (产品管培生（上海） / （广东省）): compare whole titles, brackets
+// included, and only call it the same when it's nearly identical.
+const MIN_ROLE_SIMILARITY = 0.8
+const sameRole = (a: string, b: string) => titleSimilarity(a, b, { keepBrackets: true }) >= MIN_ROLE_SIMILARITY
 
 /** Would moving `current` to what the screenshot shows be news? */
 export function isForward(current: string, shown: string): boolean {
@@ -603,10 +607,14 @@ export function matchReported(
   const ids = new Set(companies.filter((c) => companyKey(c.name) === key).map((c) => c.id))
   const ats = atsJobKey(r.job_url)
   const url = canonicalUrl(r.job_url)
+  if (!key) return { kind: 'new' }
   const app = apps.find((a) => ids.has(a.company_id) && (
-    (ats && atsJobKey(a.portal_application_url) === ats) || (url && canonicalUrl(a.portal_application_url) === url) || titleSimilarity(a.role, r.role) >= MIN_ROLE_SIMILARITY))
-  if (app) return { kind: 'existing', app, forward: isForward(app.stage, r.stage) }
-  const lead = leads.find((l) => l.status === 'new' && l.company_key === key && ((ats && l.ats_key === ats) || titleSimilarity(l.title, r.role) >= MIN_ROLE_SIMILARITY))
+    (ats && atsJobKey(a.portal_application_url) === ats) || (url && canonicalUrl(a.portal_application_url) === url) || sameRole(a.role, r.role)))
+  if (app) {
+    const company = companies.find((c) => c.id === app.company_id)?.name ?? r.company
+    return { kind: 'existing', app, company, forward: isForward(app.stage, r.stage) }
+  }
+  const lead = leads.find((l) => l.status === 'new' && companyKey(l.company_name) === key && ((ats && l.ats_key === ats) || sameRole(l.title, r.role)))
   return lead ? { kind: 'lead', lead } : { kind: 'new' }
 }
 

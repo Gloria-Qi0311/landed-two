@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { applyToContext, processObservation, type Context, type Effect, type Observation } from '../src'
+import { applyToContext, matchApplication, processObservation, type Context, type Effect, type Observation } from '../src'
 
 const NOW = '2026-10-10T12:00:00.000Z'
 let seq = 0
@@ -329,5 +329,21 @@ describe('other types', () => {
     expect(processObservation(job({ message: 'Gmail auth expired' }, { observation_type: 'sync_error' }), ctx(), opts))
       .toMatchObject({ status: 'processed', effects: [] })
     expect(processObservation(job({}, { observation_type: 'vibes' }), ctx(), opts).status).toBe('rejected')
+  })
+})
+
+describe('Chinese company names', () => {
+  test("an email from one company never matches another company's application", () => {
+    const ctx = {
+      leads: [], suggestions: [], settings: { autoApply: true },
+      companies: [{ id: 'c-tx', name: '腾讯' }, { id: 'c-mt', name: '美团' }, { id: 'c-ant', name: '蚂蚁集团' }],
+      applications: [
+        { id: 'a-mt', company_id: 'c-mt', role: 'AI产品经理岗', stage: 'oa', location: null, portal_application_url: null },
+        { id: 'a-ant', company_id: 'c-ant', role: 'AI产品工程师', stage: 'applied', location: null, portal_application_url: null },
+      ],
+    }
+    expect(matchApplication(ctx, '腾讯', 'AI产品经理', null)).toEqual({ kind: 'unmatched' })
+    expect(matchApplication(ctx, '美团', 'AI产品经理', null)).toMatchObject({ kind: 'matched', app: { id: 'a-mt' } })
+    expect(matchApplication(ctx, '蚂蚁集团', 'AI产品工程师', null)).toMatchObject({ kind: 'matched', app: { id: 'a-ant' } })
   })
 })

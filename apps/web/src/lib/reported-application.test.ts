@@ -68,6 +68,20 @@ describe('adding them', () => {
     expect(await store.listApplications()).toHaveLength(1) // adding twice doesn't duplicate
   })
 
+  test("Chinese names: another company is another application; one list's rows stay apart", async () => {
+    const store = fresh()
+    await store.addApplication({ name: '美团' }, { role: 'AI产品经理岗', stage: 'oa' })
+    const tx = r({ company: '腾讯', role: 'AI产品经理' })
+    const [apps, companies] = await Promise.all([store.listApplications(), store.listCompanies()])
+    expect(matchReported(tx, apps, companies, [])).toEqual({ kind: 'new' }) // used to say "already in Applications"
+    expect(matchReported(r({ company: '美团', role: 'AI产品经理岗' }), apps, companies, [])).toMatchObject({ kind: 'existing', company: '美团' })
+
+    // "Add all": 产品管培生（上海） and （广东省） are two applications.
+    await addReportedApplication(store, r({ company: '拼多多', role: '产品管培生（上海）' }))
+    await addReportedApplication(store, r({ company: '拼多多', role: '产品管培生（广东省）' }))
+    expect((await store.listApplications()).map((a) => a.role).sort()).toEqual(['AI产品经理岗', '产品管培生（上海）', '产品管培生（广东省）'])
+  })
+
   test('already there at an earlier stage → moved along, not duplicated', async () => {
     const store = fresh()
     await store.addApplication({ name: 'Blorp Inc' }, { role: 'Backend Engineer, Payments', stage: 'saved' })

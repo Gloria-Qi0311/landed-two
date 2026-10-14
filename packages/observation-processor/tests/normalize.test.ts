@@ -10,7 +10,17 @@ describe('companyKey', () => {
     ['Alphabet', 'google'],
     ['Société Générale', 'societe generale'],
     ['Co', 'co'],
+    ['腾讯', '腾讯'],
+    ['蚂蚁集团', '蚂蚁'],
+    ['腾讯科技（深圳）有限公司', '腾讯科技 深圳'],
+    ['카카오', '카카오'],
   ])('%s → %s', (input, key) => expect(companyKey(input)).toBe(key))
+
+  test('names in any script stay distinct (they used to all become "")', () => {
+    const keys = ['腾讯', '美团', '小红书', '拼多多', '百度', '蚂蚁集团'].map(companyKey)
+    expect(new Set(keys).size).toBe(6)
+    expect(keys.every(Boolean)).toBe(true)
+  })
 })
 
 describe('titles', () => {
@@ -18,6 +28,14 @@ describe('titles', () => {
     expect(titleKey('Sr. SWE (Remote) [R-1234]')).toBe('senior software engineer')
     expect(titleKey('PM, AI Platform')).toBe('product manager ai platform')
     expect(titleKey('Senior PM')).not.toBe(titleKey('PM'))
+  })
+  test('Chinese titles: character pairs, brackets dropped unless asked to keep them', () => {
+    expect(titleKey('AI产品经理')).toBe('ai 产品 品经 经理')
+    expect(titleKey('【2027校招】产品管培生（上海）')).toBe('产品 品管 管培 培生')
+    expect(titleSimilarity('AI产品经理', 'AI产品工程师')).toBeLessThan(0.6)
+    expect(titleSimilarity('AI产品经理', 'AI产品经理岗')).toBeCloseTo(0.8)
+    expect(titleSimilarity('产品管培生（上海）', '产品管培生（广东省）')).toBe(1)
+    expect(titleSimilarity('产品管培生（上海）', '产品管培生（广东省）', { keepBrackets: true })).toBeLessThan(0.6)
   })
   test('similarity', () => {
     expect(titleSimilarity('Senior Product Manager', 'Sr PM')).toBe(1)

@@ -10,6 +10,7 @@ import { parseConversation } from '@landed/schema/conversation'
 import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { normalizeStage, parseDeadline, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
+import { companyKey, titleKey } from '@landed/observation-processor'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
   type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
@@ -123,6 +124,14 @@ class LandedDB extends Dexie {
     // v7: Agent chat history.
     this.version(7).stores({
       agent_conversations: 'id, updated_at',
+    })
+    // v8: company and title keys keep non-Latin names — they used to come
+    // out empty, so every Chinese company's leads matched each other.
+    this.version(8).stores({}).upgrade(async (tx) => {
+      await tx.table('job_leads').toCollection().modify((l: DbJobLead) => {
+        l.company_key = companyKey(l.company_name)
+        l.title_key = titleKey(l.title)
+      })
     })
   }
 }
