@@ -6,10 +6,14 @@
 #       Cloudflare Tunnel on your own domain (the domain's DNS must be on
 #       Cloudflare). The first time, `cloudflared tunnel login` prints a link:
 #       open it in any browser, pick the domain, approve.
+#   tunnel.sh private
+#       The same Tailscale address, but only for your own devices (Tailscale
+#       Serve). Use it first: sign up while nobody else can reach the
+#       server, since sign-up is open to the first account only.
 #   tunnel.sh funnel
-#       Tailscale Funnel: https://<this-mac>.<tailnet>.ts.net, no domain
-#       needed. The first time, Tailscale may print a link to allow Funnel
-#       for your tailnet.
+#       Tailscale Funnel: https://<this-mac>.<tailnet>.ts.net, public, no
+#       domain needed. The first time, Tailscale may print a link to allow
+#       Funnel for your tailnet.
 #
 # Then set PUBLIC_URL to that address (deploy.sh does it on the next deploy:
 # PUBLIC_URL=https://… deploy/mac-mini/deploy.sh).
@@ -59,13 +63,18 @@ PLIST
     launchctl bootstrap "gui/$(id -u)" "$AGENTS/dev.landed.tunnel.plist"
     echo "Tunnel up: https://$HOSTNAME → http://127.0.0.1:8787 (logs: $LOGS/dev.landed.tunnel.log)"
     ;;
+  private)
+    TS="$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
+    "$TS" serve --bg 8787
+    "$TS" serve status
+    ;;
   funnel)
     TS="$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
     "$TS" funnel --bg 8787
     "$TS" funnel status
     ;;
   *)
-    echo "usage: tunnel.sh cloudflare <hostname> | tunnel.sh funnel" >&2
+    echo "usage: tunnel.sh private | tunnel.sh funnel | tunnel.sh cloudflare <hostname>" >&2
     exit 1
     ;;
 esac
