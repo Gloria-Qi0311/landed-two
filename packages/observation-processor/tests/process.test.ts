@@ -347,3 +347,23 @@ describe('Chinese company names', () => {
     expect(matchApplication(ctx, '蚂蚁集团', 'AI产品工程师', null)).toMatchObject({ kind: 'matched', app: { id: 'a-ant' } })
   })
 })
+
+describe('interview rounds from emails read out of order', () => {
+  test('numbered by when they are, not by which email came first', () => {
+    const invite = (id: string, at: string) => status({ status: 'interview', company: 'Ramp', confidence: 0.95, evidence: gmail(id), interview_at: at, interview_format: 'remote' })
+    // A 30-day re-read reports the newest email first.
+    const { ctx: c } = run([
+      invite('r3', '2026-10-18T20:00:00Z'), invite('r2', '2026-10-08T20:00:00Z'), invite('r1', '2026-09-28T20:00:00Z'),
+    ], ctx({ companies, applications: [app('a-ramp', 'co-ramp', 'Product Manager', 'oa')] }))
+    const rounds = c.applications[0].interviews!.map((r) => [r.round, r.at!.slice(0, 10)])
+    expect(rounds).toEqual([[1, '2026-09-28'], [2, '2026-10-08'], [3, '2026-10-18']])
+  })
+
+  test('rounds the user typed without a time are left alone', () => {
+    const typed = { round: 2, format: 'onsite' as const, interviewers: [], at: null, note: 'final' }
+    const { ctx: c } = run([
+      status({ status: 'interview', company: 'Ramp', confidence: 0.95, evidence: gmail('x1'), interview_at: '2026-10-20T20:00:00Z' }),
+    ], ctx({ companies, applications: [{ ...app('a-ramp', 'co-ramp', 'Product Manager', 'interview'), interviews: [typed] }] }))
+    expect(c.applications[0].interviews!.map((r) => r.round)).toEqual([2, 3])
+  })
+})

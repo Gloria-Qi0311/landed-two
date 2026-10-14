@@ -3,7 +3,7 @@
 // the effects to whichever store the account uses. Re-processing the same
 // observation against a context that already contains its effects yields no
 // new effects (idempotent). Rules: docs/observation-processor.md.
-import { parseDeadline, type InterviewRound } from '@landed/schema/pipeline'
+import { orderRounds, parseDeadline, type InterviewRound } from '@landed/schema/pipeline'
 import { atsJobKey, canonicalUrl, companyKey, locationsCompatible, titleKey, titleSimilarity } from './normalize'
 import type {
   ApplicationRef, Context, Effect, EmailStatus, Evidence, JobLead, Observation, Outcome,
@@ -184,11 +184,18 @@ function scheduledRound(p: Record<string, unknown>): { at: string; format: Inter
   return { at: new Date(Date.parse(at)).toISOString(), format: p.interview_format === 'onsite' || p.interview_format === 'remote' ? p.interview_format : null }
 }
 
-/** The rounds with this scheduled interview added — null if it's already there. */
+/** The rounds with this scheduled interview added — null if it's already
+ *  there. Numbered by time, not by arrival (orderRounds): an earlier
+ *  interview read later still comes first. */
 function withRound(rounds: InterviewRound[], s: { at: string; format: InterviewRound['format'] }): InterviewRound[] | null {
   if (rounds.some((r) => r.at && Math.abs(Date.parse(r.at) - Date.parse(s.at)) < 60_000)) return null
   const next = Math.max(0, ...rounds.map((r) => r.round ?? 0)) + 1
-  return [...rounds, { round: next, format: s.format, interviewers: [], at: s.at, note: null }]
+  const added = [...rounds, { round: next, format: s.format, interviewers: [], at: s.at, note: null }]
+  if (!rounds.length) return added
+  // Start where the existing ones start, one earlier if this one comes first.
+  const first = Math.min(...rounds.map((r) => r.round ?? 1))
+  const before = rounds.every((r) => r.at && Date.parse(r.at) > Date.parse(s.at)) ? 1 : 0
+  return orderRounds(added, first - before)
 }
 
 function processStatus(o: Observation, ctx: Context, opts: ProcessOptions): Outcome {

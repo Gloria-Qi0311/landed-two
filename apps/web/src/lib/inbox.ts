@@ -13,6 +13,7 @@ import type { EmailFinding } from '@landed/schema/email-check'
 import type { PortalResult } from '@landed/schema/portal-check'
 import { describeFoundJob, type FoundJob } from '@landed/schema/search-brief'
 import type { ReportedApplication } from '@landed/schema/reported-application'
+import { orderRounds } from '@landed/schema/pipeline'
 import type { DataStore, DbApplication, DbJobLead, DbSuggestion } from './store/types'
 
 const strip = <T extends { user_id: string }>({ user_id: _, ...rest }: T) => rest
@@ -149,7 +150,11 @@ export async function ingestEmailFindings(
   let ctx = await loadContext(store, settings)
   const result: EmailIngestResult = { found: findings.length, updated: 0, added: 0, needs_input: 0, notes: 0, unchanged: 0 }
   const observedAt = new Date().toISOString()
-  for (const [i, f] of findings.entries()) {
+  // Oldest email first, the order things happened in (agents often report
+  // newest first): application → assessment → interview rounds.
+  const received = (f: EmailFinding) => Date.parse(f.evidence.received_at ?? '') || Infinity
+  const ordered = [...findings].sort((a, b) => received(a) - received(b))
+  for (const [i, f] of ordered.entries()) {
     // Agents sometimes omit the id; this keeps re-reads of the same email deduped.
     const fallback = [f.evidence.sender_domain, f.evidence.subject, f.evidence.received_at].filter(Boolean).join('|')
     const evidence = { ...f.evidence, source: source.mail.toLowerCase(), ...(f.evidence.message_id || !fallback ? {} : { message_id: fallback }) }
@@ -639,4 +644,17 @@ export async function addReportedApplication(store: DataStore, r: ReportedApplic
   }
   await settleQuestions(store) // e.g. a "did you apply?" for it
   return app
+}
+
+/** Cloud accounts (the browser upgrade fixes local ones, Dexie v9): rounds
+ *  numbered backwards by an out-of-order email check, put in time order. */
+export async function repairRoundOrder(store: DataStore): Promise<number> {
+  let fixed = 0
+  for (const a of await store.listApplications()) {
+    const ordered = orderRounds(a.interviews ?? [])
+    if (JSON.stringify(ordered) === JSON.stringify(a.interviews ?? [])) continue
+    await store.updateApplication(a.id, { interviews: ordered })
+    fixed++
+  }
+  return fixed
 }

@@ -77,6 +77,17 @@ export function roundLabel(r: InterviewRound): string {
   ].filter(Boolean).join(' · ') || 'Interview'
 }
 
+/** Rounds numbered in time order. When every round has a time (the usual
+ *  case when they came from emails), they're numbered by it from `start`
+ *  (default: the lowest number already used); otherwise left as they are.
+ *  Emails don't arrive in order — a re-read goes newest first — so "the next
+ *  number" would number them backwards. */
+export function orderRounds(rounds: InterviewRound[], start?: number): InterviewRound[] {
+  if (rounds.length < 2 || !rounds.every((r) => r.at && !Number.isNaN(Date.parse(r.at)))) return rounds
+  const from = Math.max(1, start ?? Math.min(...rounds.map((r) => r.round ?? 1)))
+  return [...rounds].sort((a, b) => Date.parse(a.at!) - Date.parse(b.at!)).map((r, i) => ({ ...r, round: from + i }))
+}
+
 /** The round to show on a card: the highest-numbered, else the last added. */
 export function latestRound(rounds: InterviewRound[] | null | undefined): InterviewRound | null {
   if (!rounds?.length) return null

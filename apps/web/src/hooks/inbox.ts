@@ -8,7 +8,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import {
   acceptSuggestion, addLeadToPipeline, dismissLead, flagQuietApplications, processPending, recordApplyClick, rejectSuggestion,
-  restoreLead, settleQuestions, undoSuggestion, type ClickTarget,
+  repairRoundOrder, restoreLead, settleQuestions, undoSuggestion, type ClickTarget,
 } from '../lib/inbox'
 import { useStore, type DbJobLead, type DbSuggestion } from '../lib/store'
 import type { Stage } from '@landed/observation-processor'
@@ -55,6 +55,8 @@ export function useSetAutoApply() {
 }
 
 /** Process new agent reports in the background while Landed is open. */
+let roundsRepaired = false
+
 export function useObservationProcessor() {
   const qc = useQueryClient()
   const { store, ready } = useStore()
@@ -68,6 +70,11 @@ export function useObservationProcessor() {
       if (running) return
       running = true
       try {
+        // Once per session for Cloud accounts (local ones: Dexie v9).
+        if (store.kind === 'cloud' && !roundsRepaired) {
+          roundsRepaired = true
+          if (await repairRoundOrder(store)) qc.invalidateQueries({ queryKey: ['applications'] })
+        }
         const handled = await processPending(store, { autoApply })
         // Panel questions an email or a manual move already answered.
         let changed = handled + (await settleQuestions(store))
