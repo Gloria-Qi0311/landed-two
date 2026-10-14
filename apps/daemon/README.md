@@ -26,9 +26,11 @@ Build the app with `pnpm --filter @landed/daemon build:mac`. That writes `dist/L
 
 ### Apply Assist
 
-Landed for Mac also carries the matching Chrome extension and registers its Native Messaging host. Open the app once, then load `~/.landed/extension` from `chrome://extensions` (Developer mode → **Load unpacked**). A future Chrome Web Store build can replace this one explicit step.
+Landed for Mac is a native menu-bar app. Open it and use the briefcase icon to choose up to five application pages, select a resume, and start a fill without opening an extension panel. It also carries the matching lightweight browser bridge and registers its Native Messaging host.
 
-When the side panel fills selected application tabs, known fields use deterministic extension rules. Unknown labels are sent directly to local Ollama through the native host; they never pass through the Landed server. The local model may only choose an existing resume key, and the daemon supplies that key's original value after validation. The extension outlines filled fields green and fields needing review yellow. It never clicks the final submit button.
+Each Chromium browser/profile needs the bridge once: load `~/.landed/extension` from its extensions page (Developer mode → **Load unpacked**). The menu app has a **Bridge folder** button for this step. Chrome, Brave, Edge, and Chromium can all connect to the same menu app; a future Safari App Extension and store builds can reuse the same local bridge protocol.
+
+When the menu app fills selected pages, known fields use deterministic extension rules. Unknown labels are sent directly to local Ollama through the native host; they never pass through the Landed server. The local model may only choose an existing resume key, and the daemon supplies that key's original value after validation. The bridge outlines filled fields green and fields needing review yellow. It never clicks the final submit button.
 
 The preferred model is `qwen3.5:4b`; set `LANDED_OLLAMA_MODEL` in the native-host environment to override it. If that model is absent, Landed tries `qwen3.5:9b`, another local Qwen model, then the first installed Ollama model. Without Ollama, deterministic filling still works and unknown fields remain for review.
 

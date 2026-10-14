@@ -31,7 +31,7 @@ import {
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 import { runNativeHost } from './native-host.ts'
 
-const VERSION = '0.8.0'
+const VERSION = '0.9.0'
 const MAX_PARALLEL = 2
 
 const describe = (agents: AgentInfo[]) =>
@@ -233,8 +233,8 @@ async function main() {
     }
     const { plist, nativeHosts, extension } = installService()
     log(`background service installed (${plist}); it starts at login and restarts if it stops`)
-    log(`Apply Assist installed for ${nativeHosts.length} Chromium browsers`)
-    if (extension) log(`Chrome extension ready at ${extension}`)
+    log(`Apply Assist bridge registered for ${nativeHosts.length} Chromium browsers`)
+    if (extension) log(`browser bridge ready at ${extension}`)
     notify(loadConfig() ? 'Landed is running in the background.' : 'Landed is installed. In Landed, click "Connect this computer".')
     return
   }

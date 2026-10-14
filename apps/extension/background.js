@@ -17,7 +17,7 @@
 // chrome.runtime.onStartup re-arms on browser restart in case the
 // onInstalled handler never ran.
 
-importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js', 'lib/bridge-handler.js')
+importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js', 'lib/bridge-handler.js', 'lib/apply-assist-bridge.js')
 
 // Every read-modify-write of the pending-event queue (ingest, Cloud push,
 // web-bridge take) runs under this lock so none of them clobbers another —
@@ -31,6 +31,11 @@ const PUSH_ALARM = 'landed-portal-push'
 const PUSH_PERIOD_MIN = 1    // drain pending queue every minute when signed in
 const NATIVE_HOST = 'dev.landed.assist'
 let nativeAssistQueue = Promise.resolve()
+const ASSIST_SESSION_KEY = 'landed:apply-assist-session'
+let assistPort = null
+let assistReconnectTimer = null
+let assistPublishTimer = null
+let assistResumes = []
 
 // chrome.storage.local key for #36's expired-login flow. Centralized in
 // lib/portal-sentinels.js since 3+ callers now read/write it (this file,
@@ -234,6 +239,175 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   })
   return true
 })
+
+// ── macOS menu-bar bridge ────────────────────────────────────────────────
+//
+// Landed.app is the control surface. The extension keeps this native port
+// open so the app can list browser pages and request a fill even when the
+// extension side panel is closed. Only tab metadata + resume names cross the
+// bridge; the selected resume contents stay in chrome.storage and are sent
+// directly to the selected page's content script.
+
+function chromeGet(keys) {
+  return new Promise((resolve) => {
+    try { chrome.storage.local.get(keys, (value) => resolve(value || {})) }
+    catch { resolve({}) }
+  })
+}
+
+function chromeSet(value) {
+  return new Promise((resolve) => {
+    try { chrome.storage.local.set(value, resolve) }
+    catch { resolve() }
+  })
+}
+
+function allTabs() {
+  return new Promise((resolve) => {
+    try { chrome.tabs.query({}, (tabs) => resolve(tabs || [])) }
+    catch { resolve([]) }
+  })
+}
+
+async function assistSessionId() {
+  const stored = await chromeGet(ASSIST_SESSION_KEY)
+  if (typeof stored[ASSIST_SESSION_KEY] === 'string') return stored[ASSIST_SESSION_KEY]
+  const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  await chromeSet({ [ASSIST_SESSION_KEY]: id })
+  return id
+}
+
+async function loadAssistResumes() {
+  const cfg = self.LandedConfig
+  const stored = await chromeGet([cfg.LOCAL_RESUMES_KEY, cfg.SESSION_STORAGE_KEY])
+  let resumes = stored[cfg.LOCAL_RESUMES_KEY]?.resumes
+  if (!Array.isArray(resumes) || resumes.length === 0) {
+    const session = stored[cfg.SESSION_STORAGE_KEY]
+    if (session?.token) {
+      try {
+        const response = await fetch(`${cfg.API_URL}/api/resumes`, {
+          headers: { Authorization: `Bearer ${session.token}` },
+        })
+        if (response.ok) resumes = await response.json()
+      } catch {
+        // The Landed page bridge is the offline/local-first fallback.
+      }
+    }
+  }
+  assistResumes = Array.isArray(resumes)
+    ? resumes.filter((resume) => resume && typeof resume.id === 'string' && resume.parsed_json)
+    : []
+  return assistResumes
+}
+
+async function assistSnapshot(type = 'bridge_state') {
+  const mod = self.LandedApplyAssistBridge
+  const [sessionId, tabs, resumes] = await Promise.all([assistSessionId(), allTabs(), loadAssistResumes()])
+  let brave = false
+  try { brave = !!navigator.brave } catch { /* not Brave */ }
+  return {
+    type,
+    session_id: sessionId,
+    browser: mod.browserLabel(navigator.userAgent, brave),
+    tabs: mod.publicTabs(tabs),
+    resumes: mod.publicResumes(resumes),
+  }
+}
+
+async function publishAssistState(type = 'bridge_state') {
+  const port = assistPort
+  if (!port) return
+  try { port.postMessage(await assistSnapshot(type)) } catch { /* reconnect path handles it */ }
+}
+
+function fillTab(tabId, resume) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(tabId, {
+        action: 'fill',
+        resume: resume.parsed_json,
+        aiTakeover: true,
+      }, (response) => {
+        const error = chrome.runtime.lastError
+        if (error || !response) {
+          resolve({ tabId, error: error?.message || 'No response from page' })
+          return
+        }
+        resolve({
+          tabId,
+          filled: Array.isArray(response.filled) ? response.filled.length : 0,
+          review: Array.isArray(response.manual) ? response.manual.length : 0,
+        })
+      })
+    } catch (error) {
+      resolve({ tabId, error: error instanceof Error ? error.message : String(error) })
+    }
+  })
+}
+
+async function runAssistCommand(command) {
+  if (!assistPort || command?.type !== 'assist_fill') return
+  await loadAssistResumes()
+  const resume = assistResumes.find((item) => item.id === command.resume_id)
+  const tabIds = Array.isArray(command.tab_ids)
+    ? [...new Set(command.tab_ids.filter(Number.isInteger))].slice(0, 5)
+    : []
+  let results
+  if (!resume || tabIds.length === 0) {
+    results = tabIds.map((tabId) => ({ tabId, error: resume ? 'No pages selected' : 'Resume is not available in this browser' }))
+  } else {
+    results = await Promise.all(tabIds.map((tabId) => fillTab(tabId, resume)))
+  }
+  const summary = self.LandedApplyAssistBridge.fillSummary(results)
+  try {
+    assistPort.postMessage({
+      type: 'bridge_result',
+      command_id: command.command_id,
+      ...summary,
+    })
+  } catch { /* browser/native host disconnected */ }
+}
+
+function connectAssistBridge() {
+  if (assistPort) return
+  try {
+    const port = chrome.runtime.connectNative(NATIVE_HOST)
+    assistPort = port
+    port.onMessage.addListener((message) => {
+      if (message?.type === 'assist_fill') void runAssistCommand(message)
+    })
+    port.onDisconnect.addListener(() => {
+      void chrome.runtime.lastError
+      if (assistPort === port) assistPort = null
+      if (assistPublishTimer) clearInterval(assistPublishTimer)
+      assistPublishTimer = null
+      if (assistReconnectTimer) clearTimeout(assistReconnectTimer)
+      assistReconnectTimer = setTimeout(connectAssistBridge, 5000)
+    })
+    void publishAssistState('bridge_hello')
+    assistPublishTimer = setInterval(() => void publishAssistState(), 5000)
+  } catch {
+    assistPort = null
+    if (assistReconnectTimer) clearTimeout(assistReconnectTimer)
+    assistReconnectTimer = setTimeout(connectAssistBridge, 5000)
+  }
+}
+
+function scheduleAssistPublish() {
+  if (!assistPort) return connectAssistBridge()
+  setTimeout(() => void publishAssistState(), 100)
+}
+
+for (const event of [chrome.tabs.onCreated, chrome.tabs.onUpdated, chrome.tabs.onRemoved, chrome.tabs.onActivated]) {
+  try { event.addListener(scheduleAssistPublish) } catch { /* older browser */ }
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return
+  if (self.LandedConfig.LOCAL_RESUMES_KEY in changes || self.LandedConfig.SESSION_STORAGE_KEY in changes) scheduleAssistPublish()
+})
+connectAssistBridge()
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || msg.action !== 'portal-event') return

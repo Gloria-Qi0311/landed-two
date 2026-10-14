@@ -3,6 +3,10 @@
 // a typed decision about which existing resume value matches each field.
 // It never receives cookies, clicks buttons, or invents application facts.
 import type { Writable } from 'node:stream'
+import {
+  removeAssistSession, sanitizeSnapshot, takeAssistCommands, writeAssistSession,
+  type AssistResult, type AssistSession,
+} from './assist-bridge.ts'
 
 const HOST = process.env.OLLAMA_HOST?.trim() || 'http://127.0.0.1:11434'
 const OLLAMA_URL = /^https?:\/\//i.test(HOST) ? HOST.replace(/\/+$/, '') : `http://${HOST.replace(/\/+$/, '')}`
@@ -183,11 +187,85 @@ export function encodeNativeMessage(message: unknown): Buffer {
   return Buffer.concat([header, body])
 }
 
+function mergeBridgeSession(previous: AssistSession | null, snapshot: ReturnType<typeof sanitizeSnapshot> & {}, now: string): AssistSession {
+  return {
+    ...snapshot,
+    connected_at: previous?.connected_at ?? now,
+    last_seen: now,
+    ollama_ready: previous?.ollama_ready ?? false,
+    ollama_model: previous?.ollama_model ?? null,
+    last_result: previous?.last_result ?? null,
+  }
+}
+
 export async function runNativeHost(input = process.stdin, output: Writable = process.stdout) {
   const decoder = new NativeMessageDecoder()
-  for await (const chunk of input) {
-    for (const message of decoder.push(Buffer.from(chunk))) {
-      output.write(encodeNativeMessage(await handleNativeMessage(message)))
+  let bridge: AssistSession | null = null
+  let lastTouch = 0
+
+  const send = (message: unknown) => output.write(encodeNativeMessage(message))
+  const pump = setInterval(() => {
+    if (!bridge) return
+    const now = Date.now()
+    if (now - lastTouch >= 2000) {
+      bridge.last_seen = new Date(now).toISOString()
+      writeAssistSession(bridge)
+      lastTouch = now
     }
+    for (const command of takeAssistCommands(bridge.session_id)) send(command)
+  }, 400)
+
+  try {
+    for await (const chunk of input) {
+      for (const message of decoder.push(Buffer.from(chunk))) {
+        const typed = message && typeof message === 'object' ? message as Record<string, unknown> : null
+        if (typed?.type === 'bridge_hello' || typed?.type === 'bridge_state') {
+          const snapshot = sanitizeSnapshot(typed)
+          if (!snapshot || (bridge && bridge.session_id !== snapshot.session_id)) {
+            send({ type: 'bridge_error', error: 'invalid bridge state' })
+            continue
+          }
+          const now = new Date().toISOString()
+          bridge = mergeBridgeSession(bridge, snapshot, now)
+          writeAssistSession(bridge)
+          lastTouch = Date.now()
+          send({ type: 'bridge_ready', session_id: bridge.session_id })
+          if (typed.type === 'bridge_hello') {
+            void handleNativeMessage({ type: 'ping' }).then((status) => {
+              if (!bridge || bridge.session_id !== snapshot.session_id) return
+              bridge.ollama_ready = status.ok === true
+              bridge.ollama_model = typeof status.model === 'string' ? status.model : null
+              bridge.last_seen = new Date().toISOString()
+              writeAssistSession(bridge)
+              send({ type: 'bridge_ai_status', ok: bridge.ollama_ready, model: bridge.ollama_model })
+            })
+          }
+          continue
+        }
+        if (typed?.type === 'bridge_result' && bridge) {
+          const commandId = typeof typed.command_id === 'string' ? typed.command_id.slice(0, 100) : ''
+          if (!commandId) continue
+          const count = (value: unknown) => Number.isSafeInteger(Number(value))
+            ? Math.max(0, Math.min(10_000, Number(value))) : 0
+          const result: AssistResult = {
+            command_id: commandId,
+            completed_at: new Date().toISOString(),
+            filled: count(typed.filled),
+            review: count(typed.review),
+            failed: count(typed.failed),
+            summary: typeof typed.summary === 'string' ? typed.summary.slice(0, 500) : '',
+          }
+          bridge.last_result = result
+          bridge.last_seen = result.completed_at
+          writeAssistSession(bridge)
+          send({ type: 'bridge_result_saved', command_id: commandId })
+          continue
+        }
+        send(await handleNativeMessage(message))
+      }
+    }
+  } finally {
+    clearInterval(pump)
+    if (bridge) removeAssistSession(bridge.session_id)
   }
 }
