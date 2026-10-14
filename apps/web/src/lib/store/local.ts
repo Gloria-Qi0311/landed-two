@@ -250,6 +250,16 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         return row
       })
     },
+    async deleteApplication(id) {
+      await db.transaction('rw', [db.applications, db.portal_events, db.job_leads, db.status_suggestions], async () => {
+        if (!(await db.applications.get(id))) throw new LocalStoreError(404, 'application not found')
+        await db.applications.delete(id)
+        await db.portal_events.filter((e) => e.application_id === id).delete()
+        await db.job_leads.filter((l) => l.application_id === id).modify({ application_id: null })
+        await db.status_suggestions.filter((x) => x.application_id === id && x.state === 'pending').delete()
+        await db.status_suggestions.filter((x) => x.application_id === id).modify({ application_id: null })
+      })
+    },
     async updateApplication(id, patch) {
       return db.transaction('rw', db.applications, async () => {
         const row = await db.applications.get(id)

@@ -102,6 +102,18 @@ export function useUpdateApplication() {
   })
 }
 
+/** Delete an application (and what hangs off it — see DataStore.deleteApplication). */
+export function useDeleteApplication() {
+  const qc = useQueryClient()
+  const { store } = useStore()
+  return useMutation({
+    mutationFn: (id: string) => store.deleteApplication(id),
+    onSuccess: () => {
+      for (const key of ['applications', 'suggestions', 'job_leads', 'portal_events']) qc.invalidateQueries({ queryKey: [key] })
+    },
+  })
+}
+
 // Add an application. If the company doesn't exist for this user, create it
 // first (looks up by name; matches the catalog entry by name if it's a
 // known company so we inherit hue + logo).

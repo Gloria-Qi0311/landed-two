@@ -1,5 +1,5 @@
 // Detail drawer for a single application
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CompanyMark, Icon, PortalDot, stageColors } from './primitives';
 import { STAGES, PORTAL_STATUS, columnOf } from '../data';
 import { InterviewRounds } from './interview-rounds';
@@ -9,7 +9,12 @@ import { DeadlineChip } from './deadline-chip';
 const label = { fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 };
 const REMOTES = ['Remote', 'Hybrid', 'On-site'];
 
-export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpenPosting }) => {
+export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onDelete, onOpenPosting }) => {
+  // Delete asks once, in place: the bar under the header.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+  useEffect(() => { setConfirmDelete(false); setDeleteError(null); }, [appId]);
   // Esc to close. Listener lives on document so it works even if focus is
   // outside the drawer (e.g. user just dragged a card from below and the
   // pointer is still over the main view).
@@ -40,6 +45,14 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{company.name}</div>
           <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{company.sector} · {company.loc}</div>
         </div>
+        {onDelete && (
+          <button onClick={() => setConfirmDelete(true)} title="Delete application" aria-label="Delete application" style={{
+            background: 'transparent', border: 'none', color: 'var(--fg-muted)',
+            cursor: 'pointer', padding: 6, borderRadius: 5, display: 'flex',
+          }} className="icon-btn">
+            <Icon name="trash" size={15} />
+          </button>
+        )}
         <button onClick={onClose} style={{
           background: 'transparent', border: 'none', color: 'var(--fg-muted)',
           cursor: 'pointer', padding: 6, borderRadius: 5, display: 'flex',
@@ -47,6 +60,32 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onOpen
           <Icon name="x" size={16} />
         </button>
       </div>
+      {confirmDelete && (
+        <div role="alertdialog" aria-label="Delete application" style={{
+          padding: '10px 20px', borderBottom: '0.5px solid var(--border)', background: 'oklch(0.97 0.02 30)',
+          display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, lineHeight: 1.45,
+        }}>
+          <span style={{ flex: 1, color: 'oklch(0.42 0.12 30)' }}>
+            {deleteError ?? <>Delete <b>{company.name} — {app.role}</b>? Its rounds, notes and history go with it. This can't be undone.</>}
+          </span>
+          <button className="btn-secondary" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</button>
+          <button className="btn-primary" disabled={deleting}
+            style={{ background: 'oklch(0.5 0.16 30)', borderColor: 'oklch(0.5 0.16 30)' }}
+            onClick={async () => {
+              setDeleting(true);
+              setDeleteError(null);
+              try {
+                await onDelete(app.id);
+              } catch (e) {
+                setDeleteError(`Couldn't delete it: ${e.message}`);
+              } finally {
+                setDeleting(false);
+              }
+            }}>
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      )}
 
       <div style={{ padding: '18px 20px', flex: 1, overflowY: 'auto' }}>
         <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.01em', marginBottom: 4 }}>

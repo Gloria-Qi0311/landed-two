@@ -39,6 +39,33 @@ describe('applications + companies', () => {
     await expect(store.updateApplication('nope', { stage: 'offer' })).rejects.toMatchObject({ status: 404 })
   })
 
+  test('deleteApplication: its events go, pending questions go, leads and history lose the link', async () => {
+    const store = fresh()
+    const a = await store.addApplication({ name: 'Figma' }, { role: 'APM', stage: 'applied' })
+    const b = await store.addApplication({ name: 'Stripe' }, { role: 'PM', stage: 'applied' })
+    await store.addPortalEvents([{ type: 'rejection', application_id: a.id }, { type: 'sync', application_id: b.id }])
+    const base = {
+      kind: 'stage_change' as const, candidate_ids: [], company_name: 'Figma', role: 'APM', status: 'interview', proposed_stage: 'interview',
+      previous_stage: 'applied', confidence: 0.9, evidence: { source: 'gmail' }, observation_ids: [], provider: 'agent',
+    }
+    await store.saveSuggestion({ ...base, id: crypto.randomUUID(), dedupe_key: 'quiet:a', state: 'pending', application_id: a.id, resolved_at: null } as never)
+    await store.saveSuggestion({ ...base, id: crypto.randomUUID(), dedupe_key: 'msg:1', state: 'applied', application_id: a.id, resolved_at: new Date().toISOString() } as never)
+    await store.saveJobLead({
+      id: crypto.randomUUID(), fingerprint: 'url:x', ats_key: null, canonical_url: 'x', company_key: 'figma', title_key: 'apm', company_name: 'Figma',
+      title: 'APM', job_url: null, location: null, description: null, deadline: null, sources: [], status: 'applied', application_id: a.id,
+      first_seen_at: new Date().toISOString(), last_seen_at: new Date().toISOString(),
+    } as never)
+
+    await store.deleteApplication(a.id)
+    expect((await store.listApplications()).map((x) => x.id)).toEqual([b.id])
+    expect((await store.listPortalEvents(10)).map((e) => e.application_id)).toEqual([b.id])
+    const left = await store.listSuggestions()
+    expect(left.map((x) => [x.dedupe_key, x.application_id])).toEqual([['msg:1', null]])
+    const [lead] = await store.listJobLeads()
+    expect([lead.application_id, lead.status]).toEqual([null, 'applied']) // stays out of Leads
+    await expect(store.deleteApplication(a.id)).rejects.toThrow(/not found/)
+  })
+
   test('importDemo maps applications to companies by name', async () => {
     const store = fresh()
     const res = await store.importDemo({

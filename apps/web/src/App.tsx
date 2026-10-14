@@ -19,7 +19,7 @@ import { useAuth } from './lib/auth';
 import {
   useApplications,
   useCompanies,
-  useUpdateApplication,
+  useUpdateApplication, useDeleteApplication,
   useAddApplication,
   useImportDemoData,
 } from './hooks/queries';
@@ -132,6 +132,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   const recordApplyClick = useRecordApplyClick();
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();
+  const deleteApp = useDeleteApplication();
   const addApp = useAddApplication();
   const importDemo = useImportDemoData();
 
@@ -278,6 +279,10 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
           companies={companies}
           onClose={() => setOpenApp(null)}
           onUpdate={(id: string, patch: ApplicationPatch) => updateApp.mutate({ id, patch })}
+          onDelete={async (id: string) => {
+            await deleteApp.mutateAsync(id)
+            setOpenApp(null)
+          }}
           onOpenPosting={(app: { id: string; role: string; stage: string }, company: { name: string }) =>
             recordApplyClick({ kind: 'application', id: app.id, role: app.role, stage: app.stage, company_name: company.name })}
         />

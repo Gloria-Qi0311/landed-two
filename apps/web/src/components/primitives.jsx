@@ -110,6 +110,7 @@ export function Icon({ name, size = 16, stroke = 1.5 }) {
     alert: <><path d="M12 3l10 18H2L12 3z"/><path d="M12 10v5M12 18v0.5"/></>,
     check: <><path d="M5 12l5 5 9-11"/></>,
     x: <><path d="M6 6l12 12M18 6L6 18"/></>,
+    trash: <><path d="M4 7h16M10 3h4M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></>,
     dots: <><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></>,
     inbox: <><path d="M4 13l3-8h10l3 8"/><path d="M4 13v6h16v-6M4 13h5l1 2h4l1-2h5"/></>,
     wand: <><path d="M15 4l5 5L9 20H4v-5L15 4z"/><path d="M14 5l5 5"/></>,

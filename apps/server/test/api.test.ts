@@ -326,6 +326,26 @@ describe('data isolation + CRUD', () => {
     assert.equal(typeof apps.body[0].created_at, 'string')
   })
 
+  test('delete: only your own; its events go, pending questions go, leads keep their row', async () => {
+    const created = await call('POST', '/api/applications', {
+      token: alice, body: { company: { name: 'Doomed Co' }, application: { role: 'APM', stage: 'applied' } },
+    })
+    const id = created.body.id
+    const sid = crypto.randomUUID()
+    const sug = {
+      dedupe_key: `quiet:${id}`, kind: 'stage_change', state: 'pending', application_id: id, candidate_ids: [], company_name: 'Doomed Co',
+      role: 'APM', status: 'other', proposed_stage: null, previous_stage: null, confidence: null, evidence: {}, observation_ids: [],
+      provider: 'landed', resolved_at: null,
+    }
+    assert.equal((await call('PUT', `/api/status-suggestions/${sid}`, { token: alice, body: sug })).status, 200)
+    assert.equal((await call('DELETE', `/api/applications/${id}`, { token: bob })).status, 404, "bob can't delete alice's")
+    assert.equal((await call('DELETE', `/api/applications/${id}`, { token: alice })).status, 204)
+    assert.ok(!(await call('GET', '/api/applications', { token: alice })).body.some((a: any) => a.id === id))
+    assert.ok(!(await call('GET', '/api/status-suggestions', { token: alice })).body.some((x: any) => x.id === sid), 'pending question dropped')
+    assert.equal((await call('DELETE', `/api/applications/${id}`, { token: alice })).status, 404)
+    assert.equal((await call('DELETE', '/api/applications/not-a-uuid', { token: alice })).status, 400)
+  })
+
   test('patch bumps last_activity_at and ignores non-whitelisted fields', async () => {
     const before = (await call('GET', '/api/applications', { token: alice })).body.find((a: any) => a.id === aliceAppId)
     const res = await call('PATCH', `/api/applications/${aliceAppId}`, {

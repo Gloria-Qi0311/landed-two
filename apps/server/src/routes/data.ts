@@ -117,6 +117,19 @@ export function dataRoutes(sql: Sql, config: Config) {
     return c.json(row, 201)
   })
 
+  app.delete('/applications/:id', async (c) => {
+    const userId = c.get('user').id
+    const id = c.req.param('id')
+    const deleted = await sql.begin(async (tx) => {
+      // Pending questions about it are moot. The foreign keys do the rest:
+      // its portal events go with it; leads and resolved suggestions lose the link.
+      await tx`delete from status_suggestions where user_id = ${userId} and application_id = ${id} and state = 'pending'`
+      return tx`delete from applications where id = ${id} and user_id = ${userId} returning id`
+    })
+    if (!deleted.length) fail(404, 'application not found')
+    return c.body(null, 204)
+  })
+
   app.patch('/applications/:id', async (c) => {
     const patch = applicationColumns(sql, await jsonBody(c), APPLICATION_PATCH_FIELDS, { create: false })
     const [row] = await sql`

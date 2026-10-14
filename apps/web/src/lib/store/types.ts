@@ -260,6 +260,10 @@ export interface DataStore {
   addApplication(company: CompanyInput, application: ApplicationInput): Promise<DbApplication>
   /** Whitelisted fields only; bumps last_activity_at. */
   updateApplication(id: string, patch: ApplicationPatch): Promise<DbApplication>
+  /** Delete an application. Its portal events go with it and pending
+   *  questions about it are dropped; job leads and resolved suggestions keep
+   *  their rows but lose the link (the server's foreign keys do the same). */
+  deleteApplication(id: string): Promise<void>
   importDemo(data: DemoImport): Promise<{ companies: number; applications: number }>
 
   listResumes(): Promise<DbResume[]> // created_at desc
