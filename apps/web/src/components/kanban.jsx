@@ -3,7 +3,9 @@
 // Leads holds what you haven't applied to yet: jobs your agents found
 // (dashed; ✕ dismisses) and jobs you saved for later (stage `saved`).
 // Dragging either into a stage adds/moves it. Ghosted applications sit in
-// Rejected with a tag; Interview cards show their latest round.
+// Rejected with a tag; Interview cards show their latest round. In every
+// column, a company's cards sit together under its name (same company by
+// company key, so 蚂蚁集团 and 蚂蚁 are one), in the column's own order.
 import React, { useState, useMemo } from 'react';
 import {
   DndContext,
@@ -20,24 +22,29 @@ import { DeadlineChip, byDeadline } from './deadline-chip';
 import { CompanyMark, PortalDot, Icon, stageColors } from './primitives';
 import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
+import { companyKey } from '@landed/observation-processor';
 
 // ────────────────────────────────────────────────────────────────────────
 // Pure card markup (shared between sortable card + DragOverlay preview).
 // Extracted so the floating overlay can render identical visuals.
 // ────────────────────────────────────────────────────────────────────────
-function CardContent({ app, comp, c, isDuplicate, onSetDeadline }) {
+function CardContent({ app, comp, c, isDuplicate, onSetDeadline, grouped }) {
   const round = columnOf(app.stage) === 'interview' ? currentRound(app.interviews) : null;
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <CompanyMark company={comp} size={24} />
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{comp.name}</div>
-          <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{comp.loc}</div>
+      {/* In a company group the group header names the company. */}
+      {!grouped && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <CompanyMark company={comp} size={24} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{comp.name}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{comp.loc}</div>
+          </div>
+          <PortalDot companyId={comp.id} />
         </div>
-        <PortalDot companyId={comp.id} />
-      </div>
+      )}
       <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{app.role}</div>
+      {grouped && app.location && <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: -5 }}>{app.location}</div>}
       {app.stage === 'ghosted' && (
         <span style={{ fontSize: 10, color: stageColors.ghosted.fg, background: stageColors.ghosted.bg, border: `0.5px solid ${stageColors.ghosted.ring}`, padding: '1px 6px', borderRadius: 4, width: 'fit-content' }}>
           Ghosted
@@ -89,7 +96,7 @@ function CardContent({ app, comp, c, isDuplicate, onSetDeadline }) {
 // Draggable card. PointerSensor's activationConstraint distinguishes drag
 // from click — a quick tap fires onOpen; a >5px drag enters drag mode.
 // ────────────────────────────────────────────────────────────────────────
-function DraggableCard({ app, comp, c, onOpen, isDuplicate, onSetDeadline }) {
+function DraggableCard({ app, comp, c, onOpen, isDuplicate, onSetDeadline, grouped }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: app.id });
   return (
     <div
@@ -101,9 +108,9 @@ function DraggableCard({ app, comp, c, onOpen, isDuplicate, onSetDeadline }) {
         background: 'var(--surface)',
         border: '0.5px solid var(--border)',
         borderRadius: 8,
-        padding: 10,
+        padding: grouped ? 9 : 10,
         cursor: isDragging ? 'grabbing' : 'grab',
-        display: 'flex', flexDirection: 'column', gap: 8,
+        display: 'flex', flexDirection: 'column', gap: grouped ? 6 : 8,
         boxShadow: '0 1px 0 rgba(0,0,0,0.02)',
         opacity: isDragging ? 0.35 : 1,
         // Hide the source while DragOverlay renders the floating preview
@@ -111,7 +118,36 @@ function DraggableCard({ app, comp, c, onOpen, isDuplicate, onSetDeadline }) {
       }}
       className="kanban-card"
     >
-      <CardContent app={app} comp={comp} c={c} isDuplicate={isDuplicate} onSetDeadline={onSetDeadline} />
+      <CardContent app={app} comp={comp} c={c} isDuplicate={isDuplicate} onSetDeadline={onSetDeadline} grouped={grouped} />
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Company groups: a column's cards, a company's together, in the column's
+// order (a group sits where its first card would). One card → no group.
+// ────────────────────────────────────────────────────────────────────────
+function byCompany(items, nameOf) {
+  const groups = new Map();
+  for (const item of items) {
+    const name = nameOf(item) || '';
+    const key = companyKey(name) || name.trim().toLowerCase();
+    if (!groups.has(key)) groups.set(key, { key, name, items: [] });
+    groups.get(key).items.push(item);
+  }
+  return [...groups.values()];
+}
+
+function CompanyGroup({ name, mark, count, portalId, children }) {
+  return (
+    <div style={{ border: '0.5px solid var(--border)', borderRadius: 9, background: 'color-mix(in oklch, var(--surface) 55%, transparent)', padding: 5, display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 0' }}>
+        <CompanyMark company={mark} size={20} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+        {portalId && <PortalDot companyId={portalId} />}
+        <span style={{ fontSize: 10.5, color: 'var(--fg-muted)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
+      </div>
+      {children}
     </div>
   );
 }
@@ -141,9 +177,18 @@ function DroppableColumn({ stage, items, c, getCompany, onOpen, duplicateIds }) 
         <span style={{ marginLeft: 'auto', fontSize: 11, fontVariantNumeric: 'tabular-nums', color: 'var(--fg-muted)', background: 'var(--surface)', padding: '1px 7px', borderRadius: 8, border: '0.5px solid var(--border)' }}>{items.length}</span>
       </div>
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1 }}>
-        {items.map(a => {
-          const comp = getCompany(a.companyId);
-          return <DraggableCard key={a.id} app={a} comp={comp} c={c} onOpen={onOpen} isDuplicate={duplicateIds.has(a.id)} />;
+        {/* Most recent first; a company's cards together. */}
+        {byCompany([...items].sort((x, y) => (x.lastActivity ?? 0) - (y.lastActivity ?? 0)), (a) => getCompany(a.companyId)?.name).map((g) => {
+          if (g.items.length === 1) {
+            const a = g.items[0];
+            return <DraggableCard key={a.id} app={a} comp={getCompany(a.companyId)} c={c} onOpen={onOpen} isDuplicate={duplicateIds.has(a.id)} />;
+          }
+          const comp = getCompany(g.items[0].companyId);
+          return (
+            <CompanyGroup key={g.key} name={comp.name} mark={comp} count={g.items.length} portalId={comp.id}>
+              {g.items.map((a) => <DraggableCard key={a.id} app={a} comp={getCompany(a.companyId)} c={c} onOpen={onOpen} isDuplicate={duplicateIds.has(a.id)} grouped />)}
+            </CompanyGroup>
+          );
         })}
         {items.length === 0 && (
           <div style={{ fontSize: 11, color: 'var(--fg-muted)', textAlign: 'center', padding: 16, border: '1px dashed var(--border)', borderRadius: 6 }}>empty</div>
@@ -167,17 +212,29 @@ function hueOf(name) {
   return h;
 }
 
-function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline }) {
+const leadMark = (lead) => ({ name: lead.company_name, hue: hueOf(lead.company_key || lead.company_name), logo: lead.company_name.slice(0, 2).toUpperCase() });
+
+function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }) {
   const agents = [...new Set(lead.sources.map((s) => PROVIDER_LABELS[s.provider] ?? s.provider ?? 'agent'))];
   const stop = (e) => e.stopPropagation();
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <CompanyMark company={{ name: lead.company_name, hue: hueOf(lead.company_key || lead.company_name), logo: lead.company_name.slice(0, 2).toUpperCase() }} size={24} />
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.company_name}</div>
-          <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{lead.location || ''}</div>
-        </div>
+        {grouped ? (
+          // In a company group: the title leads, the group header names the company.
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{lead.title}</div>
+            {lead.location && <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{lead.location}</div>}
+          </div>
+        ) : (
+          <>
+            <CompanyMark company={leadMark(lead)} size={24} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.company_name}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{lead.location || ''}</div>
+            </div>
+          </>
+        )}
         {lead.job_url && (
           <a href={lead.job_url} target="_blank" rel="noopener noreferrer" title="Open job posting" onPointerDown={stop}
             onClick={(e) => { stop(e); onOpen?.(lead); }}
@@ -193,7 +250,7 @@ function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline }) {
           </button>
         )}
       </div>
-      <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{lead.title}</div>
+      {!grouped && <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{lead.title}</div>}
       {onSetDeadline && <DeadlineChip compact deadline={lead.deadline} onSave={(d) => onSetDeadline(lead.id, d)} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--fg-muted)' }}>
         <Icon name="wand" size={10} />
@@ -211,13 +268,13 @@ const leadCardStyle = {
   display: 'flex', flexDirection: 'column', gap: 8,
 };
 
-function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline }) {
+function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline, grouped }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: LEAD_PREFIX + lead.id });
   return (
     <div ref={setNodeRef} {...attributes} {...listeners} className="kanban-card"
       title={lead.description || undefined}
-      style={{ ...leadCardStyle, cursor: isDragging ? 'grabbing' : 'grab', visibility: isDragging ? 'hidden' : 'visible' }}>
-      <LeadCardContent lead={lead} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetDeadline} />
+      style={{ ...leadCardStyle, ...(grouped ? { padding: 9, gap: 6 } : {}), cursor: isDragging ? 'grabbing' : 'grab', visibility: isDragging ? 'hidden' : 'visible' }}>
+      <LeadCardContent lead={lead} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetDeadline} grouped={grouped} />
     </div>
   );
 }
@@ -240,11 +297,23 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
         <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: 3 }}>Not applied yet — drag into a stage when you apply</div>
       </div>
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1 }}>
-        {/* Soonest deadline first. */}
-        {[...leads].sort(byDeadline).map((l) => <DraggableLeadCard key={l.id} lead={l} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetLeadDeadline} />)}
-        {[...saved].sort(byDeadline).map((a) => (
-          <DraggableCard key={a.id} app={a} comp={getCompany(a.companyId)} c={stageColors.saved} onOpen={onOpenApp} isDuplicate={duplicateIds.has(a.id)} onSetDeadline={onSetAppDeadline} />
-        ))}
+        {/* Soonest deadline first; a company's leads and saved applications together. */}
+        {byCompany(
+          [...leads.map((l) => ({ lead: l, deadline: l.deadline })), ...saved.map((a) => ({ app: a, deadline: a.deadline }))].sort(byDeadline),
+          (x) => (x.lead ? x.lead.company_name : getCompany(x.app.companyId)?.name),
+        ).map((g) => {
+          const card = (x, grouped) => (x.lead
+            ? <DraggableLeadCard key={x.lead.id} lead={x.lead} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetLeadDeadline} grouped={grouped} />
+            : <DraggableCard key={x.app.id} app={x.app} comp={getCompany(x.app.companyId)} c={stageColors.saved} onOpen={onOpenApp} isDuplicate={duplicateIds.has(x.app.id)} onSetDeadline={onSetAppDeadline} grouped={grouped} />);
+          if (g.items.length === 1) return card(g.items[0], false);
+          const first = g.items.find((x) => x.app) ?? g.items[0];
+          const comp = first.app ? getCompany(first.app.companyId) : leadMark(first.lead);
+          return (
+            <CompanyGroup key={g.key} name={comp.name} mark={comp} count={g.items.length} portalId={first.app ? comp.id : null}>
+              {g.items.map((x) => card(x, true))}
+            </CompanyGroup>
+          );
+        })}
         {count === 0 && (
           <div style={{ fontSize: 11, color: 'var(--fg-muted)', textAlign: 'center', padding: 16, border: '1px dashed var(--border)', borderRadius: 6, lineHeight: 1.5 }}>
             Jobs your agents find land here.<br />Agent → tell it what you're looking for.

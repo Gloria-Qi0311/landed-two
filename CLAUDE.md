@@ -60,6 +60,7 @@ Like Multica: the user pairs a computer from the sidebar **Agent** page (setup, 
 
 Stages and interview rounds live in `packages/schema/src/pipeline.ts` (shared by web, server and the processor's callers).
 
+- **Grouped by company in every column** (product decision after acceptance review): a company's cards sit together under its name (same company by `companyKey`, so 蚂蚁集团 and 蚂蚁 are one group), in the column's own order — stage columns most recent first, Leads soonest deadline first (leads and saved applications together); a group sits where its first card would. A company with one card in a column shows a plain card.
 - **`saved` is shown as a lead**: the Leads column holds both agent-found jobs (`job_leads`) and applications not applied to yet (stage `saved`). There is no Saved column.
 - **`ghosted` is a kind of closed**: it shows in the Rejected column with a tag.
 - **One `interview` stage** replaced phone + onsite. Each application carries `interviews: [{round, format: onsite|remote, interviewers: [peer|teammate|leader|hr], at, note}]`. Rounds are edited in the detail drawer, and the card shows the next upcoming round, or the latest one. An interview email that gives a time (`interview_at`) adds a round on its own when the processor auto-applies it (effect `set_interviews`).
