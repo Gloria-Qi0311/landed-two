@@ -1,7 +1,7 @@
 // lib/config.js — Landed API server config for the extension.
 //
-// API_URL is the public origin of apps/server (in production, the
-// Cloudflare Tunnel hostname). It is not a secret — the per-user session
+// API_URL is the public origin of apps/server (production: the Mac mini,
+// public through Tailscale Funnel — deploy/mac-mini/tunnel.sh). It is not a secret — the per-user session
 // token from lib/auth.js is what authenticates every call.
 //
 // To point this extension at a different server, edit API_URL and rebuild.
@@ -14,8 +14,9 @@
 // Loaded by background.js via importScripts and by lib/auth.js via require().
 
 (function (global) {
-  const API_URL = 'http://localhost:8787';
+  const API_URL = 'https://antaresmac-mini.tail109da9.ts.net';
   const WEB_ORIGINS = [
+    'https://antaresmac-mini.tail109da9.ts.net',
     'http://localhost:5173', 'http://127.0.0.1:5173',
     'http://localhost:8787', 'http://127.0.0.1:8787',
   ];

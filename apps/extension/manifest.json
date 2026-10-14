@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Landed",
-  "version": "2.2",
+  "version": "2.3",
   "description": "Landed: job-hunt operations — auto-fill applications + portal sync. (Renamed from ApplyMint after merge in Sprint 3.)",
   "permissions": ["activeTab", "storage", "scripting", "sidePanel", "alarms"],
   "action": {
@@ -25,7 +25,7 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "matches": ["https://antaresmac-mini.tail109da9.ts.net/*", "http://localhost/*", "http://127.0.0.1/*"],
       "js": ["lib/web-bridge.js"],
       "run_at": "document_idle"
     }
