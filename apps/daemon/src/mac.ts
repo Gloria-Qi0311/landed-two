@@ -9,12 +9,14 @@
 //   page can open a URL, so pairing never happens without that click), saves
 //   the connection and restarts the service.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { home } from './config.ts'
 
 export const LABEL = 'dev.landed.daemon'
+export const NATIVE_HOST_NAME = 'dev.landed.assist'
+export const EXTENSION_ID = 'cffgejoffofpdgncoebljpidlmmmiigb'
 const agentsDir = () => process.env.LANDED_LAUNCH_AGENTS_DIR ?? join(homedir(), 'Library', 'LaunchAgents')
 export const plistPath = () => join(agentsDir(), `${LABEL}.plist`)
 const domain = () => `gui/${userInfo().uid}`
@@ -92,8 +94,47 @@ export function stableNode(path = process.env.PATH ?? '', fallback = process.exe
   return fallback
 }
 
+const sh = (value: string) => `'${value.replace(/'/g, `'"'"'`)}'`
+const nativeWrapperPath = () => join(home(), 'bin', 'landed-native-host')
+const nativeHostDirs = () => process.env.LANDED_NATIVE_HOST_DIRS
+  ? process.env.LANDED_NATIVE_HOST_DIRS.split(delimiter).filter(Boolean)
+  : [
+      join(homedir(), 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts'),
+      join(homedir(), 'Library', 'Application Support', 'Chromium', 'NativeMessagingHosts'),
+      join(homedir(), 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts'),
+      join(homedir(), 'Library', 'Application Support', 'Microsoft Edge', 'NativeMessagingHosts'),
+    ]
+
+export function nativeHostManifest(path: string) {
+  return {
+    name: NATIVE_HOST_NAME,
+    description: 'Landed Apply Assist local model bridge',
+    path,
+    type: 'stdio',
+    allowed_origins: [`chrome-extension://${EXTENSION_ID}/`],
+  }
+}
+
+/** Register the bundled daemon as a Native Messaging host. Chrome starts a
+ * short-lived copy for Apply Assist; the normal background service remains
+ * separate and keeps its server connection. */
+export function installNativeHost(node: string, script: string): string[] {
+  const wrapper = nativeWrapperPath()
+  mkdirSync(join(home(), 'bin'), { recursive: true, mode: 0o700 })
+  writeFileSync(wrapper, `#!/bin/sh\nexec ${sh(node)} ${sh(script)} native-host\n`, { mode: 0o700 })
+  chmodSync(wrapper, 0o700)
+  const manifests = nativeHostDirs().map((dir) => {
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, `${NATIVE_HOST_NAME}.json`)
+    writeFileSync(path, `${JSON.stringify(nativeHostManifest(wrapper), null, 2)}\n`, { mode: 0o600 })
+    chmodSync(path, 0o600)
+    return path
+  })
+  return manifests
+}
+
 /** Install (or refresh) the background service and start it. */
-export function installService(opts: { dryRun?: boolean } = {}): { plist: string; script: string } {
+export function installService(opts: { dryRun?: boolean } = {}): { plist: string; script: string; nativeHosts: string[]; extension: string | null } {
   const self = realpathSync(process.argv[1])
   // Bundled (Landed.app): keep our own copy, so moving or deleting the app
   // doesn't break the service. From source (the repo): run the source.
@@ -104,11 +145,20 @@ export function installService(opts: { dryRun?: boolean } = {}): { plist: string
     script = join(bin, 'landed-daemon.mjs')
     if (self !== script) copyFileSync(self, script)
   }
+  const bundledExtension = join(dirname(self), 'extension')
+  const installedExtension = join(home(), 'extension')
+  let extension: string | null = null
+  if (existsSync(bundledExtension)) {
+    rmSync(installedExtension, { recursive: true, force: true })
+    cpSync(bundledExtension, installedExtension, { recursive: true })
+    extension = installedExtension
+  }
   mkdirSync(agentsDir(), { recursive: true })
   const plist = launchAgentPlist({ node: stableNode(), script, path: servicePath(), logFile: join(home(), 'daemon.log') })
   writeFileSync(plistPath(), plist)
+  const nativeHosts = installNativeHost(stableNode(), script)
   if (!opts.dryRun) reload()
-  return { plist: plistPath(), script }
+  return { plist: plistPath(), script, nativeHosts, extension }
 }
 
 const loaded = () => launchctl('print', `${domain()}/${LABEL}`).status === 0
@@ -135,6 +185,8 @@ function reload() {
 export function uninstallService() {
   launchctl('bootout', `${domain()}/${LABEL}`)
   rmSync(plistPath(), { force: true })
+  rmSync(nativeWrapperPath(), { force: true })
+  for (const dir of nativeHostDirs()) rmSync(join(dir, `${NATIVE_HOST_NAME}.json`), { force: true })
 }
 
 export const serviceInstalled = () => existsSync(plistPath())

@@ -24,6 +24,14 @@ An agent is used when it is installed and signed in; `landed status` says why on
 
 Build the app with `pnpm --filter @landed/daemon build:mac`. That writes `dist/Landed.app` and `dist/Landed-mac.zip`; the Landed server serves the zip at `/api/downloads/landed-mac.zip`. Add `--install` to also copy the app to `~/Applications` on this Mac. The app is ad-hoc signed and not notarized, so the first time a *downloaded* copy is opened, macOS may ask you to confirm it in System Settings → Privacy & Security.
 
+### Apply Assist
+
+Landed for Mac also carries the matching Chrome extension and registers its Native Messaging host. Open the app once, then load `~/.landed/extension` from `chrome://extensions` (Developer mode → **Load unpacked**). A future Chrome Web Store build can replace this one explicit step.
+
+When the side panel fills selected application tabs, known fields use deterministic extension rules. Unknown labels are sent directly to local Ollama through the native host; they never pass through the Landed server. The local model may only choose an existing resume key, and the daemon supplies that key's original value after validation. The extension outlines filled fields green and fields needing review yellow. It never clicks the final submit button.
+
+The preferred model is `qwen3.5:4b`; set `LANDED_OLLAMA_MODEL` in the native-host environment to override it. If that model is absent, Landed tries `qwen3.5:9b`, another local Qwen model, then the first installed Ollama model. Without Ollama, deterministic filling still works and unknown fields remain for review.
+
 **From a terminal (any OS, from the repo):**
 
 ```sh

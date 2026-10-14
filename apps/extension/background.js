@@ -29,6 +29,8 @@ const POLL_PERIOD_MIN = 360  // 6 hours
 
 const PUSH_ALARM = 'landed-portal-push'
 const PUSH_PERIOD_MIN = 1    // drain pending queue every minute when signed in
+const NATIVE_HOST = 'dev.landed.assist'
+let nativeAssistQueue = Promise.resolve()
 
 // chrome.storage.local key for #36's expired-login flow. Centralized in
 // lib/portal-sentinels.js since 3+ callers now read/write it (this file,
@@ -207,6 +209,31 @@ async function pollAllPortals() {
 }
 
 // ── Real-time path: content.js auto-detects + pushes a single event ──────
+
+// Apply Assist: page content scripts never call Ollama or a network API.
+// Chrome starts Landed.app's registered Native Messaging host and hands it
+// only field labels plus the selected resume's flat values. The host returns
+// typed key selections; content.js remains the only code that touches DOM.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!msg || msg.action !== 'native-assist') return
+  const request = msg.request
+  if (!request || !['ping', 'match_fields'].includes(request.type)) {
+    sendResponse({ ok: false, error: 'invalid native request' })
+    return true
+  }
+  const turn = nativeAssistQueue.catch(() => {}).then(() => new Promise((resolve) => {
+    chrome.runtime.sendNativeMessage(NATIVE_HOST, request, (response) => {
+      const error = chrome.runtime.lastError
+      if (error) resolve({ ok: false, error: error.message || 'Landed for Mac is not installed' })
+      else resolve(response || { ok: false, error: 'Landed for Mac returned no response' })
+    })
+  }))
+  nativeAssistQueue = turn.then(() => undefined, () => undefined)
+  turn.then(sendResponse, (error) => {
+    sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })
+  })
+  return true
+})
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || msg.action !== 'portal-event') return

@@ -14,6 +14,7 @@
 //   landed connect --server https://landed.example.com --token landed_rt_…
 //   landed start          # reconnect with the saved config, in this terminal
 //   landed status         # what's configured and which agents were found
+//   landed native-host    # Chrome Native Messaging (started by Chrome)
 //
 // From the Landed repo: `pnpm landed <command>`.
 import { hostname } from 'node:os'
@@ -28,8 +29,9 @@ import {
   uninstallService,
 } from './mac.ts'
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
+import { runNativeHost } from './native-host.ts'
 
-const VERSION = '0.7.1'
+const VERSION = '0.8.0'
 const MAX_PARALLEL = 2
 
 const describe = (agents: AgentInfo[]) =>
@@ -222,13 +224,17 @@ async function main() {
 
   if (command === 'service') return service()
 
+  if (command === 'native-host') return runNativeHost()
+
   if (command === 'setup') {
     if (process.platform !== 'darwin') {
       console.error('The background service is macOS-only for now; use `landed start`.')
       process.exit(1)
     }
-    const { plist } = installService()
+    const { plist, nativeHosts, extension } = installService()
     log(`background service installed (${plist}); it starts at login and restarts if it stops`)
+    log(`Apply Assist installed for ${nativeHosts.length} Chromium browsers`)
+    if (extension) log(`Chrome extension ready at ${extension}`)
     notify(loadConfig() ? 'Landed is running in the background.' : 'Landed is installed. In Landed, click "Connect this computer".')
     return
   }
@@ -258,7 +264,7 @@ async function main() {
     return
   }
 
-  console.error(`Unknown command "${command}". Commands: setup, open-url, service, uninstall, connect, start, status.`)
+  console.error(`Unknown command "${command}". Commands: setup, open-url, service, native-host, uninstall, connect, start, status.`)
   process.exit(1)
 }
 

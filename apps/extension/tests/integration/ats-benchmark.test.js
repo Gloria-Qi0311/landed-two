@@ -14,10 +14,24 @@ const SAMPLE_RESUME_PATH = path.resolve(__dirname, "..", "fixtures", "sample-res
 const onMessageListeners = [];
 global.chrome = {
   runtime: {
+    lastError: undefined,
     onMessage: {
       addListener(fn) {
         onMessageListeners.push(fn);
       },
+    },
+    sendMessage(message, callback) {
+      if (message?.action === 'native-assist' && message.request?.type === 'match_fields') {
+        const first = message.request.fields[0]
+        callback?.({
+          ok: true,
+          values: first ? {
+            [first.id]: { value: 'https://example.com/alice', resume_key: 'portfolio', confidence: 0.95 },
+          } : {},
+        })
+        return
+      }
+      callback?.({ ok: true })
     },
   },
 };
@@ -78,7 +92,7 @@ function listFixtures() {
   return out;
 }
 
-function fillPage(resume, customFields = {}) {
+function fillPage(resume, customFields = {}, aiTakeover = false) {
   return new Promise((resolve, reject) => {
     if (onMessageListeners.length === 0) {
       reject(new Error("content.js did not register a chrome.runtime.onMessage listener"));
@@ -86,9 +100,45 @@ function fillPage(resume, customFields = {}) {
     }
     const listener = onMessageListeners[0];
     const sendResponse = (response) => resolve(response);
-    listener({ action: "fill", resume, customFields }, null, sendResponse);
+    listener({ action: "fill", resume, customFields, aiTakeover }, null, sendResponse);
   });
 }
+
+test('local AI fills only the selected field and never clicks submit', async () => {
+  document.body.innerHTML = `
+    <label for="profile">Public profile URL</label>
+    <input id="profile" type="url">
+    <button id="submit" type="submit">Submit application</button>
+  `
+  let submitted = false
+  document.getElementById('submit').addEventListener('click', () => { submitted = true })
+  const result = await fillPage(sampleResume, {}, true)
+  expect(document.getElementById('profile').value).toBe('https://example.com/alice')
+  expect(document.getElementById('profile').getAttribute('data-landed-status')).toBe('filled')
+  expect(result.manual).toEqual([])
+  expect(submitted).toBe(false)
+})
+
+test('sensitive answers, uploads, and choices stay yellow for human review', async () => {
+  document.body.innerHTML = `
+    <label for="salary">Desired salary</label>
+    <input id="salary" name="salary">
+    <label for="resume-file">Upload resume</label>
+    <input id="resume-file" type="file">
+    <label><input id="sponsor" type="checkbox" name="sponsorship"> Require sponsorship</label>
+  `
+
+  const result = await fillPage({ ...sampleResume, salary: '$200,000' }, {}, true)
+
+  expect(document.getElementById('salary').value).toBe('')
+  expect(document.getElementById('sponsor').checked).toBe(false)
+  expect(result.manual.map((item) => item.hint)).toEqual(
+    expect.arrayContaining(['敏感信息', '文件上传'])
+  )
+  for (const id of ['salary', 'resume-file', 'sponsor']) {
+    expect(document.getElementById(id).getAttribute('data-landed-status')).toBe('review')
+  }
+})
 
 // Find the input/select/textarea matching a labelled field. We use the
 // same getFieldLabel logic that content.js uses, then look up the value

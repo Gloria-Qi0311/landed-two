@@ -1,6 +1,6 @@
 # Handoff: Landed — Job Hunt Operations Tool
 
-> **Running it:** `pnpm install && pnpm dev` (needs a local Postgres). Landed is **local-first**: everyone signs in, but each account's data lives in the browser unless the account turns on **Landed Cloud sync** (`apps/server`, Hono + Postgres) to sync across devices. See [`apps/server/README.md`](apps/server/README.md) for setup, configuration, and deployment, and `CLAUDE.md` for the data-layer rules. The design handoff below predates both changes: read "Supabase" as `apps/server`.
+> **Running it:** `pnpm install && pnpm dev` (needs a local Postgres). Landed is **local-first**: everyone signs in, but each account's data lives in the browser unless the account turns on **Landed Cloud sync** (`apps/server`, Hono + Postgres) to sync across devices. Its Chrome extension includes **Apply Assist**: deterministic autofill across selected tabs, with optional local Ollama matching through Landed for Mac, and it never submits an application. See [`apps/server/README.md`](apps/server/README.md) for setup, configuration, and deployment, and `CLAUDE.md` for the data-layer rules. The design handoff below predates both changes: read "Supabase" as `apps/server`.
 
 ## Overview
 

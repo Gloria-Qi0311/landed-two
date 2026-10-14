@@ -272,6 +272,16 @@ type DbResume = {
   created_at: string
 }
 
+type BrowserTab = { id: number; title: string; url: string; active: boolean }
+type FillResult = {
+  tabId: number
+  title: string
+  kind: 'running' | 'done' | 'error'
+  filled?: number
+  review?: number
+  error?: string
+}
+
 // Current resume first, then newest first.
 const byCurrentThenNewest = (list: DbResume[]) =>
   [...list].sort((a, b) => Number(b.is_current) - Number(a.is_current) || b.created_at.localeCompare(a.created_at))
@@ -293,6 +303,10 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [fillingId, setFillingId] = useState<string | null>(null)
   const [fillNotice, setFillNotice] = useState<string | null>(null)
+  const [tabs, setTabs] = useState<BrowserTab[]>([])
+  const [selectedTabs, setSelectedTabs] = useState<number[]>([])
+  const [fillResults, setFillResults] = useState<FillResult[]>([])
+  const [localAI, setLocalAI] = useState<{ ready: boolean; label: string }>({ ready: false, label: 'Checking local AI…' })
   const needsAuthAt = useNeedsAuth()
   const fatalState = useFatalState()
   const handedOver = useStorageSentinel<{ resumes: DbResume[]; synced_at: string }>(config.LOCAL_RESUMES_KEY)
@@ -312,25 +326,81 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
     })()
   }, [signedIn])
 
+  const refreshTabs = async () => {
+    try {
+      const found = (await chrome.tabs.query({ currentWindow: true }))
+        .filter((tab) => Number.isInteger(tab.id) && /^https?:\/\//.test(tab.url || ''))
+        .map((tab) => ({
+          id: Number(tab.id),
+          title: String(tab.title || new URL(tab.url).hostname || 'Untitled page'),
+          url: String(tab.url),
+          active: !!tab.active,
+        }))
+      setTabs(found)
+      setSelectedTabs((current) => {
+        const valid = current.filter((id) => found.some((tab) => tab.id === id))
+        if (valid.length > 0) return valid.slice(0, 5)
+        const active = found.find((tab) => tab.active)
+        return active ? [active.id] : found.slice(0, 1).map((tab) => tab.id)
+      })
+    } catch {
+      setTabs([])
+    }
+  }
+
+  useEffect(() => {
+    void refreshTabs()
+    try {
+      chrome.runtime.sendMessage({ action: 'native-assist', request: { type: 'ping' } }, (response) => {
+        const runtimeError = chrome.runtime.lastError
+        if (runtimeError || !response?.ok) {
+          setLocalAI({ ready: false, label: 'Rules only · open the latest Landed for Mac for local AI' })
+          return
+        }
+        setLocalAI({ ready: true, label: `Local AI · ${response.model || 'Ollama'}` })
+      })
+    } catch {
+      setLocalAI({ ready: false, label: 'Rules only · Landed for Mac not found' })
+    }
+  }, [])
+
   const resumes = inCloud ? cloudResumes : byCurrentThenNewest(handedOver?.resumes ?? [])
 
   async function fillWith(resume: DbResume) {
     setFillingId(resume.id); setFillNotice(null)
+    setFillResults([])
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-      const tab = tabs[0]
-      if (!tab?.id) throw new Error('No active tab found')
-      chrome.tabs.sendMessage(tab.id, { action: 'fill', resume: resume.parsed_json }, () => {
-        const err = chrome.runtime.lastError
-        if (err) {
-          setFillNotice(`Couldn't reach the page (${err.message || 'no content script'}). Make sure you're on a job-application form.`)
-        } else {
-          setFillNotice(`Filling with "${resume.name}"…`)
-        }
-        setFillingId(null)
-      })
+      const targets = tabs.filter((tab) => selectedTabs.includes(tab.id)).slice(0, 5)
+      if (targets.length === 0) throw new Error('Choose at least one job application tab')
+      setFillResults(targets.map((tab) => ({ tabId: tab.id, title: tab.title, kind: 'running' })))
+      const results = await Promise.all(targets.map((tab) => new Promise<FillResult>((resolve) => {
+        chrome.tabs.sendMessage(tab.id, {
+          action: 'fill',
+          resume: resume.parsed_json,
+          aiTakeover: true,
+        }, (response) => {
+          const runtimeError = chrome.runtime.lastError
+          if (runtimeError || !response) {
+            resolve({ tabId: tab.id, title: tab.title, kind: 'error', error: runtimeError?.message || 'No response from page' })
+          } else {
+            resolve({
+              tabId: tab.id,
+              title: tab.title,
+              kind: 'done',
+              filled: Array.isArray(response.filled) ? response.filled.length : 0,
+              review: Array.isArray(response.manual) ? response.manual.length : 0,
+            })
+          }
+        })
+      })))
+      setFillResults(results)
+      const filled = results.reduce((sum, result) => sum + (result.filled || 0), 0)
+      const review = results.reduce((sum, result) => sum + (result.review || 0), 0)
+      const failed = results.filter((result) => result.kind === 'error').length
+      setFillNotice(`${filled} fields filled · ${review} need review${failed ? ` · ${failed} page${failed === 1 ? '' : 's'} unavailable` : ''}. You submit each page.`)
     } catch (e) {
       setFillNotice(toErr(e))
+    } finally {
       setFillingId(null)
     }
   }
@@ -347,6 +417,51 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
         {!inCloud && (
           <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
             Your data stays in this browser. Portal updates reach Landed whenever a Landed tab is open.
+          </div>
+        )}
+      </div>
+
+      <div style={{ padding: 12, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Application tabs · {selectedTabs.length}/5
+            </div>
+            <div style={{ marginTop: 3, fontSize: 10.5, color: localAI.ready ? 'oklch(0.42 0.12 155)' : 'var(--fg-muted)' }}>
+              {localAI.label}
+            </div>
+          </div>
+          <button type="button" className="btn-secondary" onClick={() => void refreshTabs()} style={{ fontSize: 10.5, padding: '4px 7px' }}>
+            Refresh
+          </button>
+        </div>
+        {tabs.length === 0 ? (
+          <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.45 }}>
+            Open a job application page, then refresh.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+            {tabs.map((tab) => {
+              const checked = selectedTabs.includes(tab.id)
+              return (
+                <label key={tab.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: 11.5, lineHeight: 1.35 }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => setSelectedTabs((current) => checked
+                      ? current.filter((id) => id !== tab.id)
+                      : current.length < 5 ? [...current, tab.id] : current)}
+                    style={{ width: 14, height: 14, margin: '1px 0 0', flex: '0 0 auto', accentColor: 'var(--accent)' }}
+                  />
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tab.title}</span>
+                    <span style={{ display: 'block', color: 'var(--fg-muted)', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {new URL(tab.url).hostname}
+                    </span>
+                  </span>
+                </label>
+              )
+            })}
           </div>
         )}
       </div>
@@ -393,7 +508,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
         {resumes && resumes.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
             {resumes.map((r) => (
-              <ResumeRow key={r.id} resume={r} filling={fillingId === r.id} onFill={() => fillWith(r)} />
+              <ResumeRow key={r.id} resume={r} filling={fillingId === r.id} targetCount={selectedTabs.length} onFill={() => fillWith(r)} />
             ))}
           </div>
         )}
@@ -402,6 +517,20 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       {fillNotice && (
         <div style={{ fontSize: 11.5, padding: 10, background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 6, color: 'var(--fg)', lineHeight: 1.5 }}>
           {fillNotice}
+        </div>
+      )}
+      {fillResults.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {fillResults.map((result) => (
+            <div key={result.tabId} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 10.5, color: 'var(--fg-muted)' }}>
+              <span style={{ color: result.kind === 'error' ? 'oklch(0.55 0.18 28)' : result.kind === 'done' ? 'oklch(0.42 0.12 155)' : 'var(--fg-muted)' }}>
+                {result.kind === 'running' ? '●' : result.kind === 'done' ? '✓' : '×'}
+              </span>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.title}</span>
+              {result.kind === 'done' && <span>{result.filled} filled · {result.review} review</span>}
+              {result.kind === 'error' && <span title={result.error}>unavailable</span>}
+            </div>
+          ))}
         </div>
       )}
       {loadErr && <ErrorBanner message={loadErr} />}
@@ -420,7 +549,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
   )
 }
 
-function ResumeRow({ resume, filling, onFill }: { resume: DbResume; filling: boolean; onFill: () => void }) {
+function ResumeRow({ resume, filling, targetCount, onFill }: { resume: DbResume; filling: boolean; targetCount: number; onFill: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8 }}>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -434,8 +563,8 @@ function ResumeRow({ resume, filling, onFill }: { resume: DbResume; filling: boo
           {new Date(resume.created_at).toLocaleDateString()}
         </div>
       </div>
-      <button className="btn-primary" onClick={onFill} disabled={filling} style={{ fontSize: 11.5, padding: '6px 11px' }}>
-        {filling ? 'Filling…' : 'Use'}
+      <button className="btn-primary" onClick={onFill} disabled={filling || targetCount === 0} style={{ fontSize: 11.5, padding: '6px 11px' }}>
+        {filling ? 'Filling…' : targetCount > 1 ? `Fill ${targetCount}` : 'Fill'}
       </button>
     </div>
   )

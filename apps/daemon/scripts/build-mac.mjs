@@ -12,15 +12,17 @@
 //   node scripts/build-mac.mjs            # build
 //   node scripts/build-mac.mjs --install  # …and copy to ~/Applications (this Mac)
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { rolldown } from 'rolldown'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const repo = join(root, '..', '..')
 const dist = join(root, 'dist')
 const app = join(dist, 'Landed.app')
+const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'inherit' })
 const infoPlist = () => join(app, 'Contents', 'Info.plist')
 const plist = (...args) => run('/usr/libexec/PlistBuddy', ['-c', args.join(' '), infoPlist()])
@@ -38,6 +40,11 @@ if (process.platform !== 'darwin') {
   console.error('Landed.app can only be built on macOS.')
   process.exit(1)
 }
+
+// The Chrome extension is shipped inside Landed.app. Chrome still requires
+// one explicit "Load unpacked" / Web Store install, but the local model host
+// and the matching extension version now arrive in one download.
+execFileSync('pnpm', ['--filter', '@landed/extension', 'build'], { cwd: repo, stdio: 'inherit' })
 rmSync(dist, { recursive: true, force: true })
 mkdirSync(dist, { recursive: true })
 
@@ -78,6 +85,8 @@ rmSync(source)
 // 3. Identity + the landed:// scheme; no Dock icon while it works.
 plistPut('CFBundleIdentifier', 'string', 'dev.landed.connector')
 plistPut('CFBundleName', 'string', 'Landed')
+plistPut('CFBundleShortVersionString', 'string', version)
+plistPut('CFBundleVersion', 'string', version)
 plistPut('LSUIElement', 'bool', 'true')
 plistPut('CFBundleURLTypes', 'array')
 plist('Add', ':CFBundleURLTypes:0', 'dict')
@@ -85,6 +94,9 @@ plist('Add', ':CFBundleURLTypes:0:CFBundleURLName', 'string', 'Landed')
 plist('Add', ':CFBundleURLTypes:0:CFBundleURLSchemes', 'array')
 plist('Add', ':CFBundleURLTypes:0:CFBundleURLSchemes:0', 'string', 'landed')
 copyFileSync(join(dist, 'landed-daemon.mjs'), join(app, 'Contents', 'Resources', 'landed-daemon.mjs'))
+const extension = join(repo, 'apps', 'extension', 'dist')
+if (!existsSync(extension)) throw new Error('extension build did not produce apps/extension/dist')
+cpSync(extension, join(app, 'Contents', 'Resources', 'extension'), { recursive: true })
 
 // 4. Editing Info.plist breaks the applet's signature: sign it again (ad hoc).
 run('codesign', ['--force', '--deep', '--sign', '-', app])

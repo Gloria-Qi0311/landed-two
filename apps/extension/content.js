@@ -13,11 +13,65 @@
 // (Chinese ↔ English schools / companies / degrees / names) lives in
 // lib/cross-lingual.js. LLM batch fallback (matchWithCache) lives in
 // lib/llm-match.js (only invoked when handleFill is called with
-// aiTakeover: true and chrome.storage.local.aiSettings.enabled).
+// aiTakeover: true. It prefers Landed.app + local Ollama, then uses the
+// explicitly configured remote provider as an optional fallback.
 const FD = window.ResumeFillerFieldDetect;
 const { normalize, getFieldLabel, matchResumeKey } = FD;
 const VM = window.ResumeFillerValueMatch;
 const CL = window.ResumeFillerCrossLingual;
+let landedFieldCounter = 0;
+
+function fieldId(el) {
+  const existing = el.getAttribute('data-landed-field-id');
+  if (existing) return existing;
+  const id = `landed-${++landedFieldCounter}`;
+  el.setAttribute('data-landed-field-id', id);
+  return id;
+}
+
+function markField(el, status) {
+  if (!el || !el.setAttribute) return;
+  if (!document.getElementById('landed-apply-assist-styles')) {
+    const style = document.createElement('style');
+    style.id = 'landed-apply-assist-styles';
+    style.textContent = [
+      '[data-landed-status="filled"] { outline: 2px solid #2f9e67 !important; outline-offset: 2px !important; }',
+      '[data-landed-status="review"] { outline: 2px solid #d39b22 !important; outline-offset: 2px !important; }',
+    ].join('\n');
+    (document.head || document.documentElement).appendChild(style);
+  }
+  fieldId(el);
+  el.setAttribute('data-landed-status', status);
+}
+
+function addManual(manual, el, label, hint, value) {
+  const text = String(label || '').trim();
+  if (!text) return;
+  markField(el, 'review');
+  const id = fieldId(el);
+  const existing = manual.find((item) => item.id === id);
+  if (existing) {
+    if (existing.hint === '未匹配' && hint !== '未匹配') existing.hint = hint;
+    if (existing.value == null && value != null) existing.value = value;
+    return;
+  }
+  manual.push({ id, label: text, hint, value: value ?? null });
+}
+
+function isSensitiveLabel(label) {
+  const n = normalize(label || '');
+  return [
+    'salary', 'compensation', 'pay expectation', 'desired pay', '薪资', '薪酬', '期望工资',
+    'work authorization', 'authorized to work', 'sponsorship', 'visa', '工作许可', '签证',
+    'gender', 'sex', 'pronoun', 'race', 'ethnicity', '性别', '种族', '族裔', '代词',
+    'disability', 'veteran', '残障', '残疾', '退伍',
+    'social security', 'ssn', 'date of birth', 'birth date', '出生日期', '身份证',
+  ].some((keyword) => n.includes(normalize(keyword)));
+}
+
+function canAskModel(item) {
+  return !['敏感信息', '文件上传', '选择题'].includes(item.hint);
+}
 
 const MULTI_ENTRY_SECTIONS = [
   {
@@ -85,6 +139,8 @@ function fillField(el, value) {
   else el.value = value;
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
+  el.dispatchEvent(new Event('blur', { bubbles: true }));
+  markField(el, 'filled');
 }
 
 // ─── 原生 <select> 填值 ──────────────────────────────────────────────────────
@@ -101,6 +157,8 @@ function tryFillSelect(el, value) {
   el.value = result.candidate.raw.value;
   el.dispatchEvent(new Event('change', { bubbles: true }));
   el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('blur', { bubbles: true }));
+  markField(el, 'filled');
   return true;
 }
 
@@ -138,6 +196,7 @@ async function tryFillCombobox(el, value) {
     target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     target.click();
     target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    markField(el, 'filled');
     return true;
   }
 
@@ -433,9 +492,17 @@ function getVisibleInputs() {
 function fillInputBatch(inputs, flat, filled, manual, skipSet) {
   for (const el of inputs) {
     if (skipSet && skipSet.has(el)) continue;
+    const label = getFieldLabel(el) || el.name || el.id || '';
+    if (el instanceof HTMLInputElement && el.type === 'file') {
+      addManual(manual, el, label || '文件上传', '文件上传', null);
+      continue;
+    }
+    if (isSensitiveLabel(label)) {
+      addManual(manual, el, label, '敏感信息', null);
+      continue;
+    }
     if (isDateField(el)) {
-      const label = getFieldLabel(el) || el.name || el.id || '日期字段';
-      manual.push({ label: String(label).trim(), hint: '日期', value: null });
+      addManual(manual, el, label || '日期字段', '日期', null);
       continue;
     }
     const match = matchResumeKey(el);
@@ -445,12 +512,11 @@ function fillInputBatch(inputs, flat, filled, manual, skipSet) {
       fillField(el, value);
       filled.push(key);
     } else {
-      const label = getFieldLabel(el);
       if (label && String(label).trim().length > 0) {
         const n = normalize(label);
         const boring = ['search', 'captcha', 'verify', 'code', 'password', 'username'].some(k => n.includes(k));
         if (!boring) {
-          manual.push({ label: String(label).trim(), hint: '未匹配', value: null });
+          addManual(manual, el, label, '未匹配', null);
         }
       }
     }
@@ -692,6 +758,11 @@ async function handleFill(resumeData, customFields, opts) {
     // 年/月 select 交给日期模块处理
     if (isYearSelect(el) || isMonthSelect(el)) continue;
 
+    if (isSensitiveLabel(label)) {
+      addManual(manual, el, label, '敏感信息', null);
+      continue;
+    }
+
     const match = matchResumeKey(el);
     const key = match && match.key;
     if (key && flat[key]) {
@@ -702,7 +773,7 @@ async function handleFill(resumeData, customFields, opts) {
       }
     }
     const hint = key ? flat[key] || '—' : '—';
-    manual.push({ label: String(label).trim(), hint: '下拉框', value: hint });
+    addManual(manual, el, label, '下拉框', hint);
   }
 
   // Phase 3：combobox / 自定义下拉
@@ -713,12 +784,20 @@ async function handleFill(resumeData, customFields, opts) {
   ).filter(el => el.offsetParent && el.tagName.toLowerCase() !== 'select');
 
   for (const el of comboboxes) {
+    const label = getFieldLabel(el) || '下拉选择';
+    if (isSensitiveLabel(label)) {
+      addManual(manual, el, label, '敏感信息', null);
+      continue;
+    }
     const match = matchResumeKey(el);
     const key = match && match.key;
     if (key && flat[key]) {
-      const value = CL.maybeTranslate(key, flat[key], getFieldLabel(el));
+      const value = CL.maybeTranslate(key, flat[key], label);
       const ok = await tryFillCombobox(el, value);
       if (ok) filled.push(key);
+      else addManual(manual, el, label, '自定义下拉框', value);
+    } else {
+      addManual(manual, el, label, '自定义下拉框', null);
     }
   }
 
@@ -727,11 +806,7 @@ async function handleFill(resumeData, customFields, opts) {
     const label = getFieldLabel(el) || '富文本编辑器';
     const match = matchResumeKey(el);
     const key = match && match.key;
-    manual.push({
-      label: String(label).trim(),
-      hint: '富文本',
-      value: key && flat[key] ? flat[key] : null,
-    });
+    addManual(manual, el, label, '富文本', key && flat[key] ? flat[key] : null);
   }
 
   // Phase 5：日期 select + 多条目（合并处理，按 section 定位容器避免乱填）
@@ -739,6 +814,20 @@ async function handleFill(resumeData, customFields, opts) {
     ? window.normalizeResume(resumeData)
     : null;
   if (resume) await fillAllSectionDates(resume, filled);
+
+  // Phase 6: radio/checkbox choices stay human-reviewed in this first
+  // release. We surface them instead of guessing demographic, consent, or
+  // work-authorization answers. Date "current/present" boxes are handled
+  // above and omitted once selected.
+  const choiceInputs = /** @type {HTMLInputElement[]} */ (
+    Array.from(document.querySelectorAll('input[type="checkbox"], input[type="radio"]'))
+  );
+  for (const el of choiceInputs) {
+    if (!el.offsetParent) continue;
+    const label = getFieldLabel(el) || el.parentElement?.textContent?.trim() || el.name || '选择题';
+    if (el.checked && /至今|present|current|ongoing/i.test(label)) continue;
+    addManual(manual, el, label, isSensitiveLabel(label) ? '敏感信息' : '选择题', null);
+  }
 
   // Phase 7：user-learned custom fields and label→resumeKey mappings.
   // customFields: { section: { label: literalValue } } — value is fixed.
@@ -787,19 +876,25 @@ async function handleFill(resumeData, customFields, opts) {
     }
   }
 
-  // Phase 8 (optional, #9): LLM batch fallback for unmatched labels.
-  // Runs only when the popup explicitly requested aiTakeover AND the
-  // user has enabled AI in options. Failures degrade silently — the
-  // user sees the original manual list.
+  // Explicit custom answers and learned mappings run after the generic scan.
+  // If one resolved a field, do not keep its earlier review entry or send it
+  // to either model fallback.
+  for (let i = manual.length - 1; i >= 0; i--) {
+    const target = document.querySelector(`[data-landed-field-id="${manual[i].id}"]`);
+    if (target?.getAttribute('data-landed-status') === 'filled') manual.splice(i, 1);
+  }
+
+  // Phase 8 (optional, #9): typed local-model fallback for unmatched
+  // labels. Failures degrade silently — the user sees the manual list.
   if (opts.aiTakeover) {
     const aiFilled = await runLLMFallback(manual, flat);
     if (aiFilled.length > 0) {
       filled.push(...aiFilled);
       // Drop AI-filled entries from the manual list so the popup UI
       // doesn't ask the user to handle them again.
-      const filledLabelSet = new Set(aiFilled.map((s) => s.replace(/^ai:/, '')));
+      const filledIdSet = new Set(aiFilled.map((s) => s.replace(/^ai:/, '')));
       for (let i = manual.length - 1; i >= 0; i--) {
-        if (filledLabelSet.has(manual[i].label)) manual.splice(i, 1);
+        if (filledIdSet.has(manual[i].id)) manual.splice(i, 1);
       }
     }
   }
@@ -808,10 +903,40 @@ async function handleFill(resumeData, customFields, opts) {
 }
 
 async function runLLMFallback(manual, flat) {
+  if (!manual || manual.length === 0) return [];
+  const modelEligible = manual.filter(canAskModel);
+  if (modelEligible.length === 0) return [];
+
+  // Prefer the local Landed.app bridge. The model only selects an existing
+  // resume key; native-host.ts validates that key and returns the original
+  // value, so page text cannot persuade it to invent an application fact.
+  const native = await new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({
+        action: 'native-assist',
+        request: {
+          type: 'match_fields',
+          fields: modelEligible.map((m) => ({ id: m.id, label: m.label, kind: m.hint })),
+          resume: flat,
+        },
+      }, (response) => {
+        void chrome.runtime.lastError;
+        resolve(response || null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+  if (native && native.ok && native.values) {
+    const filled = await applySuggestedValues(modelEligible, native.values, true);
+    if (filled.length > 0) return filled;
+  }
+
+  // Existing remote-provider fallback remains available for people without
+  // Landed.app/Ollama, but only when they explicitly enabled it in options.
   const LP = window.ResumeFillerLLMProviders;
   const LM = window.ResumeFillerLLMMatch;
   if (!LP || !LM) return [];
-  if (!manual || manual.length === 0) return [];
 
   const settings = await new Promise((resolve) => {
     try {
@@ -822,24 +947,28 @@ async function runLLMFallback(manual, flat) {
   });
   if (!settings || !settings.enabled) return [];
 
-  const labels = manual.map((m) => m.label).filter(Boolean);
+  const labels = modelEligible.map((m) => m.label).filter(Boolean);
   if (labels.length === 0) return [];
   const domain = (typeof location !== 'undefined' && location.hostname) || '_';
 
   const values = await LM.matchWithCache(domain, labels, flat, settings);
   if (!values || Object.keys(values).length === 0) return [];
 
+  const byId = {};
+  for (const item of modelEligible) {
+    const value = values[item.label];
+    if (typeof value === 'string' && value.trim()) byId[item.id] = value;
+  }
+  return applySuggestedValues(manual, byId, false);
+}
+
+async function applySuggestedValues(manual, values, structured) {
   const aiFilled = [];
-  // Re-traverse fields and apply LLM-proposed values to whichever
-  // matching label we can find.
-  const allFields = Array.from(
-    document.querySelectorAll(
-      'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), select, textarea, [contenteditable="true"], [role="combobox"], [aria-haspopup="listbox"]'
-    )
-  );
-  for (const [label, value] of Object.entries(values)) {
+  for (const item of manual) {
+    const raw = values[item.id];
+    const value = structured ? raw && raw.value : raw;
     if (typeof value !== 'string' || !value.trim()) continue;
-    const target = allFields.find((el) => getFieldLabel(el) === label);
+    const target = document.querySelector(`[data-landed-field-id="${item.id}"]`);
     if (!target) continue;
     const tag = target.tagName.toLowerCase();
     let ok = false;
@@ -848,10 +977,13 @@ async function runLLMFallback(manual, flat) {
     } else if (target.getAttribute('role') === 'combobox' || target.getAttribute('aria-haspopup')) {
       ok = await tryFillCombobox(target, value);
     } else if (tag === 'input' || tag === 'textarea') {
+      if (target instanceof HTMLInputElement && ['file', 'checkbox', 'radio'].includes(target.type)) {
+        continue;
+      }
       fillField(target, value);
       ok = true;
     }
-    if (ok) aiFilled.push('ai:' + label);
+    if (ok) aiFilled.push('ai:' + item.id);
   }
   return aiFilled;
 }
