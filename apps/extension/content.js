@@ -664,7 +664,7 @@ setTimeout(() => {
       // avoid the unchecked-runtime-error warning in DevTools.
       void chrome.runtime.lastError;
     });
-  } catch (e) {
+  } catch {
     // Never let portal-detection failure break the rest of content.js.
   }
 }, 0);

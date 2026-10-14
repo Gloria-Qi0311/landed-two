@@ -6,6 +6,7 @@ module.exports = [
   {
     ignores: [
       "node_modules/**",
+      "dist/**",
       "coverage/**",
       "assets/**",
       "icons/**",
@@ -21,7 +22,27 @@ module.exports = [
       globals: {
         ...globals.browser,
         ...globals.webextensions,
-        chrome: "readonly"
+        chrome: "readonly",
+        importScripts: "readonly"
+      },
+    },
+    rules: {
+      "no-unused-vars": ["error", {
+        argsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+        ignoreRestSiblings: true
+      }]
+    }
+  },
+  {
+    // These browser scripts also expose CommonJS exports for Jest. Keep the
+    // runtime code usable through importScripts while teaching ESLint about
+    // the two test-only globals instead of disabling no-undef wholesale.
+    files: ["lib/**/*.js"],
+    languageOptions: {
+      globals: {
+        module: "readonly",
+        require: "readonly"
       }
     }
   },

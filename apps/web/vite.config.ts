@@ -6,6 +6,35 @@ import react from '@vitejs/plugin-react'
 // so the app is always same-origin with the API and the session cookie.
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rolldownOptions: {
+      output: {
+        // The initial route needs React, local storage/query state, and the
+        // draggable board. Keep those stable dependency families separate
+        // from Landed's code so no single entry chunk dominates downloads
+        // and repeat deployments can reuse the vendor cache.
+        codeSplitting: {
+          groups: [
+            {
+              name: 'react',
+              test: /node_modules[\\/](?:react|react-dom|react-router|react-router-dom|scheduler)[\\/]/,
+              priority: 30,
+            },
+            {
+              name: 'data',
+              test: /node_modules[\\/](?:dexie|zod|@tanstack)[\\/]/,
+              priority: 20,
+            },
+            {
+              name: 'drag-drop',
+              test: /node_modules[\\/]@dnd-kit[\\/]/,
+              priority: 20,
+            },
+          ],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     strictPort: false,

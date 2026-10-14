@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { lazy, Suspense, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
@@ -11,8 +11,6 @@ import { useResumeTaskRunner } from './hooks/resumes';
 import { useAgentChatRunner } from './hooks/conversations';
 import { useSearchRunner } from './hooks/search';
 import { useAutomationRunner } from './hooks/automation';
-import { AgentPage } from './components/agent-page';
-import { AutomationPage } from './components/automation-page';
 import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
 import { useAuth } from './lib/auth';
@@ -33,12 +31,18 @@ import { Icon } from './components/primitives';
 import { KanbanView } from './components/kanban';
 import { DetailDrawer } from './components/drawer';
 import { AddApplicationModal } from './components/add-application-modal';
-import { ResumesPage } from './components/resumes-page';
 import {
   EmptyApplicationsView,
 } from './components/empty-states';
 import { COMPANIES as COMPANY_CATALOG } from './data';
 import { AuthorizeAgentPage } from './components/authorize-agent';
+
+// Keep the applications board as the fast default route. The three heavier
+// workspaces are only downloaded when the user opens them; Resume in
+// particular brings document parsing code that the board never needs.
+const AgentPage = lazy(() => import('./components/agent-page').then((m) => ({ default: m.AgentPage })));
+const AutomationPage = lazy(() => import('./components/automation-page').then((m) => ({ default: m.AutomationPage })));
+const ResumesPage = lazy(() => import('./components/resumes-page').then((m) => ({ default: m.ResumesPage })));
 
 // Preview empty states via `?preview=empty` URL param — used by the
 // screenshot harness. Real empty states render when the data layer returns
@@ -243,33 +247,35 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
             <button type="button" className="btn-secondary" onClick={() => setAccountError(null)}>Dismiss</button>
           </div>
         )}
-        <Routes>
-          <Route path="/" element={<Navigate to="/applications" replace />} />
-          <Route
-            path="/applications"
-            element={
-              <ApplicationsPage
-                apps={apps}
-                companies={companies}
-                isLoading={appsQuery.isLoading}
-                onOpenApp={setOpenApp}
-                onMoveCard={(id, stage) => updateApp.mutate({ id, patch: { stage } })}
-                onOpenAddModal={() => setAddModalOpen(true)}
-                onImportDemo={() => importDemo.mutate()}
-                importing={importDemo.isPending}
-              />
-            }
-          />
-          <Route path="/resumes" element={<ResumesPage />} />
-          {/* Removed pages: old links land somewhere useful. */}
-          <Route path="/resume-match" element={<Navigate to="/resumes" replace />} />
-          <Route path="/sync" element={<Navigate to="/applications" replace />} />
-          <Route path="/jd-breakdown" element={<Navigate to="/applications" replace />} />
-          <Route path="/agent" element={<AgentPage />} />
-          <Route path="/automation" element={<AutomationPage />} />
-          <Route path="/agents" element={<Navigate to="/agent?view=settings" replace />} />
-          <Route path="*" element={<Navigate to="/applications" replace />} />
-        </Routes>
+        <Suspense fallback={<div style={{ padding: 28, color: 'var(--text-muted)' }}>Loading…</div>}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/applications" replace />} />
+            <Route
+              path="/applications"
+              element={
+                <ApplicationsPage
+                  apps={apps}
+                  companies={companies}
+                  isLoading={appsQuery.isLoading}
+                  onOpenApp={setOpenApp}
+                  onMoveCard={(id, stage) => updateApp.mutate({ id, patch: { stage } })}
+                  onOpenAddModal={() => setAddModalOpen(true)}
+                  onImportDemo={() => importDemo.mutate()}
+                  importing={importDemo.isPending}
+                />
+              }
+            />
+            <Route path="/resumes" element={<ResumesPage />} />
+            {/* Removed pages: old links land somewhere useful. */}
+            <Route path="/resume-match" element={<Navigate to="/resumes" replace />} />
+            <Route path="/sync" element={<Navigate to="/applications" replace />} />
+            <Route path="/jd-breakdown" element={<Navigate to="/applications" replace />} />
+            <Route path="/agent" element={<AgentPage />} />
+            <Route path="/automation" element={<AutomationPage />} />
+            <Route path="/agents" element={<Navigate to="/agent?view=settings" replace />} />
+            <Route path="*" element={<Navigate to="/applications" replace />} />
+          </Routes>
+        </Suspense>
       </main>
 
       {openApp && (
