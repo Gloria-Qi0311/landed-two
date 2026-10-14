@@ -10,6 +10,7 @@
 import { create } from 'zustand'
 import { titleFrom, type ChatTurn } from '@landed/schema/conversation'
 import type { DataStore, DbConversation } from './store/types'
+import type { Attachment } from './chat-images'
 import { runOnComputer } from '../hooks/runtimes'
 
 export type Turn = ChatTurn & { pending?: boolean }
@@ -25,7 +26,7 @@ type ChatState = {
   bind: (userId: string, binding: Binding) => void
   open: (conv: DbConversation) => void
   newChat: () => void
-  send: (runtimeId: string, agentId: string, message: string, saved?: DbConversation) => Promise<void>
+  send: (runtimeId: string, agentId: string, message: string, saved?: DbConversation, images?: Attachment[]) => Promise<void>
 }
 
 let binding: Binding | null = null
@@ -85,9 +86,9 @@ export const useAgentChat = create<ChatState>((set, get) => {
       set({ activeId: null })
     },
 
-    async send(runtimeId, agentId, message, saved) {
+    async send(runtimeId, agentId, message, saved, images = []) {
       const text = message.trim()
-      if (!text) return
+      if (!text && images.length === 0) return
       const id = get().activeId ?? crypto.randomUUID()
       const before = get().live[id] ?? (saved ? { title: saved.title, turns: saved.turns, created_at: saved.created_at } : null)
       if (before?.turns.some((t) => t.pending)) return
@@ -97,9 +98,14 @@ export const useAgentChat = create<ChatState>((set, get) => {
         live: {
           ...s.live,
           [id]: {
-            title: before?.title ?? titleFrom(text),
+            title: before?.title ?? titleFrom(text || 'Screenshot'),
             created_at: before?.created_at,
-            turns: [...(before?.turns ?? []), { role: 'user', text }, { role: 'agent', text: '', pending: true }],
+            turns: [
+              ...(before?.turns ?? []),
+              // The conversation keeps small previews; the images go to the agent once.
+              { role: 'user', text, ...(images.length ? { images: images.map(({ name, thumb }) => ({ name, thumb })) } : {}) },
+              { role: 'agent', text: '', pending: true },
+            ],
           },
         },
       }))
@@ -111,7 +117,8 @@ export const useAgentChat = create<ChatState>((set, get) => {
           if (!conv) return s
           return { live: { ...s.live, [id]: { ...conv, turns: conv.turns.map((t, i) => (i === conv.turns.length - 1 ? fn(t) : t)) } } }
         })
-      await runOnComputer(runtimeId, agentId, 'chat', { conversation_id: id, message: text, history }, (e) => {
+      const sent = images.map(({ type, data_base64 }) => ({ type, data_base64 }))
+      await runOnComputer(runtimeId, agentId, 'chat', { conversation_id: id, message: text, history, ...(sent.length ? { images: sent } : {}) }, (e) => {
         if (e.type === 'delta') update((t) => ({ ...t, text: t.text + e.text }))
         if (e.type === 'tool') update((t) => ({ ...t, tools: [...(t.tools ?? []), e.name] }))
         if (e.type === 'done') {

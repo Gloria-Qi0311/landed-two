@@ -1262,6 +1262,16 @@ describe('agent chat history (Cloud)', () => {
     const job = JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
     assert.equal(job.input.history.length, 24)
     assert.deepEqual(job.input.history.at(-1), { role: 'agent', text: 'turn 29' })
+
+    // Screenshots ride along (a message may be just the screenshot); bad ones are refused.
+    const png = Buffer.from('png bytes').toString('base64')
+    const post = (input: Record<string, unknown>) => call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), ...input } } })
+    assert.equal((await post({ message: '', images: [{ type: 'image/png', data_base64: png }] })).status, 202)
+    buf = ''
+    const withImage = JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
+    assert.deepEqual(withImage.input.images, [{ type: 'image/png', data_base64: png }])
+    assert.equal((await post({ message: 'x', images: [{ type: 'text/html', data_base64: png }] })).status, 400)
+    assert.equal((await post({ message: '' })).status, 400)
     reader.cancel().catch(() => {})
     abort.abort()
   })

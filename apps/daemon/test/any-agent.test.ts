@@ -250,3 +250,14 @@ test('user-added ACP agents: well-formed entries only, and never in place of Cla
   writeFileSync(file, 'not json')
   assert.deepEqual(userAcpAgents(file), [])
 })
+
+test('specFor chat with screenshots: image files for Codex/ACP, removed afterwards', async () => {
+  const { existsSync } = await import('node:fs')
+  const spec = specFor({ id: 'img-task', agent: 'x', kind: 'chat', input: { message: '', history: [], images: [{ type: 'image/png', data_base64: Buffer.from('png').toString('base64') }] } })
+  assert.ok(typeof spec === 'object')
+  assert.match(spec.prompt, /screenshot/)
+  assert.equal(spec.images?.length, 1)
+  assert.ok(spec.images![0].endsWith('.png') && existsSync(spec.images![0]))
+  spec.cleanup?.()
+  assert.ok(!existsSync(spec.images![0]))
+})

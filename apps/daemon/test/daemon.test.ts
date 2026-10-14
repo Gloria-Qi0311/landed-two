@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  CHROME_READ_TOOLS, chatWithHistory, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
+  CHROME_READ_TOOLS, chatImages, chatWithHistory, claudeImageMessage, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
   initHasServer, isReadOnlyTool, parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
@@ -175,4 +175,20 @@ test('coalesce merges consecutive deltas only', () => {
     { type: 'started', agent: 'claude' }, { type: 'delta', text: 'a' }, { type: 'delta', text: 'b' },
     { type: 'tool', name: 'WebSearch' }, { type: 'delta', text: 'c' },
   ]), [{ type: 'started', agent: 'claude' }, { type: 'delta', text: 'ab' }, { type: 'tool', name: 'WebSearch' }, { type: 'delta', text: 'c' }])
+})
+
+test('screenshots in a chat: one stream-json user message with image blocks; no file tools needed', () => {
+  const images = chatImages([{ type: 'image/png', data_base64: 'aGk=' }, { type: 'text/html', data_base64: 'eA==' }, null])
+  assert.deepEqual(images, [{ type: 'image/png', data_base64: 'aGk=' }])
+  const line = claudeImageMessage('add this application', images)
+  assert.ok(line.endsWith('\n'))
+  assert.deepEqual(JSON.parse(line), {
+    type: 'user',
+    message: { role: 'user', content: [
+      { type: 'text', text: 'add this application' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGk=' } },
+    ] },
+  })
+  // The chat's tools stay the web ones: images arrive in the message, not as files.
+  assert.ok(!claudeChatArgs(crypto.randomUUID(), false).includes('Read'))
 })

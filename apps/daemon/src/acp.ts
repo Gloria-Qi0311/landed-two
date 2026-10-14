@@ -247,7 +247,7 @@ export function acpPrompt(spec: Spec): string {
   ].join('\n')
 }
 
-const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
+const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
 
 export async function runAcp(agent: AcpAgent, spec: Spec, emit: (e: TaskEvent) => void): Promise<void> {
   emit({ type: 'started', agent: agent.id })
@@ -324,7 +324,7 @@ export async function runAcp(agent: AcpAgent, spec: Spec, emit: (e: TaskEvent) =
       sessionId = session.sessionId
       const content: unknown[] = [{ type: 'text', text: acpPrompt(spec) }]
       if (spec.images?.length) {
-        if (opened.init.agentCapabilities?.promptCapabilities?.image !== true) throw new Error(`${agent.label} can't read images. Try a PDF or Word file.`)
+        if (opened.init.agentCapabilities?.promptCapabilities?.image !== true) throw new Error(`${agent.label} can't read images.`)
         for (const file of spec.images) {
           const ext = file.split('.').pop()?.toLowerCase() ?? ''
           content.push({ type: 'image', mimeType: IMAGE_TYPES[ext] ?? 'image/png', data: readFileSync(file).toString('base64') })

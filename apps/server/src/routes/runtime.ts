@@ -25,7 +25,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { parseEmailCheckInput, parseEmailFindings } from '@landed/schema/email-check'
 import { parseLooseResume, parseMasterResume, parseResumeParseInput, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'
-import { parseChatHistory } from '@landed/schema/conversation'
+import { MAX_CHAT_IMAGES, parseChatHistory, parseChatImages } from '@landed/schema/conversation'
 import { parseSyncInput, parseSyncOutput } from '@landed/schema/automation'
 import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { Hono, type Context } from 'hono'
@@ -103,13 +103,18 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
     // Only validated fields reach the daemon — never the raw body.
     let input: Record<string, unknown>
     if (body.kind === 'chat') {
-      if (typeof raw.message !== 'string' || !raw.message.trim()) fail(400, 'input.message is required')
+      // Screenshots (e.g. an application with no confirmation email) go to the agent once, with the message.
+      const images = parseChatImages(raw.images)
+      if (Array.isArray(raw.images) && raw.images.length && images.length !== Math.min(raw.images.length, MAX_CHAT_IMAGES)) {
+        fail(400, `input.images: PNG, JPEG, WebP or GIF, at most ${MAX_CHAT_IMAGES}, about 3 MB each`)
+      }
+      if (typeof raw.message !== 'string' || (!raw.message.trim() && images.length === 0)) fail(400, 'input.message is required')
       if (raw.message.length > MAX_MESSAGE) fail(400, `input.message is too long (max ${MAX_MESSAGE})`)
       if (typeof raw.conversation_id !== 'string' || !UUID.test(raw.conversation_id)) {
         fail(400, 'input.conversation_id must be a uuid')
       }
       // Recent turns, for a computer that doesn't have this conversation's session.
-      input = { message: raw.message, conversation_id: raw.conversation_id, history: parseChatHistory(raw.history) }
+      input = { message: raw.message, conversation_id: raw.conversation_id, history: parseChatHistory(raw.history), ...(images.length ? { images } : {}) }
     } else if (body.kind === 'automation_sync') {
       const sync = parseSyncInput(raw)
       if (!sync) fail(400, 'input needs runtime_id, automations and context')

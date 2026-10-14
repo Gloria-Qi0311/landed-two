@@ -12,6 +12,7 @@ import {
 import type { EmailFinding } from '@landed/schema/email-check'
 import type { PortalResult } from '@landed/schema/portal-check'
 import { describeFoundJob, type FoundJob } from '@landed/schema/search-brief'
+import type { ReportedApplication } from '@landed/schema/reported-application'
 import type { DataStore, DbApplication, DbJobLead, DbSuggestion } from './store/types'
 
 const strip = <T extends { user_id: string }>({ user_id: _, ...rest }: T) => rest
@@ -569,3 +570,65 @@ export async function undoSuggestion(store: DataStore, s: DbSuggestion, applicat
 
 export const canUndo = (s: DbSuggestion) =>
   (s.state === 'accepted' || s.state === 'auto_applied') && !!s.previous_stage && !!s.application_id
+
+// ── applications the user showed their agent (screenshots) ────────────────
+// Some sites send no confirmation email: the user shares a screenshot in the
+// Agent chat, the agent reads it (```landed-applications block,
+// packages/schema/src/reported-application.ts), and the card on the Agent
+// page adds it here — only when the user clicks.
+
+export type ReportedMatch =
+  | { kind: 'new' }
+  | { kind: 'lead'; lead: DbJobLead }
+  | { kind: 'existing'; app: DbApplication; forward: boolean }
+
+const REPORTED_ORDER = ['saved', 'applied', 'oa', 'interview', 'offer']
+const MIN_ROLE_SIMILARITY = 0.6
+
+/** Would moving `current` to what the screenshot shows be news? */
+export function isForward(current: string, shown: string): boolean {
+  if (current === shown) return false
+  if (shown === 'rejected') return current !== 'rejected'
+  if (current === 'rejected' || current === 'ghosted') return REPORTED_ORDER.includes(shown) && shown !== 'saved'
+  return REPORTED_ORDER.indexOf(shown) > REPORTED_ORDER.indexOf(current)
+}
+
+/** Is it already in Landed? Same employer and the same link or a close
+ *  enough role. Stricter than email matching: another role at the same
+ *  company is another application. */
+export function matchReported(
+  r: ReportedApplication, apps: DbApplication[], companies: { id: string; name: string }[], leads: DbJobLead[],
+): ReportedMatch {
+  const key = companyKey(r.company)
+  const ids = new Set(companies.filter((c) => companyKey(c.name) === key).map((c) => c.id))
+  const ats = atsJobKey(r.job_url)
+  const url = canonicalUrl(r.job_url)
+  const app = apps.find((a) => ids.has(a.company_id) && (
+    (ats && atsJobKey(a.portal_application_url) === ats) || (url && canonicalUrl(a.portal_application_url) === url) || titleSimilarity(a.role, r.role) >= MIN_ROLE_SIMILARITY))
+  if (app) return { kind: 'existing', app, forward: isForward(app.stage, r.stage) }
+  const lead = leads.find((l) => l.status === 'new' && l.company_key === key && ((ats && l.ats_key === ats) || titleSimilarity(l.title, r.role) >= MIN_ROLE_SIMILARITY))
+  return lead ? { kind: 'lead', lead } : { kind: 'new' }
+}
+
+/** Add it (or move the existing one along, or take its lead into the pipeline). */
+export async function addReportedApplication(store: DataStore, r: ReportedApplication): Promise<DbApplication> {
+  const [apps, companies, leads] = await Promise.all([store.listApplications(), store.listCompanies(), store.listJobLeads()])
+  const match = matchReported(r, apps, companies, leads)
+  const appliedAt = r.stage === 'saved' ? null : r.applied_on ? `${r.applied_on}T12:00:00.000Z` : new Date().toISOString()
+  let app: DbApplication
+  if (match.kind === 'existing') {
+    app = match.forward
+      ? await store.updateApplication(match.app.id, { stage: r.stage, applied_at: match.app.applied_at ?? appliedAt })
+      : match.app
+  } else if (match.kind === 'lead') {
+    app = await addLeadToPipeline(store, match.lead, r.stage)
+    if (r.applied_on || r.note) app = await store.updateApplication(app.id, { applied_at: appliedAt, ...(r.note ? { notes: r.note } : {}) })
+  } else {
+    app = await store.addApplication({ name: r.company }, {
+      role: r.role, stage: r.stage, applied_at: appliedAt, location: r.location, portal_application_url: r.job_url,
+      notes: r.note, source: 'Screenshot (Agent)', next_step: r.stage === 'saved' ? null : 'Awaiting response',
+    })
+  }
+  await settleQuestions(store) // e.g. a "did you apply?" for it
+  return app
+}

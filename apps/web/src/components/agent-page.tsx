@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { extractBrief } from '@landed/schema/search-brief'
+import { extractApplications } from '@landed/schema/reported-application'
 import { Icon } from './primitives'
 import { Markdown } from './markdown'
 import { PageHeader } from './shell'
@@ -18,6 +19,8 @@ import { BriefCard, SearchStatus } from './search-brief'
 import { PanelQuestions } from './panel-questions'
 import { PairingError, PairingSteps, RuntimePanel, usePairing } from './runtime-panel'
 import { AgentSettings } from './agent-settings'
+import { ReportedApplicationsCard } from './reported-applications'
+import { imagesFrom, MAX_CHAT_IMAGES, prepareImage, type Attachment } from '../lib/chat-images'
 import { useAuth } from '../lib/auth'
 import { formatRelative } from '../lib/time'
 import { deleteConversation, renameConversation, useAgentChat, type Turn } from '../lib/agent-chat'
@@ -281,6 +284,10 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
   const turns: Turn[] = live?.turns ?? saved?.turns ?? []
   const title = live?.title ?? saved?.title
   const [draft, setDraft] = useState('')
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const picker = useRef<HTMLInputElement>(null)
   const busy = turns.some((t) => t.pending)
   const scroller = useRef<HTMLDivElement>(null)
   const last = turns[turns.length - 1]
@@ -295,9 +302,23 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
   }, [activeId, turns.length, last?.text])
 
   const submit = (text = draft) => {
-    if (!text.trim() || busy || !runtime) return
+    if ((!text.trim() && attachments.length === 0) || busy || !runtime) return
     setDraft('')
-    void send(runtime.id, agentId, text, saved)
+    setAttachments([])
+    setAttachError(null)
+    void send(runtime.id, agentId, text, saved, attachments)
+  }
+  // Screenshots: the paperclip, paste (⌘V) or drop.
+  const attach = async (files: File[]) => {
+    if (!files.length || !runtime) return
+    const room = MAX_CHAT_IMAGES - attachments.length
+    setAttachError(files.length > room ? `Up to ${MAX_CHAT_IMAGES} screenshots per message.` : null)
+    try {
+      const ready = await Promise.all(files.slice(0, Math.max(0, room)).map(prepareImage))
+      setAttachments((a) => [...a, ...ready].slice(0, MAX_CHAT_IMAGES))
+    } catch (e) {
+      setAttachError((e as Error).message)
+    }
   }
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter is a new line; never send mid-IME composition (Chinese/Japanese input).
@@ -348,21 +369,56 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
                   <Icon name="search" size={10} /> {[...new Set(t.tools)].map((n) => (n === 'WebSearch' ? 'searched the web' : n === 'WebFetch' ? 'read a page' : n)).join(' · ')}
                 </div>
               ) : null}
+              {t.images?.length ? (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: t.text ? 6 : 0 }}>
+                  {t.images.map((img, k) => <img key={k} src={img.thumb} alt={img.name} title={img.name} style={{ height: 72, borderRadius: 6, border: '0.5px solid var(--border)', display: 'block' }} />)}
+                </div>
+              ) : null}
               {t.role === 'agent' && !t.error ? <AgentReply text={t.text} pending={!!t.pending} latest={i === latestBrief} /> : t.text}
             </div>
           ))}
           <PanelQuestions />
         </div>
       </div>
-      <div style={{ padding: '10px 28px 16px', borderTop: '0.5px solid var(--border)' }}>
-        <div style={{ ...COLUMN, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} rows={2} disabled={!runtime}
-            placeholder={runtime ? `Message ${agentLabel}…` : 'Your computer is offline — start the Landed daemon to continue this chat'}
-            style={{ flex: 1, resize: 'none', padding: '9px 12px', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.5, maxHeight: 180, borderRadius: 10 }} />
-          <button type="button" className="btn-primary" onClick={() => submit()} disabled={busy || !draft.trim() || !runtime}
-            style={{ opacity: busy || !draft.trim() || !runtime ? 0.6 : 1 }}>
-            {busy ? '…' : 'Send'}
-          </button>
+      <div
+        style={{ padding: '10px 28px 16px', borderTop: '0.5px solid var(--border)', background: dragging ? 'var(--surface-2)' : undefined }}
+        onDragOver={(e) => { if (runtime && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); setDragging(true) } }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); void attach(imagesFrom(e.dataTransfer)) }}
+      >
+        <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(attachments.length > 0 || attachError || dragging) && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              {attachments.map((a, k) => (
+                <span key={k} style={{ position: 'relative', display: 'inline-flex' }}>
+                  <img src={a.thumb} alt={a.name} style={{ height: 56, borderRadius: 6, border: '0.5px solid var(--border)' }} />
+                  <button type="button" aria-label={`Remove ${a.name}`} onClick={() => setAttachments((list) => list.filter((_, j) => j !== k))}
+                    style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: 9, border: '0.5px solid var(--border)', background: 'var(--surface)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                    <Icon name="x" size={10} />
+                  </button>
+                </span>
+              ))}
+              {dragging && <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>Drop screenshots to attach</span>}
+              {attachError && <span role="alert" style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)' }}>{attachError}</span>}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <input ref={picker} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
+              onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
+            <button type="button" className="btn-secondary" aria-label="Attach screenshots" title="Attach screenshots (or paste / drop them)"
+              disabled={!runtime || busy || attachments.length >= MAX_CHAT_IMAGES} onClick={() => picker.current?.click()}
+              style={{ padding: '8px 9px', opacity: !runtime || busy || attachments.length >= MAX_CHAT_IMAGES ? 0.6 : 1 }}>
+              <Icon name="image" size={14} />
+            </button>
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} rows={2} disabled={!runtime}
+              onPaste={(e) => { const files = imagesFrom(e.clipboardData); if (files.length) { e.preventDefault(); void attach(files) } }}
+              placeholder={runtime ? `Message ${agentLabel}… (paste or drop screenshots, e.g. an application with no confirmation email)` : 'Your computer is offline — start the Landed daemon to continue this chat'}
+              style={{ flex: 1, resize: 'none', padding: '9px 12px', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.5, maxHeight: 180, borderRadius: 10 }} />
+            <button type="button" className="btn-primary" onClick={() => submit()} disabled={busy || (!draft.trim() && !attachments.length) || !runtime}
+              style={{ opacity: busy || (!draft.trim() && !attachments.length) || !runtime ? 0.6 : 1 }}>
+              {busy ? '…' : 'Send'}
+            </button>
+          </div>
         </div>
       </div>
     </>
@@ -373,11 +429,14 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
 function AgentReply({ text, latest, pending }: { text: string; latest: boolean; pending: boolean }) {
   if (!text) return <span style={{ color: 'var(--fg-muted)' }}>{pending ? 'Thinking…' : '(no reply)'}</span>
   const reply = extractBrief(text)
+  const apps = extractApplications(reply.text)
   return (
     <>
-      {reply.text && <Markdown text={reply.text} />}
+      {apps.text && <Markdown text={apps.text} />}
       {reply.drafting && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Writing up your search brief…</div>}
+      {apps.drafting && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Reading your applications…</div>}
       {reply.brief && <BriefCard brief={reply.brief} latest={latest} />}
+      {apps.applications.length > 0 && <ReportedApplicationsCard applications={apps.applications} />}
     </>
   )
 }

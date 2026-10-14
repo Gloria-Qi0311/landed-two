@@ -11,6 +11,35 @@ export type ChatTurn = {
   /** tools the agent used for this reply (WebSearch, WebFetch…) */
   tools?: string[]
   error?: boolean
+  /** screenshots the user attached, as small previews (the full images go
+   *  to the agent once, with the message, and aren't kept) */
+  images?: { name: string; thumb: string }[]
+}
+
+/** An image attached to a chat message, as the task carries it. */
+export type ChatImage = { type: string; data_base64: string }
+
+export const MAX_CHAT_IMAGES = 4
+export const CHAT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+const MAX_IMAGE_B64 = 4_000_000 // ≈ 3 MB each
+const MAX_IMAGES_B64 = 8_000_000
+const MAX_THUMB = 40_000
+
+/** Validate a chat task's images: known types, base64, bounded in count and size. */
+export function parseChatImages(raw: unknown): ChatImage[] {
+  if (!Array.isArray(raw)) return []
+  const out: ChatImage[] = []
+  let total = 0
+  for (const img of raw.slice(0, MAX_CHAT_IMAGES)) {
+    if (!img || typeof img !== 'object') continue
+    const r = img as Record<string, unknown>
+    if (typeof r.type !== 'string' || !CHAT_IMAGE_TYPES.includes(r.type)) continue
+    if (typeof r.data_base64 !== 'string' || !r.data_base64 || r.data_base64.length > MAX_IMAGE_B64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(r.data_base64)) continue
+    total += r.data_base64.length
+    if (total > MAX_IMAGES_B64) break
+    out.push({ type: r.type, data_base64: r.data_base64 })
+  }
+  return out
 }
 
 export type Conversation = {
@@ -40,6 +69,13 @@ function turn(raw: unknown, maxText = MAX_TURN_TEXT): ChatTurn | null {
     if (tools.length) out.tools = tools
   }
   if (r.error === true) out.error = true
+  if (Array.isArray(r.images)) {
+    const images = r.images.slice(0, MAX_CHAT_IMAGES)
+      .filter((i): i is Record<string, unknown> => !!i && typeof i === 'object')
+      .filter((i) => typeof i.thumb === 'string' && i.thumb.length <= MAX_THUMB && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(i.thumb))
+      .map((i) => ({ name: typeof i.name === 'string' ? i.name.slice(0, 120) : 'image', thumb: i.thumb as string }))
+    if (images.length) out.images = images
+  }
   return out
 }
 
@@ -64,7 +100,10 @@ export function parseConversation(raw: unknown): Omit<Conversation, 'created_at'
  *  turns (errors left out), bounded in count and size. */
 export function parseChatHistory(raw: unknown): { role: 'user' | 'agent'; text: string }[] {
   if (!Array.isArray(raw)) return []
-  const turns = raw.map((t) => turn(t, 8_000)).filter((t): t is ChatTurn => !!t && !t.error && !!t.text.trim()).slice(-HISTORY_TURNS)
+  const turns = raw.map((t) => turn(t, 8_000))
+    .filter((t): t is ChatTurn => !!t && !t.error && (!!t.text.trim() || !!t.images?.length))
+    .map((t) => (t.images?.length ? { ...t, text: `${t.text}${t.text ? '\n' : ''}[attached ${t.images.length === 1 ? 'a screenshot' : `${t.images.length} screenshots`}]` } : t))
+    .slice(-HISTORY_TURNS)
   // Keep the newest turns that fit.
   const out: { role: 'user' | 'agent'; text: string }[] = []
   let size = 0

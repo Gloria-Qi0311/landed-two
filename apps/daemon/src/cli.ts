@@ -29,7 +29,7 @@ import {
 } from './mac.ts'
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 
-const VERSION = '0.6.2'
+const VERSION = '0.7.0'
 const MAX_PARALLEL = 2
 
 const describe = (agents: AgentInfo[]) =>
