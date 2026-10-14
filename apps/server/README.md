@@ -68,9 +68,17 @@ All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` 
 
 ## Production (Mac mini)
 
-1. `brew install postgresql@17 node pnpm cloudflared`, start Postgres with `brew services`, then `createdb landed`.
-2. Clone the repo, run `pnpm install && pnpm --filter @landed/web build`, and write `apps/server/.env` with `COOKIE_SECURE=true`.
-3. Run `node --env-file=.env src/index.ts` from `apps/server` under launchd with `KeepAlive`.
-4. Set up a Cloudflare Tunnel whose ingress points `https://<your-hostname>` at `http://127.0.0.1:8787`.
-5. Set `API_URL` in `apps/extension/lib/config.js` to that hostname and rebuild the extension.
-6. Back up Postgres on a schedule with `pg_dump`.
+Scripted in `deploy/mac-mini/` — from your own computer, with SSH key access to the mini (`ssh-copy-id <user>@<mini>` once):
+
+1. `deploy/mac-mini/deploy.sh` pushes the current commit straight to `~/landed` on the mini (no GitHub in between) and runs `setup.sh` there. `setup.sh` is safe to re-run; each deploy is the same command. It:
+   - installs Postgres 17, Node and pnpm from Homebrew and creates the database `landed`;
+   - writes `apps/server/.env` once, with a fresh `SECRETS_KEY`, `COOKIE_SECURE=true` and `SIGNUP=first-only`;
+   - builds the web app and Landed for Mac (served at `/api/downloads/landed-mac.zip`);
+   - runs the server under launchd (`dev.landed.server`, KeepAlive), with logs in `~/Library/Logs/Landed`;
+   - backs up the database every night at 03:30 (`dev.landed.backup`, keeping 14 days in `~/Landed-backups`);
+   - checks `/api/health`.
+2. Make Landed public, on the mini: `deploy/mac-mini/tunnel.sh cloudflare <hostname>` (Cloudflare Tunnel on your domain; `dev.landed.tunnel`) or `deploy/mac-mini/tunnel.sh funnel` (Tailscale Funnel, no domain needed).
+3. Set the public address: `PUBLIC_URL=https://<hostname> deploy/mac-mini/deploy.sh`. Cloud agents' OAuth and MCP metadata use it.
+4. Add the origin to the extension's `WEB_ORIGINS` / `API_URL` (`apps/extension/lib/config.js`) and to `manifest.json`, then reload the extension.
+
+LaunchAgents only run while the mini's user is logged in, so turn on automatic login and turn off sleep on the mini.
