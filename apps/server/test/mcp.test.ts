@@ -230,6 +230,7 @@ describe('MCP', () => {
     assert.equal(email.id, 'email_check')
     assert.deepEqual(email.applications, [{ company: 'Blorp', role: 'Engineer', stage: 'applied' }])
     assert.ok(Date.now() - Date.parse(email.since) > 13 * 86_400_000) // first check looks back two weeks
+    assert.ok(email.instructions.includes(`after:${Math.floor(Date.parse(email.since) / 1000)}`)) // exact, not a date
     assert.match(tasks.content[0].text, /submit with submit_jobs/)
 
     // Jobs: invalid ones dropped, repeats recognized.

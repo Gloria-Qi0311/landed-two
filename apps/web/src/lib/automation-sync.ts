@@ -32,6 +32,8 @@ type State = {
   stored: Record<string, Stored>
   /** kinds the user asked to run now, until a sync delivers the request */
   runNow: AutomationKind[]
+  /** with an email check in runNow: read this many days back, not from the last check */
+  rescanDays: number | null
 }
 
 type Env = {
@@ -87,11 +89,14 @@ function syncOne(target: SyncTarget, input: SyncInput): Promise<SyncOutput | nul
 }
 
 export const useAutomationSync = create<State>(() => ({
-  output: null, designated: null, synced_at: null, syncing: false, error: null, stored: {}, runNow: [],
+  output: null, designated: null, synced_at: null, syncing: false, error: null, stored: {}, runNow: [], rescanDays: null,
 }))
 
-export function requestRunNow(kind: AutomationKind) {
-  useAutomationSync.setState((s) => ({ runNow: [...new Set([...s.runNow, kind])] }))
+export function requestRunNow(kind: AutomationKind, opts: { rescanDays?: number } = {}) {
+  useAutomationSync.setState((s) => ({
+    runNow: [...new Set([...s.runNow, kind])],
+    ...(kind === 'email_check' ? { rescanDays: opts.rescanDays ?? null } : {}),
+  }))
 }
 
 /** One round: settings + context out (to every online computer), results in. */
@@ -107,7 +112,7 @@ export async function syncAutomations(env: Env): Promise<void> {
     }
     try {
       const context = await env.context()
-      const runNow = useAutomationSync.getState().runNow
+      const { runNow, rescanDays } = useAutomationSync.getState()
       const ack = acks
       let gotResults = false
       for (const target of targets) {
@@ -115,10 +120,11 @@ export async function syncAutomations(env: Env): Promise<void> {
         const out = await syncOne(target, {
           runtime_id: designated.runtime.id, automations: env.automations, context,
           run_now: mine ? runNow : [], ack: mine ? ack : [],
+          email_rescan_days: mine && runNow.includes('email_check') ? rescanDays : null,
         })
         if (!mine || !out) continue
         acks = acks.filter((id) => !ack.includes(id))
-        useAutomationSync.setState((s) => ({ runNow: s.runNow.filter((k) => !runNow.includes(k)) }))
+        useAutomationSync.setState((s) => ({ runNow: s.runNow.filter((k) => !runNow.includes(k)), rescanDays: null }))
         for (const result of out.results) {
           const stored = await storeResult(env, target, result)
           if (stored) {

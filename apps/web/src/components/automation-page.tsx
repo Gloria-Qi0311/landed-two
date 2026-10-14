@@ -215,6 +215,7 @@ function runner(designated: SyncTarget | null, kind: AutomationKind) {
 
 function EmailCard({ designated, targets, cloudLine }: CardProps) {
   const agent = runner(designated, 'email_check')
+  const queued = useAutomationSync((s) => s.runNow.includes('email_check') || !!s.output?.state.email_check?.running)
   const elsewhere = !agent && targets.some((t) => computerCan(t, 'email_check'))
   return (
     <AutomationCard
@@ -223,8 +224,18 @@ function EmailCard({ designated, targets, cloudLine }: CardProps) {
       blocker={agent || elsewhere ? null : <>Your agent can't read email yet. Connect Gmail in Claude (claude.ai → Settings → Connectors); your computer picks it up within 30 minutes.</>}
     >
       <Row label="Looks at">
-        Emails received since the last check, read-only{agent?.mail ? ` (${agent.mail}, through ${agent.label})` : ''}: confirmations, assessments,
-        interviews and their times, rejections, offers. It never sends, labels or deletes anything.
+        Emails received since the last check (each run starts an hour before the previous one, so nothing falls in between),
+        read-only{agent?.mail ? ` (${agent.mail}, through ${agent.label})` : ''}: confirmations, assessments, interviews and their times,
+        rejections, offers. It never sends, labels or deletes anything.
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, ...muted }}>
+          Think it missed something?
+          <button type="button" className="btn-secondary" disabled={!designated || !agent || queued}
+            onClick={() => requestRunNow('email_check', { rescanDays: 30 })}
+            style={{ fontSize: 11.5, padding: '1px 8px', opacity: !designated || !agent || queued ? 0.6 : 1 }}>
+            Re-read the last 30 days
+          </button>
+          <span>Emails it has seen before are recognized, not applied twice.</span>
+        </span>
       </Row>
       <Row label="Then"><AutoApplyChoice /></Row>
       {cloudLine && <Row label="Also">{cloudLine}</Row>}

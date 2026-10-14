@@ -37,7 +37,8 @@ test('runs what is due on the named computer, keeps results until acked', async 
   const out = sync()
   assert.equal(out.results.length, 1)
   assert.equal(out.results[0].findings?.length, 2)
-  assert.deepEqual([out.runs[0].status, out.runs[0].summary], ['ok', '2 application emails'])
+  assert.equal(out.runs[0].status, 'ok')
+  assert.match(out.runs[0].summary ?? '', /^2 application emails since \w{3} \d+, \d+:\d\d [AP]M$/) // the window read, in local time
   assert.ok(Date.parse(out.state.email_check!.next_run_at!) - Date.now() > 3.9 * 3_600_000)
   assert.equal(sync({ ack: [out.results[0].id] }).results.length, 0, 'acked results are dropped')
   assert.equal(statSync(join(process.env.LANDED_HOME!, 'automations.json')).mode & 0o777, 0o600)
@@ -108,4 +109,23 @@ test('portal checks: only quiet applications, refs not ids, not again until they
   assert.equal(after.runs[0].status, 'ok')
   assert.match(after.runs[0].summary ?? '', /No application/)
   assert.equal(after.results.length, 0)
+})
+
+test('re-reading: "run now" with email_rescan_days reads that far back once', async () => {
+  resetAutomationsForTests()
+  const calls: { kind: string; input: Record<string, unknown> }[] = []
+  setupAutomations({
+    runtimeId: 'rt-a', log: () => {},
+    runTask: async (task, emit) => { calls.push(task); emit({ type: 'done', text: '', findings: [] }) },
+  })
+  sync({ run_now: ['email_check'] })
+  await settle()
+  sync({ run_now: ['email_check'], email_rescan_days: 30 })
+  await settle()
+  assert.equal(calls.length, 2)
+  const back = (i: number) => (Date.now() - Date.parse(String(calls[i].input.since))) / 86_400_000
+  assert.ok(back(1) > 29.9 && back(1) < 30.1, 'the re-read goes 30 days back')
+  sync({ run_now: ['email_check'] })
+  await settle()
+  assert.ok(back(2) < 1.1, 'and the next check continues from the last one')
 })

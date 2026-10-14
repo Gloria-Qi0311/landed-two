@@ -189,7 +189,7 @@ export function buildTasks(briefing: Briefing | null, on: { job_search: boolean;
     const apps = briefing?.applications ?? []
     tasks.push({
       id: 'email_check', title: 'Check email for application updates', submit_with: 'submit_email_updates',
-      instructions: `${EMAIL_INSTRUCTIONS}\n\nRead emails received since ${emailSince.toISOString()}.\n\nThe user's applications in Landed, to help you recognize companies and roles (report other job-application emails too):\n${apps.length ? apps.map((a) => `- ${a.company} — ${a.role} (${a.stage})`).join('\n') : '(none yet)'}`,
+      instructions: `${EMAIL_INSTRUCTIONS}\n\nRead emails received since ${emailSince.toISOString()} — an exact moment: in Gmail search use after:${Math.floor(emailSince.getTime() / 1000)} (Unix seconds), not a date (a date means midnight and can skip emails).\n\nThe user's applications in Landed, to help you recognize companies and roles (report other job-application emails too):\n${apps.length ? apps.map((a) => `- ${a.company} — ${a.role} (${a.stage})`).join('\n') : '(none yet)'}`,
       since: emailSince.toISOString(),
       applications: apps,
     })

@@ -95,7 +95,9 @@ export function handleSync(input: SyncInput): SyncOutput {
   st.automations = parseAutomations(input.automations)
   st.context = input.context
   save()
-  if (input.runtime_id === myRuntimeId) for (const kind of input.run_now) void runAutomation(kind)
+  if (input.runtime_id === myRuntimeId) {
+    for (const kind of input.run_now) void runAutomation(kind, kind === 'email_check' && input.email_rescan_days ? { rescanDays: input.email_rescan_days } : {})
+  }
   return output()
 }
 
@@ -119,10 +121,16 @@ type Planned =
   /** nothing to do this time (not a failure) */
   | { skip: string }
 
-function inputFor(kind: AutomationKind, ctx: SyncContext, st: State): Planned {
+type RunOptions = { rescanDays?: number }
+
+function inputFor(kind: AutomationKind, ctx: SyncContext, st: State, opts: RunOptions = {}): Planned {
   if (kind === 'email_check') {
+    // From where the last check started (an hour of overlap), so windows
+    // never leave a gap; or further back when the user asks to re-read.
     const last = st.last_success.email_check
-    const since = last ? new Date(Date.parse(last) - EMAIL_OVERLAP_MS) : ctx.email_since ? new Date(ctx.email_since) : new Date(Date.now() - FIRST_EMAIL_LOOKBACK_MS)
+    const since = opts.rescanDays ? new Date(Date.now() - opts.rescanDays * 86_400_000)
+      : last ? new Date(Date.parse(last) - EMAIL_OVERLAP_MS)
+      : ctx.email_since ? new Date(ctx.email_since) : new Date(Date.now() - FIRST_EMAIL_LOOKBACK_MS)
     return { input: { since: since.toISOString(), applications: ctx.applications } }
   }
   if (kind === 'portal_check') {
@@ -139,14 +147,17 @@ function inputFor(kind: AutomationKind, ctx: SyncContext, st: State): Planned {
 
 const PAYLOAD: Record<AutomationKind, 'findings' | 'jobs' | 'results'> = { email_check: 'findings', job_search: 'jobs', portal_check: 'results' }
 
-function describeRun(kind: AutomationKind, n: number) {
+/** "Oct 13, 1:20 PM" in this computer's time zone (the user's). */
+const localTime = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+function describeRun(kind: AutomationKind, n: number, input: Record<string, unknown>) {
   const s = n === 1 ? '' : 's'
-  if (kind === 'email_check') return `${n} application email${s}`
+  if (kind === 'email_check') return `${n} application email${s} since ${localTime(String(input.since))}`
   if (kind === 'portal_check') return `${n} portal${s} checked`
   return `${n} job${s}`
 }
 
-async function runAutomation(kind: AutomationKind) {
+async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
   const st = s()
   if (running.has(kind) || !st.context || !runTaskFn) return
   const id = randomUUID()
@@ -154,7 +165,7 @@ async function runAutomation(kind: AutomationKind) {
   const run: AutomationRun = { id, kind, started_at: started, finished_at: null, status: 'running', summary: null, error: null }
   st.runs = [run, ...st.runs].slice(0, MAX_RUNS)
   const agent = pickAgent(kind)
-  const plan: Planned = agent ? inputFor(kind, st.context, st) : {
+  const plan: Planned = agent ? inputFor(kind, st.context, st, opts) : {
     error: kind === 'email_check' ? 'No agent on this computer can read your email (Claude Code with a Gmail connector can).'
       : kind === 'portal_check' ? "No agent on this computer can use Chrome (Claude Code with Claude in Chrome can)."
       : 'No agent on this computer can search for jobs.',
@@ -193,7 +204,7 @@ async function runAutomation(kind: AutomationKind) {
     st.outbox.push({ id, kind, started_at: started, finished_at: finished, summary: e.text, [PAYLOAD[kind]]: payload, ...(plan.items ? { items: plan.items } : {}) })
     for (const item of plan.items ?? []) (st.portal_checked ??= {})[item.application_id] = finished
     run.status = 'ok'
-    run.summary = describeRun(kind, kind === 'portal_check' ? plan.items?.length ?? payload.length : payload.length)
+    run.summary = describeRun(kind, kind === 'portal_check' ? plan.items?.length ?? payload.length : payload.length, input)
   } else {
     st.last_failure[kind] = finished
     run.status = 'error'

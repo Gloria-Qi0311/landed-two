@@ -495,8 +495,15 @@ export function emailPrompt(input: EmailCheckInput): string {
   const apps = input.applications.length
     ? input.applications.map((a) => `- ${a.company} — ${a.role} (${a.stage})`).join('\n')
     : '(none yet)'
+  // An exact moment, not a date: Gmail's after:YYYY/MM/DD means midnight in
+  // the user's time zone, and a UTC date can be the next day there — the
+  // evening before would be skipped. after:<Unix seconds> is exact.
+  const at = new Date(input.since)
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const local = at.toLocaleString('en-US', { timeZone: zone, dateStyle: 'medium', timeStyle: 'short' })
   return [
-    `Check the emails I received since ${input.since}.`,
+    `Check the emails I received since ${local} (my time zone, ${zone}; ${input.since} in UTC).`,
+    `Search from that exact moment: in Gmail use after:${Math.floor(at.getTime() / 1000)} (Unix seconds), not a date — a date means midnight and can skip emails. If your mail tool only takes dates, search from the day before and report only emails received at or after that moment.`,
     '',
     'My applications in Landed, to help you recognize companies and roles:',
     apps,

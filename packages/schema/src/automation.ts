@@ -126,7 +126,11 @@ export type SyncInput = {
   run_now: AutomationKind[]
   /** results the browser has stored — the daemon can drop them */
   ack: string[]
+  /** with run_now email_check: read this many days back instead of from the last check */
+  email_rescan_days: number | null
 }
+
+export const RESCAN_DAYS = [7, 30]
 
 export type AutomationResult = {
   id: string
@@ -192,6 +196,7 @@ export function parseSyncInput(raw: unknown): SyncInput | null {
     },
     run_now: (Array.isArray(r.run_now) ? r.run_now : []).filter(isKind),
     ack: (Array.isArray(r.ack) ? r.ack : []).filter((x): x is string => typeof x === 'string' && UUID.test(x)).slice(0, 200),
+    email_rescan_days: RESCAN_DAYS.includes(r.email_rescan_days as number) ? r.email_rescan_days as number : null,
   }
 }
 
