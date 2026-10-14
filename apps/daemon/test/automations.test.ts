@@ -129,3 +129,25 @@ test('re-reading: "run now" with email_rescan_days reads that far back once', as
   await settle()
   assert.ok(back(2) < 1.1, 'and the next check continues from the last one')
 })
+
+test('a new pairing starts fresh: no old results, runs or email window', async () => {
+  resetAutomationsForTests()
+  const calls: { kind: string; input: Record<string, unknown> }[] = []
+  const runTask = async (task: { kind: string; input: Record<string, unknown> }, emit: (e: never) => void) => {
+    calls.push(task)
+    emit({ type: 'done', text: '', findings: [{ company: 'Figma', status: 'interview' }] } as never)
+  }
+  setupAutomations({ runtimeId: 'rt-a', log: () => {}, runTask: runTask as never })
+  sync({ run_now: ['email_check'] })
+  await settle()
+  assert.equal(sync().results.length, 1, 'a result waits for the old account')
+
+  // Paired to another account (new runtime id): its browser sends its own context.
+  setupAutomations({ runtimeId: 'rt-new', log: () => {}, runTask: runTask as never })
+  const out = handleSync({ runtime_id: 'rt-new', automations, context: { ...context, email_since: null }, run_now: ['email_check'], ack: [] } as never)
+  assert.equal(out.results.length, 0, "the old account's results never reach the new one")
+  assert.equal(out.runs.filter((r: { status: string }) => r.status !== 'running').length, 0)
+  await settle()
+  const back = (Date.now() - Date.parse(String(calls[1].input.since))) / 86_400_000
+  assert.ok(back > 29, 'a new account reads 30 days back, not from the old account\'s last check')
+})

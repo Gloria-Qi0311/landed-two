@@ -16,6 +16,10 @@ import { home } from './config.ts'
 import type { Task, TaskEvent } from './agents.ts'
 
 type State = {
+  /** the pairing this state belongs to (this computer's runtime id): a new
+   *  pairing — another account or server — starts from nothing, so it
+   *  neither continues the old account's email window nor gets its results */
+  owner: string | null
   /** the computer that runs the schedule */
   runtime_id: string | null
   automations: Automations | null
@@ -36,7 +40,7 @@ const FIRST_EMAIL_LOOKBACK_MS = 30 * 86_400_000
 const EMAIL_OVERLAP_MS = 3_600_000
 
 const file = () => join(home(), 'automations.json')
-const empty = (): State => ({ runtime_id: null, automations: null, context: null, last_success: {}, last_failure: {}, outbox: [], runs: [], portal_checked: {} })
+const empty = (): State => ({ owner: null, runtime_id: null, automations: null, context: null, last_success: {}, last_failure: {}, outbox: [], runs: [], portal_checked: {} })
 
 function load(): State {
   try {
@@ -71,6 +75,15 @@ export function setupAutomations(opts: {
   runTaskFn = opts.runTask
   log = opts.log
   if (opts.pickAgent) pickAgent = opts.pickAgent
+  const st = s()
+  if (st.owner !== opts.runtimeId) {
+    if (st.owner) {
+      log('automation: this computer was paired again — starting the schedule fresh')
+      state = empty()
+    }
+    s().owner = opts.runtimeId
+    save()
+  }
 }
 
 function output(): SyncOutput {
