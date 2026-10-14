@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/core';
 import { currentRound, formatWhen, roundLabel } from '@landed/schema/pipeline';
 import { DeadlineChip, byDeadline } from './deadline-chip';
-import { CompanyMark, PortalDot, Icon, stageColors } from './primitives';
+import { CompanyMark, Icon, stageColors } from './primitives';
 import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
 import { companyKey } from '@landed/observation-processor';
@@ -40,7 +40,6 @@ function CardContent({ app, comp, c, isDuplicate, onSetDeadline, grouped }) {
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{comp.name}</div>
             <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{comp.loc}</div>
           </div>
-          <PortalDot companyId={comp.id} />
         </div>
       )}
       <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{app.role}</div>
@@ -138,13 +137,12 @@ function byCompany(items, nameOf) {
   return [...groups.values()];
 }
 
-function CompanyGroup({ name, mark, count, portalId, children }) {
+function CompanyGroup({ name, mark, count, children }) {
   return (
     <div style={{ border: '0.5px solid var(--border)', borderRadius: 9, background: 'color-mix(in oklch, var(--surface) 55%, transparent)', padding: 5, display: 'flex', flexDirection: 'column', gap: 5 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 0' }}>
         <CompanyMark company={mark} size={20} />
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-        {portalId && <PortalDot companyId={portalId} />}
         <span style={{ fontSize: 10.5, color: 'var(--fg-muted)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
       </div>
       {children}
@@ -185,7 +183,7 @@ function DroppableColumn({ stage, items, c, getCompany, onOpen, duplicateIds }) 
           }
           const comp = getCompany(g.items[0].companyId);
           return (
-            <CompanyGroup key={g.key} name={comp.name} mark={comp} count={g.items.length} portalId={comp.id}>
+            <CompanyGroup key={g.key} name={comp.name} mark={comp} count={g.items.length}>
               {g.items.map((a) => <DraggableCard key={a.id} app={a} comp={getCompany(a.companyId)} c={c} onOpen={onOpen} isDuplicate={duplicateIds.has(a.id)} grouped />)}
             </CompanyGroup>
           );
@@ -309,7 +307,7 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
           const first = g.items.find((x) => x.app) ?? g.items[0];
           const comp = first.app ? getCompany(first.app.companyId) : leadMark(first.lead);
           return (
-            <CompanyGroup key={g.key} name={comp.name} mark={comp} count={g.items.length} portalId={first.app ? comp.id : null}>
+            <CompanyGroup key={g.key} name={comp.name} mark={comp} count={g.items.length}>
               {g.items.map((x) => card(x, true))}
             </CompanyGroup>
           );

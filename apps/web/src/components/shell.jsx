@@ -2,11 +2,9 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { LandedMark, Icon } from './primitives';
-import { PORTAL_STATUS } from '../data';
 import { AccountAvatar } from './auth';
 
 export const Sidebar = ({ account, onProfileClick, navCounts = {} }) => {
-  const needsAuth = Object.values(PORTAL_STATUS).filter(p => !p.ok).length;
 
   const NavItem = ({ to, icon, label, count }) => (
     <NavLink to={to} end={to === '/applications'} className="sidebar-item" style={({ isActive }) => ({
@@ -54,27 +52,6 @@ export const Sidebar = ({ account, onProfileClick, navCounts = {} }) => {
       </div>
 
       <div style={{ flex: 1 }} />
-
-      {/* Portal status strip — always visible at the bottom */}
-      <div style={{ padding: 10, borderTop: '0.5px solid var(--border)', flexShrink: 0 }}>
-        <div style={{
-          padding: 10, borderRadius: 7,
-          background: needsAuth > 0 ? 'oklch(0.97 0.03 30)' : 'var(--surface)',
-          border: `0.5px solid ${needsAuth > 0 ? 'oklch(0.88 0.06 30)' : 'var(--border)'}`,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
-            <span style={{ flexShrink: 0, color: needsAuth > 0 ? 'oklch(0.55 0.16 30)' : 'oklch(0.50 0.13 155)', display: 'flex', marginTop: 1 }}>
-              <Icon name={needsAuth > 0 ? 'alert' : 'check'} size={12} />
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 600, color: needsAuth > 0 ? 'oklch(0.45 0.15 30)' : 'var(--fg)', lineHeight: 1.3, whiteSpace: 'nowrap' }}>
-              {needsAuth > 0 ? `${needsAuth} expired sessions` : 'All portals synced'}
-            </span>
-          </div>
-          <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.4 }}>
-            {needsAuth > 0 ? 'Expired cookies detected. Click to sign back in.' : 'Last checked just now via extension'}
-          </div>
-        </div>
-      </div>
 
       <div style={{ padding: '8px 14px 12px', display: 'flex', alignItems: 'center', gap: 8, borderTop: '0.5px solid var(--border)', flexShrink: 0, position: 'relative' }}>
         <button onClick={onProfileClick} data-profile-trigger

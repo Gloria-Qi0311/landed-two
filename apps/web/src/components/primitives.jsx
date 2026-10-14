@@ -1,6 +1,6 @@
 // Landed — shared UI primitives and helpers
 import React from 'react';
-import { STAGE_LABELS, PORTAL_STATUS } from '../data';
+import { STAGE_LABELS } from '../data';
 
 export const stageColors = {
   saved:    { bg: 'oklch(0.96 0.005 240)', fg: 'oklch(0.45 0.01 240)',  dot: 'oklch(0.65 0.02 240)',  ring: 'oklch(0.88 0.01 240)' },
@@ -50,25 +50,6 @@ export function StageBadge({ stage, size = 'sm' }) {
   );
 }
 
-export function PortalDot({ companyId }) {
-  const p = PORTAL_STATUS[companyId];
-  if (!p) return null;
-  if (p.ok) {
-    return <span title={`Synced ${p.lastSync}`} style={{
-      width: 7, height: 7, borderRadius: 4,
-      background: 'oklch(0.70 0.14 155)',
-      boxShadow: '0 0 0 2px oklch(0.95 0.05 155)',
-      display: 'inline-block',
-    }} />;
-  }
-  return <span title={`${p.reason} · last ${p.lastSync}`} style={{
-    width: 7, height: 7, borderRadius: 4,
-    background: 'oklch(0.70 0.15 35)',
-    boxShadow: '0 0 0 2px oklch(0.95 0.05 35)',
-    display: 'inline-block',
-    animation: 'pulse 2s ease-in-out infinite',
-  }} />;
-}
 
 // Brand logo — bold geometric "L" with an accent dot.
 // The L is the letterform of "Landed"; the dot is both the period in "Landed."

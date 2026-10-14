@@ -1,7 +1,8 @@
 // Detail drawer for a single application
 import React, { useEffect, useState } from 'react';
-import { CompanyMark, Icon, PortalDot, stageColors } from './primitives';
-import { STAGES, PORTAL_STATUS, columnOf } from '../data';
+import { CompanyMark, Icon, stageColors } from './primitives';
+import { STAGES, columnOf } from '../data';
+import { PortalCard } from './portal-card';
 import { InterviewRounds } from './interview-rounds';
 import { EditableText } from './editable';
 import { DeadlineChip } from './deadline-chip';
@@ -27,7 +28,6 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onDele
   const app = apps.find(a => a.id === appId);
   if (!app) return null;
   const company = companies.find(c => c.id === app.companyId);
-  const portal = PORTAL_STATUS[company.id];
   const col = stageColors[app.stage];
 
 
@@ -43,7 +43,9 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onDele
         <CompanyMark company={company} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{company.name}</div>
-          <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{company.sector} · {company.loc}</div>
+          {(company.sector || company.loc) && (
+            <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{[company.sector, company.loc].filter(Boolean).join(' · ')}</div>
+          )}
         </div>
         {onDelete && (
           <button onClick={() => setConfirmDelete(true)} title="Delete application" aria-label="Delete application" style={{
@@ -129,40 +131,9 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onDele
           </div>
         )}
 
-        {/* Portal sync status */}
-        <div style={{
-          marginBottom: 18,
-          background: portal && !portal.ok ? 'oklch(0.97 0.03 30)' : 'var(--surface-2)',
-          border: `0.5px solid ${portal && !portal.ok ? 'oklch(0.88 0.06 30)' : 'var(--border)'}`,
-          borderRadius: 8, padding: 12,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <PortalDot companyId={company.id} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)' }}>
-              Portal auto-sync
-            </span>
-            <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>
-              {portal?.lastSync || '—'}
-            </span>
-          </div>
-          {portal && !portal.ok ? (
-            <>
-              <div style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)', marginBottom: 8 }}>
-                {portal.reason}. Your login expired — click to re-auth and pull the latest status.
-              </div>
-              <button className="btn-primary" style={{ fontSize: 11.5 }}>
-                <Icon name="refresh" size={12} /> Re-authenticate
-              </button>
-            </>
-          ) : portal ? (
-            <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>
-              Browser extension is logged in. Status will refresh automatically every 6 hours.
-            </div>
-          ) : (
-            <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>
-              Not yet connected. <a style={{ color: 'var(--accent)', textDecoration: 'none' }}>Link portal →</a>
-            </div>
-          )}
+        {/* Candidate portal: your agent looks up the status (read-only, in your Chrome) */}
+        <div style={{ marginBottom: 18 }}>
+          <PortalCard app={app} companyName={company.name} />
         </div>
 
         {/* Details — click any value to edit */}

@@ -117,15 +117,3 @@ export const APPLICATIONS = [
   { id: 'a044', companyId: 'c40', role: 'Narrative Designer',           team: 'Writing Room',         stage: 'applied',  salary: '$110k–$135k',  location: 'Austin, TX',      remote: 'Hybrid', appliedDays: 2,  lastActivity: 2, nextStep: 'Awaiting response', referral: false, source: 'Company site', jobId: 'ND-01', notes: '', starred: false },
 ];
 
-// Portal login states — simulated. A few have expired cookies to demo the warning.
-export const PORTAL_STATUS = {
-  c01: { ok: true,  lastSync: 'Apr 19, 09:12' },
-  c02: { ok: true,  lastSync: 'Apr 19, 08:40' },
-  c03: { ok: false, lastSync: 'Apr 14, 22:04', reason: 'Session expired' },
-  c04: { ok: true,  lastSync: 'Apr 19, 10:01' },
-  c05: { ok: true,  lastSync: 'Apr 19, 09:50' },
-  c09: { ok: false, lastSync: 'Apr 16, 18:30', reason: 'Cookie expired' },
-  c17: { ok: false, lastSync: 'Apr 12, 14:20', reason: 'Re-auth required' },
-  c20: { ok: true,  lastSync: 'Apr 19, 07:55' },
-  c27: { ok: false, lastSync: 'Apr 15, 11:10', reason: 'Session expired' },
-};
