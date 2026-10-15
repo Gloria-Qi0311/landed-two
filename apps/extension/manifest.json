@@ -23,7 +23,9 @@
     {
       "matches": ["<all_urls>"],
       "js": ["schema.js", "lib/field-detect.js", "lib/value-match.js", "lib/cross-lingual.js", "lib/llm-providers.js", "lib/llm-match.js", "lib/portal-parsers/greenhouse.js", "lib/portal-parsers/lever.js", "lib/portal-parsers/workday.js", "lib/portal-parsers/ashby.js", "lib/choice-answers.js", "content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
     },
     {
       "matches": ["https://antaresmac-mini.tail109da9.ts.net/*", "http://localhost/*", "http://127.0.0.1/*"],

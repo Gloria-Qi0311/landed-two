@@ -91,13 +91,16 @@
   // placeholder / name / id (which have their own slots).
   function getStrictLabel(el) {
     if (!el) return '';
+    // A field inside a web component has its label in the same shadow root.
+    const rootNode = el.getRootNode ? el.getRootNode() : null;
+    const scope = rootNode && rootNode.querySelector && rootNode.getElementById ? rootNode : document;
     if (el.id) {
-      const lbl = document.querySelector(`label[for="${cssEscape(el.id)}"]`);
+      const lbl = scope.querySelector(`label[for="${cssEscape(el.id)}"]`);
       if (lbl) return (lbl.innerText || lbl.textContent || '').trim();
     }
     const labelledBy = el.getAttribute && el.getAttribute('aria-labelledby');
     if (labelledBy) {
-      const ref = document.getElementById(labelledBy);
+      const ref = scope.getElementById(labelledBy);
       if (ref) return (ref.innerText || ref.textContent || '').trim();
     }
     let parent = el.parentElement;

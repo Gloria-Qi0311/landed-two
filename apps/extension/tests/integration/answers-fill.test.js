@@ -146,3 +146,21 @@ test('consent stays yellow without the switch; nothing is guessed without answer
   expect(nativeRequests.some((r) => r.type === 'choose_options')).toBe(false)
   expect(result.manual.length).toBeGreaterThan(5)
 })
+
+test('a dialog built as a web component (open shadow root) is filled too', async () => {
+  document.body.innerHTML = '<profile-dialog></profile-dialog>'
+  const root = document.querySelector('profile-dialog').attachShadow({ mode: 'open' })
+  root.innerHTML = `
+    <div role="dialog"><h2>Complete Your Profile</h2>
+      <label for="fn">Legal first name *</label><input id="fn">
+      <label for="zip">Zip Code *</label><input id="zip">
+      <fieldset><legend>Are you legally authorized to work in the United States?</legend>
+        <label><input type="radio" name="auth" value="y"> Yes</label><label><input type="radio" name="auth" value="n"> No</label></fieldset>
+    </div>`
+  await fill()
+  expect(root.getElementById('fn').value).toBe('Alex')
+  expect(root.getElementById('zip').value).toBe('98105')
+  expect(root.querySelector('input[name=auth]:checked').value).toBe('y')
+  expect(root.getElementById('fn').getAttribute('data-landed-status')).toBe('filled')
+  expect(root.getElementById('landed-apply-assist-styles')).not.toBeNull() // outlines show inside the component
+})

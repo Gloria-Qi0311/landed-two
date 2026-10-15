@@ -352,30 +352,97 @@ function sendSafariNative(message) {
   })
 }
 
-function fillTab(tabId, resume) {
+// ── frames that hold a form (content.js reports them) ─────────────────────
+// A tab's form may be in an iframe; each frame with 3+ fields says so, and
+// a fill goes to the page plus those frames. Kept in session storage so a
+// restarted service worker still knows them.
+
+const FORM_FRAMES_KEY = 'landed:form-frames'
+
+function loadFormFrames() {
+  return new Promise((resolve) => {
+    try { tabArea().get(FORM_FRAMES_KEY, (v) => resolve((v && v[FORM_FRAMES_KEY]) || {})) }
+    catch { resolve({}) }
+  })
+}
+
+let formFramesLock = Promise.resolve()
+function updateFormFrames(fn) {
+  const run = formFramesLock.then(async () => {
+    const all = await loadFormFrames()
+    fn(all)
+    await new Promise((resolve) => {
+      try { tabArea().set({ [FORM_FRAMES_KEY]: all }, resolve) }
+      catch { resolve() }
+    })
+  })
+  formFramesLock = run.catch(() => {})
+  return run
+}
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg || msg.action !== 'frame-form') return
+  const tabId = sender && sender.tab && sender.tab.id
+  const frameId = sender && sender.frameId
+  if (!Number.isInteger(tabId) || !Number.isInteger(frameId) || frameId === 0) return
+  void updateFormFrames((all) => {
+    const frames = new Set(all[tabId] || [])
+    if (msg.hasForm) frames.add(frameId)
+    else frames.delete(frameId)
+    if (frames.size) all[tabId] = [...frames]
+    else delete all[tabId]
+  })
+})
+
+try {
+  chrome.tabs.onRemoved.addListener((tabId) => { void updateFormFrames((all) => { delete all[tabId] }) })
+  // A new page in the tab means new frames.
+  chrome.tabs.onUpdated.addListener((tabId, info) => {
+    if (info.status === 'loading' && info.url) void updateFormFrames((all) => { delete all[tabId] })
+  })
+} catch { /* tabs API unavailable */ }
+
+function fillFrame(tabId, frameId, resume) {
   return new Promise((resolve) => {
     try {
       chrome.tabs.sendMessage(tabId, {
         action: 'fill',
         resume: resume.parsed_json,
         aiTakeover: true,
-      }, (response) => {
+      }, { frameId }, (response) => {
         const error = chrome.runtime.lastError
-        if (error || !response) {
-          resolve({ tabId, error: error?.message || 'No response from page' })
-          return
-        }
-        resolve({
-          tabId,
-          filled: Array.isArray(response.filled) ? response.filled.length : 0,
-          review: Array.isArray(response.manual) ? response.manual.length : 0,
-        })
+        if (error || !response) resolve({ error: error?.message || 'No response from page' })
+        else resolve(response)
       })
     } catch (error) {
-      resolve({ tabId, error: error instanceof Error ? error.message : String(error) })
+      resolve({ error: error instanceof Error ? error.message : String(error) })
     }
   })
 }
+
+/** Fill the page and every frame in it that holds a form; add them up. */
+async function fillTab(tabId, resume) {
+  const frames = [0, ...((await loadFormFrames())[tabId] || []).filter((id) => id !== 0)]
+  const responses = await Promise.all(frames.map((frameId) => fillFrame(tabId, frameId, resume)))
+  const answered = responses.filter((r) => !r.error)
+  if (answered.length === 0) return { tabId, error: responses[0]?.error || 'No response from page' }
+  const count = (key) => answered.reduce((sum, r) => sum + (Array.isArray(r[key]) ? r[key].length : 0), 0)
+  const attached = new Set(answered.flatMap((r) => (Array.isArray(r.filled) ? r.filled : [])).filter((f) => String(f).startsWith('file:')).map((f) => String(f).slice(5)))
+  const missing = [...new Set(answered.flatMap((r) => (Array.isArray(r.missing_files) ? r.missing_files : [])))].filter((kind) => !attached.has(kind))
+  return { tabId, filled: count('filled'), review: count('manual'), missing_files: missing, frames: answered.length }
+}
+
+// The popup's Fill: same frame-aware fill, with the resume it picked.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.action !== 'fill-tab') return
+  if (sender && sender.tab) return // extension pages only, never a web page
+  if (!Number.isInteger(msg.tabId) || !msg.resume || typeof msg.resume !== 'object') {
+    sendResponse({ error: 'invalid fill request' })
+    return true
+  }
+  fillTab(msg.tabId, { parsed_json: msg.resume }).then(sendResponse, (error) => sendResponse({ error: String(error) }))
+  return true
+})
 
 function getTab(tabId) {
   return new Promise((resolve) => {

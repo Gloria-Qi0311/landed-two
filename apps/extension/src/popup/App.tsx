@@ -414,21 +414,19 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
           resolve({ tabId: tab.id, title: tab.title, kind: 'error', error: 'No resume to fill with' })
           return
         }
-        chrome.tabs.sendMessage(tab.id, {
-          action: 'fill',
-          resume: pick.resume.parsed_json,
-          aiTakeover: true,
-        }, (response) => {
+        // The service worker fills the page and any frame holding a form
+        // (embedded application forms, dialogs) and adds them up.
+        chrome.runtime.sendMessage({ action: 'fill-tab', tabId: tab.id, resume: pick.resume.parsed_json }, (response) => {
           const runtimeError = chrome.runtime.lastError
-          if (runtimeError || !response) {
-            resolve({ tabId: tab.id, title: tab.title, kind: 'error', error: runtimeError?.message || 'No response from page' })
+          if (runtimeError || !response || response.error) {
+            resolve({ tabId: tab.id, title: tab.title, kind: 'error', error: runtimeError?.message || response?.error || 'No response from page' })
           } else {
             resolve({
               tabId: tab.id,
               title: tab.title,
               kind: 'done',
-              filled: Array.isArray(response.filled) ? response.filled.length : 0,
-              review: Array.isArray(response.manual) ? response.manual.length : 0,
+              filled: Number(response.filled) || 0,
+              review: Number(response.review) || 0,
               missing: Array.isArray(response.missing_files) ? response.missing_files : [],
             })
           }

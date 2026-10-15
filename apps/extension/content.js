@@ -30,16 +30,45 @@ function fieldId(el) {
   return id;
 }
 
+// ─── forms inside web components (open shadow roots) ──────────────────────
+// Some application pages build their form, or its dialog, out of web
+// components: document.querySelectorAll doesn't see inside them.
+
+function shadowRoots(root) {
+  const out = [];
+  for (const el of root.querySelectorAll('*')) {
+    if (el.shadowRoot) out.push(el.shadowRoot, ...shadowRoots(el.shadowRoot));
+  }
+  return out;
+}
+
+/** querySelectorAll across the document and every open shadow root. */
+function deepAll(selector) {
+  const roots = [document, ...shadowRoots(document)];
+  return roots.flatMap((root) => Array.from(root.querySelectorAll(selector)));
+}
+
+/** On screen? (offsetParent alone is unreliable inside shadow roots.) */
+function isRendered(el) {
+  return !!el.offsetParent || (typeof el.getClientRects === 'function' && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
+}
+
+const MARK_STYLES = [
+  '[data-landed-status="filled"] { outline: 2px solid #2f9e67 !important; outline-offset: 2px !important; }',
+  '[data-landed-status="review"] { outline: 2px solid #d39b22 !important; outline-offset: 2px !important; }',
+].join('\n');
+
 function markField(el, status) {
   if (!el || !el.setAttribute) return;
-  if (!document.getElementById('landed-apply-assist-styles')) {
+  // The outline styles go where the field lives: the page, or its shadow root.
+  const root = el.getRootNode ? el.getRootNode() : document;
+  const host = root && root !== document && root.appendChild ? root : (document.head || document.documentElement);
+  const scope = root && root.querySelector ? root : document;
+  if (!scope.querySelector('#landed-apply-assist-styles')) {
     const style = document.createElement('style');
     style.id = 'landed-apply-assist-styles';
-    style.textContent = [
-      '[data-landed-status="filled"] { outline: 2px solid #2f9e67 !important; outline-offset: 2px !important; }',
-      '[data-landed-status="review"] { outline: 2px solid #d39b22 !important; outline-offset: 2px !important; }',
-    ].join('\n');
-    (document.head || document.documentElement).appendChild(style);
+    style.textContent = MARK_STYLES;
+    host.appendChild(style);
   }
   fieldId(el);
   el.setAttribute('data-landed-status', status);
@@ -164,7 +193,7 @@ function tryFillSelect(el, value) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function isShown(el) {
-  if (!el.offsetParent) return false;
+  if (!isRendered(el)) return false;
   const rect = el.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
 }
@@ -179,11 +208,11 @@ function visibleOptions(el) {
     const inList = Array.from(list.querySelectorAll('[role="option"], li')).filter(isShown);
     if (inList.length) return inList;
   }
-  const real = Array.from(document.querySelectorAll('[role="option"], [id*="-option-"]')).filter(isShown);
+  const real = deepAll('[role="option"], [id*="-option-"]').filter(isShown);
   if (real.length) return real;
-  return Array.from(document.querySelectorAll(
+  return deepAll(
     '[role="listitem"], [role="menuitem"], li, .option, .item, .dropdown-item, .select-option'
-  )).filter(isShown);
+  ).filter(isShown);
 }
 
 async function openComboboxOptions(el) {
@@ -397,7 +426,8 @@ function choiceGroupQuestion(inputs) {
   const group = first.closest('[role="radiogroup"], [role="group"]');
   if (group && inputs.every((i) => group.contains(i))) {
     const by = group.getAttribute('aria-labelledby');
-    const labelled = by ? by.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ').trim() : '';
+    const scope = group.getRootNode && group.getRootNode().getElementById ? group.getRootNode() : document;
+    const labelled = by ? by.split(/\s+/).map((id) => scope.getElementById(id)?.textContent || '').join(' ').trim() : '';
     if (labelled) return labelled.replace(/\s+/g, ' ');
     const aria = group.getAttribute('aria-label');
     if (aria && aria.trim()) return aria.trim();
@@ -721,10 +751,8 @@ function isComboboxInput(el) {
 
 function getVisibleInputs() {
   return /** @type {(HTMLInputElement | HTMLTextAreaElement)[]} */ (
-    Array.from(document.querySelectorAll(
-      'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea'
-    ))
-  ).filter(el => (el.offsetParent || (el instanceof HTMLInputElement && el.type === 'email')) && !isComboboxInput(el));
+    deepAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea')
+  ).filter(el => (isRendered(el) || (el instanceof HTMLInputElement && el.type === 'email')) && !isComboboxInput(el));
 }
 
 // ─── 批量填 inputs ────────────────────────────────────────────────────────────
@@ -911,6 +939,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+// ─── frames that hold a form ──────────────────────────────────────────────
+// Application forms often live in an iframe — an ATS embedded in a company's
+// careers site, or its "Complete your profile" dialog. This script runs in
+// every frame; one that shows a form (3+ fields, so not a chat box or a
+// newsletter signup), now or after the user opens it, tells the service
+// worker, which fills it along with the page (background.js → fillTab).
+if (window.top !== window) {
+  let reported = null;
+  let timer = null;
+  const report = () => {
+    const fields = deepAll('input:not([type=hidden]):not([type=submit]):not([type=button]), select, textarea, [role="combobox"]')
+      .filter((el) => isRendered(el)).length;
+    const hasForm = fields >= 3;
+    if (hasForm === reported) return;
+    reported = hasForm;
+    try {
+      chrome.runtime.sendMessage({ action: 'frame-form', hasForm }, () => void chrome.runtime.lastError);
+    } catch { /* extension reloaded */ }
+  };
+  const later = () => { clearTimeout(timer); timer = setTimeout(report, 600); };
+  later();
+  try {
+    new MutationObserver(later).observe(document.documentElement, { childList: true, subtree: true });
+  } catch { /* no DOM to watch */ }
+}
+
 // ─── Portal detection (auto-fire + SW-initiated) ──────────────────────────
 //
 // Two paths converge here:
@@ -995,7 +1049,7 @@ async function handleFill(resumeData, customFields, opts) {
   // Upload fields: the saved resume / cover letter files go in; others (and
   // fields with nothing saved) stay yellow. Hidden inputs behind an
   // "Attach" button count too.
-  const fileInputs = /** @type {HTMLInputElement[]} */ (Array.from(document.querySelectorAll('input[type="file"]')));
+  const fileInputs = /** @type {HTMLInputElement[]} */ (deepAll('input[type="file"]'));
   const files = fileInputs.length ? await loadApplicationFiles() : {};
   const answered = /** @type {Set<Element>} */ (new Set(fileInputs));
   const missingFiles = new Set();
@@ -1008,7 +1062,7 @@ async function handleFill(resumeData, customFields, opts) {
       continue;
     }
     if (kind && !file) missingFiles.add(kind);
-    if (el.offsetParent || label) addManual(manual, el, label || '文件上传', '文件上传', null);
+    if (isRendered(el) || label) addManual(manual, el, label || '文件上传', '文件上传', null);
   }
 
   // Phase 0: text fields the answers cover (legal names, address, date of
@@ -1033,8 +1087,8 @@ async function handleFill(resumeData, customFields, opts) {
   fillInputBatch(getVisibleInputs(), flat, filled, manual, answered);
 
   // Phase 2：原生 <select> 匹配填值
-  for (const el of document.querySelectorAll('select')) {
-    if (!el.offsetParent) continue;
+  for (const el of /** @type {HTMLSelectElement[]} */ (deepAll('select'))) {
+    if (!isRendered(el)) continue;
     const label = getFieldLabel(el) || el.name || el.id || '下拉选择';
 
     // 年/月 select 交给日期模块处理
@@ -1075,10 +1129,8 @@ async function handleFill(resumeData, customFields, opts) {
 
   // Phase 3：combobox / 自定义下拉
   const comboboxes = /** @type {HTMLElement[]} */ (
-    Array.from(document.querySelectorAll(
-      '[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"]'
-    ))
-  ).filter(el => el.offsetParent && el.tagName.toLowerCase() !== 'select');
+    deepAll('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"]')
+  ).filter(el => isRendered(el) && el.tagName.toLowerCase() !== 'select');
 
   let peeked = 0;
   for (const el of comboboxes) {
@@ -1119,7 +1171,7 @@ async function handleFill(resumeData, customFields, opts) {
   }
 
   // Phase 4：富文本 / contenteditable
-  for (const el of document.querySelectorAll('[contenteditable="true"], [role="textbox"]')) {
+  for (const el of deepAll('[contenteditable="true"], [role="textbox"]')) {
     const label = getFieldLabel(el) || '富文本编辑器';
     const match = matchResumeKey(el);
     const key = match && match.key;
@@ -1138,8 +1190,8 @@ async function handleFill(resumeData, customFields, opts) {
   // groups without a rule answer may go to the local model below. Date
   // "current/present" boxes are handled above and omitted once selected.
   const choiceInputs = /** @type {HTMLInputElement[]} */ (
-    Array.from(document.querySelectorAll('input[type="checkbox"], input[type="radio"]'))
-  ).filter((el) => el.offsetParent);
+    deepAll('input[type="checkbox"], input[type="radio"]')
+  ).filter((el) => isRendered(el));
   for (const group of groupChoices(choiceInputs)) {
     const first = group[0];
     const firstText = optionText(first) || first.parentElement?.textContent?.trim() || first.name || '选择题';
@@ -1230,7 +1282,7 @@ async function handleFill(resumeData, customFields, opts) {
   // If one resolved a field, do not keep its earlier review entry or send it
   // to either model fallback.
   for (let i = manual.length - 1; i >= 0; i--) {
-    const target = document.querySelector(`[data-landed-field-id="${manual[i].id}"]`);
+    const target = deepAll(`[data-landed-field-id="${manual[i].id}"]`)[0];
     if (target?.getAttribute('data-landed-status') === 'filled') manual.splice(i, 1);
   }
 
@@ -1289,7 +1341,7 @@ async function runChoiceFallback(choices, answers, flat) {
     const index = pick && Number.isInteger(pick.option_index) ? pick.option_index : -1;
     if (index < 0 || index >= c.options.length) continue;
     if ((await c.apply(index)) === false) continue;
-    (c.group || [document.querySelector(`[data-landed-field-id="${c.id}"]`)]).forEach((el) => el && markField(el, 'filled'));
+    (c.group || [deepAll(`[data-landed-field-id="${c.id}"]`)[0]]).forEach((el) => el && markField(el, 'filled'));
     done.push(c.id);
   }
   return done;
@@ -1363,7 +1415,7 @@ async function applySuggestedValues(manual, values, structured) {
     const raw = values[item.id];
     const value = structured ? raw && raw.value : raw;
     if (typeof value !== 'string' || !value.trim()) continue;
-    const target = document.querySelector(`[data-landed-field-id="${item.id}"]`);
+    const target = deepAll(`[data-landed-field-id="${item.id}"]`)[0];
     if (!target) continue;
     const tag = target.tagName.toLowerCase();
     let ok = false;
