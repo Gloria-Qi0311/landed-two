@@ -26,9 +26,13 @@ Build the app with `pnpm --filter @landed/daemon build:mac`. That writes `dist/L
 
 ### Apply Assist
 
-Landed for Mac is a native menu-bar app. Open it and use the Landed L icon to choose up to five application pages, select a resume, and start a fill without opening an extension panel. It also carries the matching lightweight browser bridge and registers its Native Messaging host.
+Landed for Mac is a native menu-bar app. Open it and use the Landed L icon to choose up to five application pages, select a resume, and start a fill without opening an extension panel. It carries lightweight Safari and Chromium extensions that give the menu app access to the form DOM.
 
-Each Chromium browser/profile needs the bridge once: load `~/.landed/extension` from its extensions page (Developer mode → **Load unpacked**). The menu app has a **Bridge folder** button for this step. Chrome, Brave, Edge, and Chromium can all connect to the same menu app; a future Safari App Extension and store builds can reuse the same local bridge protocol.
+Safari: click **Safari Extension** in the menu app, then enable Landed in Safari Settings → Extensions. The extension is embedded in `Landed.app` and talks to the daemon only over `127.0.0.1`; the app wakes it when a Safari fill is requested.
+
+Each Chromium browser/profile needs its extension once: load `~/.landed/extension` from its extensions page (Developer mode → **Load unpacked**). The menu app has a **Chromium Extension** button for this step. Chrome, Brave, Edge, and Chromium can all connect to the same menu app.
+
+Local builds use Xcode's **Sign to Run Locally** identity. Safari requires Develop → **Allow Unsigned Extensions** for that development build. A Developer ID/App Store release removes that development-only step.
 
 When the menu app fills selected pages, known fields use deterministic extension rules. Unknown labels are sent directly to local Ollama through the native host; they never pass through the Landed server. The local model may only choose an existing resume key, and the daemon supplies that key's original value after validation. The bridge outlines filled fields green and fields needing review yellow. It never clicks the final submit button.
 

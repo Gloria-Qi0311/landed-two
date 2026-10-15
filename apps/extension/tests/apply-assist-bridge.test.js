@@ -14,6 +14,9 @@ test('menu bridge labels browsers and summarizes parallel fills', () => {
   expect(bridge.browserLabel('Mozilla Chrome/140.0', false)).toBe('Google Chrome')
   expect(bridge.browserLabel('Mozilla Chrome/140.0 Edg/140.0', false)).toBe('Microsoft Edge')
   expect(bridge.browserLabel('Mozilla Chrome/140.0', true)).toBe('Brave')
+  expect(bridge.browserLabel('Mozilla/5.0 Version/27.0 Safari/620.1.14', false)).toBe('Safari')
+  expect(bridge.isSafariUserAgent('Mozilla/5.0 Version/27.0 Safari/620.1.14')).toBe(true)
+  expect(bridge.isSafariUserAgent('Mozilla/5.0 Chrome/140.0 Safari/537.36')).toBe(false)
   expect(bridge.fillSummary([
     { filled: 8, review: 2 },
     { filled: 3, review: 1 },

@@ -7,8 +7,13 @@
     if (/OPR\//.test(ua)) return 'Opera'
     if (brave) return 'Brave'
     if (/Chrome\//.test(ua)) return 'Google Chrome'
+    if (/Safari\//.test(ua) && !/(?:Chrome|Chromium|CriOS|FxiOS)\//.test(ua)) return 'Safari'
     if (/Firefox\//.test(ua)) return 'Firefox'
     return 'Browser'
+  }
+
+  function isSafariUserAgent(userAgent) {
+    return browserLabel(userAgent, false) === 'Safari'
   }
 
   function publicTabs(tabs) {
@@ -48,6 +53,6 @@
     }
   }
 
-  global.LandedApplyAssistBridge = { browserLabel, publicTabs, publicResumes, fillSummary }
+  global.LandedApplyAssistBridge = { browserLabel, isSafariUserAgent, publicTabs, publicResumes, fillSummary }
   if (typeof module !== 'undefined' && module.exports) module.exports = global.LandedApplyAssistBridge
 })(typeof self !== 'undefined' ? self : globalThis)

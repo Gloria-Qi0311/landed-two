@@ -92,6 +92,33 @@ export function writeAssistSession(session: AssistSession) {
   chmodSync(target, 0o600)
 }
 
+export function mergeAssistSession(previous: AssistSession | null, snapshot: AssistSnapshot, now: string): AssistSession {
+  return {
+    ...snapshot,
+    connected_at: previous?.connected_at ?? now,
+    last_seen: now,
+    ollama_ready: previous?.ollama_ready ?? false,
+    ollama_model: previous?.ollama_model ?? null,
+    last_result: previous?.last_result ?? null,
+  }
+}
+
+export function sanitizeAssistResult(raw: unknown): AssistResult | null {
+  if (!raw || typeof raw !== 'object') return null
+  const value = raw as Record<string, unknown>
+  if (!validId(value.command_id, 100)) return null
+  const count = (item: unknown) => Number.isSafeInteger(Number(item))
+    ? Math.max(0, Math.min(10_000, Number(item))) : 0
+  return {
+    command_id: value.command_id as string,
+    completed_at: new Date().toISOString(),
+    filled: count(value.filled),
+    review: count(value.review),
+    failed: count(value.failed),
+    summary: typeof value.summary === 'string' ? value.summary.slice(0, 500) : '',
+  }
+}
+
 export function removeAssistSession(sessionId: string) {
   if (validId(sessionId, 80)) rmSync(join(assistSessionsDir(), `${sessionId}.json`), { force: true })
 }

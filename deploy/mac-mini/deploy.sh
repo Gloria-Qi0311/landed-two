@@ -18,8 +18,22 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
+# Safari Web Extensions require full Xcode. Build the downloadable Mac app on
+# this development Mac when available; the headless mini can still rebuild and
+# restart the web/server pieces with Command Line Tools alone.
+LOCAL_MAC_ZIP=""
+if [ "$(uname -s)" = "Darwin" ] && [ -x /Applications/Xcode.app/Contents/Developer/usr/bin/safari-web-extension-converter ]; then
+  echo "→ building the full Landed for Mac download (including Safari)"
+  pnpm --filter @landed/daemon build:mac
+  LOCAL_MAC_ZIP="$PWD/apps/daemon/dist/Landed-mac.zip"
+fi
+
 echo "→ $HOST:~/$DIR ($BRANCH @ $(git rev-parse --short HEAD))"
 # A plain repo on the mini whose checked-out branch accepts pushes.
 ssh "$HOST" "mkdir -p '$DIR' && cd '$DIR' && { git rev-parse --git-dir >/dev/null 2>&1 || git init -q; } && git config receive.denyCurrentBranch updateInstead"
 git push --force "$HOST:$DIR" "HEAD:refs/heads/$BRANCH"
 ssh "$HOST" "cd '$DIR' && git checkout -q '$BRANCH' && git reset -q --hard '$BRANCH' && PUBLIC_URL='${PUBLIC_URL:-}' /bin/bash deploy/mac-mini/setup.sh"
+if [ -n "$LOCAL_MAC_ZIP" ]; then
+  scp "$LOCAL_MAC_ZIP" "$HOST:$DIR/apps/daemon/dist/Landed-mac.zip"
+  echo "→ uploaded the Safari-capable Landed for Mac download"
+fi

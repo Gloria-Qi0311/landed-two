@@ -4,8 +4,8 @@
 // It never receives cookies, clicks buttons, or invents application facts.
 import type { Writable } from 'node:stream'
 import {
-  removeAssistSession, sanitizeSnapshot, takeAssistCommands, writeAssistSession,
-  type AssistResult, type AssistSession,
+  mergeAssistSession, removeAssistSession, sanitizeAssistResult, sanitizeSnapshot, takeAssistCommands, writeAssistSession,
+  type AssistSession,
 } from './assist-bridge.ts'
 
 const HOST = process.env.OLLAMA_HOST?.trim() || 'http://127.0.0.1:11434'
@@ -187,17 +187,6 @@ export function encodeNativeMessage(message: unknown): Buffer {
   return Buffer.concat([header, body])
 }
 
-function mergeBridgeSession(previous: AssistSession | null, snapshot: ReturnType<typeof sanitizeSnapshot> & {}, now: string): AssistSession {
-  return {
-    ...snapshot,
-    connected_at: previous?.connected_at ?? now,
-    last_seen: now,
-    ollama_ready: previous?.ollama_ready ?? false,
-    ollama_model: previous?.ollama_model ?? null,
-    last_result: previous?.last_result ?? null,
-  }
-}
-
 export async function runNativeHost(input = process.stdin, output: Writable = process.stdout) {
   const decoder = new NativeMessageDecoder()
   let bridge: AssistSession | null = null
@@ -226,7 +215,7 @@ export async function runNativeHost(input = process.stdin, output: Writable = pr
             continue
           }
           const now = new Date().toISOString()
-          bridge = mergeBridgeSession(bridge, snapshot, now)
+          bridge = mergeAssistSession(bridge, snapshot, now)
           writeAssistSession(bridge)
           lastTouch = Date.now()
           send({ type: 'bridge_ready', session_id: bridge.session_id })
@@ -243,22 +232,12 @@ export async function runNativeHost(input = process.stdin, output: Writable = pr
           continue
         }
         if (typed?.type === 'bridge_result' && bridge) {
-          const commandId = typeof typed.command_id === 'string' ? typed.command_id.slice(0, 100) : ''
-          if (!commandId) continue
-          const count = (value: unknown) => Number.isSafeInteger(Number(value))
-            ? Math.max(0, Math.min(10_000, Number(value))) : 0
-          const result: AssistResult = {
-            command_id: commandId,
-            completed_at: new Date().toISOString(),
-            filled: count(typed.filled),
-            review: count(typed.review),
-            failed: count(typed.failed),
-            summary: typeof typed.summary === 'string' ? typed.summary.slice(0, 500) : '',
-          }
+          const result = sanitizeAssistResult(typed)
+          if (!result) continue
           bridge.last_result = result
           bridge.last_seen = result.completed_at
           writeAssistSession(bridge)
-          send({ type: 'bridge_result_saved', command_id: commandId })
+          send({ type: 'bridge_result_saved', command_id: result.command_id })
           continue
         }
         send(await handleNativeMessage(message))

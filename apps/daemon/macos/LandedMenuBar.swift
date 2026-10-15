@@ -1,7 +1,10 @@
 import AppKit
 import Foundation
+import SafariServices
 import ServiceManagement
 import SwiftUI
+
+private let safariExtensionIdentifier = "dev.landed.connector.SafariExtension"
 
 struct AssistTab: Codable, Identifiable, Hashable {
     let id: Int
@@ -87,11 +90,13 @@ final class AssistModel: NSObject, ObservableObject {
 
     private var timer: Timer?
     private var didChooseDefaults = false
+    private var lastSafariWake = Date.distantPast
 
     override init() {
         super.init()
         reload()
         timer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+        wakeSafari()
     }
 
     deinit { timer?.invalidate() }
@@ -108,7 +113,20 @@ final class AssistModel: NSObject, ObservableObject {
         landedHome.appendingPathComponent("apply-assist/commands", isDirectory: true)
     }
 
-    @objc private func tick() { reload() }
+    @objc private func tick() {
+        reload()
+        if Date().timeIntervalSince(lastSafariWake) >= 10 { wakeSafari() }
+    }
+
+    private func wakeSafari(userInfo: [String: String]? = nil) {
+        lastSafariWake = Date()
+        SFSafariApplication.dispatchMessage(
+            withName: "landed_apply_assist",
+            toExtensionWithIdentifier: safariExtensionIdentifier,
+            userInfo: userInfo,
+            completionHandler: nil
+        )
+    }
 
     func reload() {
         let decoder = JSONDecoder()
@@ -158,7 +176,7 @@ final class AssistModel: NSObject, ObservableObject {
     var aiLabel: String {
         let ready = sessions.first(where: { $0.ollamaReady })
         if let ready { return "Local AI · \(ready.ollamaModel ?? "Ollama")" }
-        return sessions.isEmpty ? "Waiting for a browser bridge" : "Rules only · Ollama unavailable"
+        return sessions.isEmpty ? "Waiting for a browser" : "Rules only · Ollama unavailable"
     }
 
     var latestResult: AssistResult? {
@@ -193,7 +211,7 @@ final class AssistModel: NSObject, ObservableObject {
             return
         }
         guard !selectedResumeId.isEmpty else {
-            notice = "Open Landed once so the browser bridge can receive your resumes."
+            notice = "Open the Landed web app once so the browser extension can receive your resumes."
             return
         }
         do {
@@ -220,6 +238,9 @@ final class AssistModel: NSObject, ObservableObject {
                 let file = commandsDirectory.appendingPathComponent("\(command.commandId).json")
                 try data.write(to: file, options: .atomic)
                 try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+                if session.browser == "Safari" {
+                    wakeSafari(userInfo: ["session_id": session.sessionId, "command_id": command.commandId])
+                }
                 sent += ids.count
             }
             if sent == 0 {
@@ -235,6 +256,13 @@ final class AssistModel: NSObject, ObservableObject {
     func revealExtension() {
         let extensionURL = landedHome.appendingPathComponent("extension", isDirectory: true)
         NSWorkspace.shared.activateFileViewerSelecting([extensionURL])
+    }
+
+    func openSafariExtensionPreferences() {
+        SFSafariApplication.showPreferencesForExtension(
+            withIdentifier: safariExtensionIdentifier,
+            completionHandler: nil
+        )
     }
 
     func openLanded() {
@@ -270,11 +298,14 @@ struct LandedMenuView: View {
 
             if model.sessions.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("No browser bridge connected", systemImage: "puzzlepiece.extension")
+                    Label("No browser pages available", systemImage: "safari")
                         .font(.subheadline.weight(.semibold))
-                    Text("Install the bundled bridge once in each browser you want Landed to control. In a Chromium browser, open chrome://extensions, enable Developer mode, choose Load unpacked, then select the folder below.")
+                    Text("Safari local build: enable Develop → Allow Unsigned Extensions, then turn on Landed in Safari Settings → Extensions. For Chrome, Brave, or Edge, load the bundled extension folder once.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    Button("Show browser bridge folder") { model.revealExtension() }
+                    HStack {
+                        Button("Open Safari Extension Settings") { model.openSafariExtensionPreferences() }
+                        Button("Chromium Extension Folder") { model.revealExtension() }
+                    }
                 }
                 .padding(12)
                 .background(Color(nsColor: .controlBackgroundColor))
@@ -344,7 +375,8 @@ struct LandedMenuView: View {
             Divider()
             HStack {
                 Button("Open Landed") { model.openLanded() }
-                Button("Bridge folder") { model.revealExtension() }
+                Button("Safari Extension") { model.openSafariExtensionPreferences() }
+                Button("Chromium Extension") { model.revealExtension() }
                 Spacer()
                 Button("Quit") { quit() }
             }

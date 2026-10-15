@@ -30,8 +30,9 @@ import {
 } from './mac.ts'
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 import { runNativeHost } from './native-host.ts'
+import { startSafariBridgeServer } from './safari-bridge.ts'
 
-const VERSION = '0.9.1'
+const VERSION = '0.10.0'
 const MAX_PARALLEL = 2
 
 const describe = (agents: AgentInfo[]) =>
@@ -149,6 +150,7 @@ async function service() {
   while (otherDaemon()) await sleep(10_000) // e.g. a terminal daemon still running
   takeLock()
   log(`Landed ${VERSION} service started`)
+  await startSafariBridgeServer(log)
   for (;;) {
     const config = loadConfig()
     if (!config) {
@@ -233,8 +235,8 @@ async function main() {
     }
     const { plist, nativeHosts, extension } = installService()
     log(`background service installed (${plist}); it starts at login and restarts if it stops`)
-    log(`Apply Assist bridge registered for ${nativeHosts.length} Chromium browsers`)
-    if (extension) log(`browser bridge ready at ${extension}`)
+    log(`Apply Assist extension registered for ${nativeHosts.length} Chromium browsers`)
+    if (extension) log(`Chromium extension ready at ${extension}`)
     notify(loadConfig() ? 'Landed is running in the background.' : 'Landed is installed. In Landed, click "Connect this computer".')
     return
   }

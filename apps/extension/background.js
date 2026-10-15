@@ -36,6 +36,7 @@ let assistPort = null
 let assistReconnectTimer = null
 let assistPublishTimer = null
 let assistResumes = []
+const IS_SAFARI = self.LandedApplyAssistBridge.isSafariUserAgent(navigator.userAgent)
 
 // chrome.storage.local key for #36's expired-login flow. Centralized in
 // lib/portal-sentinels.js since 3+ callers now read/write it (this file,
@@ -74,7 +75,8 @@ const PORTAL_HOSTS = {
 // ── Side panel (preserved from earlier behaviour) ────────────────────────
 
 chrome.action.onClicked.addListener(async (tab) => {
-  await chrome.sidePanel.open({ windowId: tab.windowId })
+  if (chrome.sidePanel?.open) await chrome.sidePanel.open({ windowId: tab.windowId })
+  else if (chrome.runtime.openOptionsPage) await chrome.runtime.openOptionsPage()
 })
 
 // ── Toolbar badge: at-a-glance sync status (#36.1) ───────────────────────
@@ -319,7 +321,28 @@ async function assistSnapshot(type = 'bridge_state') {
 async function publishAssistState(type = 'bridge_state') {
   const port = assistPort
   if (!port) return
-  try { port.postMessage(await assistSnapshot(type)) } catch { /* reconnect path handles it */ }
+  const snapshot = await assistSnapshot(type)
+  if (IS_SAFARI) {
+    const response = await sendSafariNative(snapshot)
+    for (const message of Array.isArray(response?.messages) ? response.messages : []) {
+      if (message?.type === 'assist_fill') void runAssistCommand(message)
+    }
+    return
+  }
+  try { port.postMessage(snapshot) } catch { /* reconnect path handles it */ }
+}
+
+function sendSafariNative(message) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendNativeMessage(NATIVE_HOST, message, (response) => {
+        const error = chrome.runtime.lastError
+        resolve(error ? { ok: false, error: error.message } : (response || { ok: false, error: 'No response from Landed' }))
+      })
+    } catch (error) {
+      resolve({ ok: false, error: error instanceof Error ? error.message : String(error) })
+    }
+  })
 }
 
 function fillTab(tabId, resume) {
@@ -361,12 +384,18 @@ async function runAssistCommand(command) {
     results = await Promise.all(tabIds.map((tabId) => fillTab(tabId, resume)))
   }
   const summary = self.LandedApplyAssistBridge.fillSummary(results)
+  const result = {
+    type: 'bridge_result',
+    session_id: await assistSessionId(),
+    command_id: command.command_id,
+    ...summary,
+  }
+  if (IS_SAFARI) {
+    await sendSafariNative(result)
+    return
+  }
   try {
-    assistPort.postMessage({
-      type: 'bridge_result',
-      command_id: command.command_id,
-      ...summary,
-    })
+    assistPort.postMessage(result)
   } catch { /* browser/native host disconnected */ }
 }
 
@@ -377,6 +406,7 @@ function connectAssistBridge() {
     assistPort = port
     port.onMessage.addListener((message) => {
       if (message?.type === 'assist_fill') void runAssistCommand(message)
+      else if (IS_SAFARI) void publishAssistState()
     })
     port.onDisconnect.addListener(() => {
       void chrome.runtime.lastError

@@ -6,6 +6,7 @@ import { afterEach, test } from 'node:test'
 import {
   assistCommandsDir, assistSessionsDir, sanitizeSnapshot, takeAssistCommands, writeAssistSession,
 } from '../src/assist-bridge.ts'
+import { createSafariBridgeHandler } from '../src/safari-bridge.ts'
 
 const roots: string[] = []
 afterEach(() => {
@@ -64,4 +65,33 @@ test('session files are private and contain the live menu state', () => {
   const stored = JSON.parse(readFileSync(join(assistSessionsDir(), 'browser-1.json'), 'utf8'))
   assert.equal(stored.browser, 'Brave')
   assert.equal(stored.ollama_model, 'qwen3.5:4b')
+})
+
+test('Safari polls over loopback and receives only its queued menu commands', async () => {
+  useHome()
+  mkdirSync(assistCommandsDir(), { recursive: true })
+  writeFileSync(join(assistCommandsDir(), 'safari.json'), JSON.stringify({
+    type: 'assist_fill', command_id: 's1', session_id: 'safari-1', tab_ids: [12], resume_id: 'r1',
+  }))
+  writeFileSync(join(assistCommandsDir(), 'chrome.json'), JSON.stringify({
+    type: 'assist_fill', command_id: 'c1', session_id: 'chrome-1', tab_ids: [9], resume_id: 'r2',
+  }))
+  const handle = createSafariBridgeHandler(async () => ({ ok: true, model: 'qwen3.5:4b' }))
+  const response = await handle({
+    type: 'bridge_hello', session_id: 'safari-1', browser: 'Safari',
+    tabs: [{ id: 12, title: 'Apply', url: 'https://jobs.example/apply', active: true }],
+    resumes: [{ id: 'r1', name: 'Product', is_current: true, created_at: '2026-10-14', parsed_json: { email: 'private' } }],
+  })
+  assert.deepEqual((response.messages as Array<{ type: string }>).map((item) => item.type), ['bridge_ready', 'assist_fill'])
+  assert.equal(takeAssistCommands('chrome-1')[0].command_id, 'c1')
+  const stored = JSON.parse(readFileSync(join(assistSessionsDir(), 'safari-1.json'), 'utf8'))
+  assert.equal(stored.browser, 'Safari')
+  assert.equal(stored.resumes[0].parsed_json, undefined)
+
+  const saved = await handle({
+    type: 'bridge_result', session_id: 'safari-1', command_id: 's1', filled: 4, review: 1, failed: 0, summary: '4 filled · 1 review',
+  })
+  assert.equal(saved.ok, true)
+  const after = JSON.parse(readFileSync(join(assistSessionsDir(), 'safari-1.json'), 'utf8'))
+  assert.equal(after.last_result.command_id, 's1')
 })

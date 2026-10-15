@@ -65,7 +65,7 @@ run('xcrun', [
   'swiftc', '-parse-as-library', '-target', target,
   join(root, 'macos', 'LandedMenuBar.swift'),
   '-o', join(app, 'Contents', 'MacOS', 'Landed'),
-  '-framework', 'AppKit', '-framework', 'SwiftUI', '-framework', 'ServiceManagement',
+  '-framework', 'AppKit', '-framework', 'SwiftUI', '-framework', 'SafariServices', '-framework', 'ServiceManagement',
 ])
 
 writeFileSync(join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
@@ -96,9 +96,81 @@ const extension = join(repo, 'apps', 'extension', 'dist')
 if (!existsSync(extension)) throw new Error('extension build did not produce apps/extension/dist')
 cpSync(extension, join(app, 'Contents', 'Resources', 'extension'), { recursive: true })
 
-// 4. Ad-hoc signing is enough for a local build; distribution can replace it
-// with Developer ID signing + notarization later.
-run('codesign', ['--force', '--deep', '--sign', '-', app])
+// 4. When full Xcode is present, convert the shared MV3 resources into a
+// Safari Web Extension and embed its .appex. Build hosts without Xcode (the
+// headless Mac mini) still build the Chromium-capable app; deploy.sh replaces
+// its download zip with the full local build afterwards.
+const xcodeDeveloper = '/Applications/Xcode.app/Contents/Developer'
+const safariConverter = join(xcodeDeveloper, 'usr', 'bin', 'safari-web-extension-converter')
+if (existsSync(safariConverter)) {
+  const safariSource = join(dist, 'safari-extension-source')
+  const safariProjectRoot = join(dist, 'safari-project')
+  const safariDerived = join(dist, 'safari-derived')
+  cpSync(extension, safariSource, { recursive: true })
+  const safariManifestPath = join(safariSource, 'manifest.json')
+  const safariManifest = JSON.parse(readFileSync(safariManifestPath, 'utf8'))
+  delete safariManifest.key
+  delete safariManifest.side_panel
+  safariManifest.permissions = safariManifest.permissions.filter((permission) => permission !== 'sidePanel')
+  safariManifest.action = { ...safariManifest.action, default_popup: 'popup/index.html' }
+  writeFileSync(safariManifestPath, `${JSON.stringify(safariManifest, null, 2)}\n`)
+
+  const xcodeEnv = { ...process.env, DEVELOPER_DIR: xcodeDeveloper }
+  execFileSync(safariConverter, [
+    safariSource,
+    '--project-location', safariProjectRoot,
+    '--app-name', 'Landed',
+    '--bundle-identifier', 'dev.landed.connector',
+    '--swift', '--macos-only', '--copy-resources', '--no-open', '--no-prompt',
+  ], { stdio: 'inherit', env: xcodeEnv })
+  const generated = join(safariProjectRoot, 'Landed')
+  const projectFile = join(generated, 'Landed.xcodeproj', 'project.pbxproj')
+  const project = readFileSync(projectFile, 'utf8')
+    .replaceAll('dev.landed.connector.Extension', 'dev.landed.connector.SafariExtension')
+    .replaceAll('dev.landed.Landed', 'dev.landed.connector')
+    .replace(/MACOSX_DEPLOYMENT_TARGET = [^;]+;/g, 'MACOSX_DEPLOYMENT_TARGET = 13.0;')
+  writeFileSync(projectFile, project)
+  copyFileSync(
+    join(root, 'macos', 'SafariWebExtensionHandler.swift'),
+    join(generated, 'Landed Extension', 'SafariWebExtensionHandler.swift'),
+  )
+  execFileSync(join(xcodeDeveloper, 'usr', 'bin', 'xcodebuild'), [
+    '-project', join(generated, 'Landed.xcodeproj'),
+    '-scheme', 'Landed',
+    '-configuration', 'Release',
+    '-derivedDataPath', safariDerived,
+    'CODE_SIGN_STYLE=Manual', 'CODE_SIGN_IDENTITY=-', 'DEVELOPMENT_TEAM=',
+    `MARKETING_VERSION=${version}`, `CURRENT_PROJECT_VERSION=${version.replace(/\D/g, '')}`,
+    `CODE_SIGN_ENTITLEMENTS=${join(root, 'macos', 'LandedSafariExtension.entitlements')}`,
+    'build',
+  ], { stdio: 'inherit', env: xcodeEnv })
+  const plugins = join(app, 'Contents', 'PlugIns')
+  mkdirSync(plugins, { recursive: true })
+  cpSync(
+    join(safariDerived, 'Build', 'Products', 'Release', 'Landed Extension.appex'),
+    join(plugins, 'Landed Safari Extension.appex'),
+    { recursive: true },
+  )
+  rmSync(safariSource, { recursive: true, force: true })
+  rmSync(safariProjectRoot, { recursive: true, force: true })
+  rmSync(safariDerived, { recursive: true, force: true })
+} else {
+  console.warn('Full Xcode not found; building without the embedded Safari extension.')
+}
+
+// 5. Ad-hoc signing is enough for a local build; distribution can replace it
+// with Developer ID signing + notarization later. Sign the nested extension
+// explicitly so a recursive parent signature cannot discard its sandboxed
+// loopback-network entitlement.
+const embeddedSafari = join(app, 'Contents', 'PlugIns', 'Landed Safari Extension.appex')
+if (existsSync(embeddedSafari)) {
+  run('codesign', [
+    '--force', '--sign', '-', '--options', 'runtime',
+    '--entitlements', join(root, 'macos', 'LandedSafariExtension.entitlements'),
+    embeddedSafari,
+  ])
+}
+run('codesign', ['--force', '--sign', '-', app])
 run('ditto', ['-c', '-k', '--keepParent', app, join(dist, 'Landed-mac.zip')])
 console.log(`built ${app} and ${join(dist, 'Landed-mac.zip')}`)
 
