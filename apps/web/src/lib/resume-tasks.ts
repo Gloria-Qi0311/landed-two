@@ -14,6 +14,7 @@ import {
   masterToResume, MAX_UPLOAD_BYTES, PARSE_FILE_TYPES, parseLooseResume, parseMasterResume, parseTailorNotes,
   type MasterResume, type ResumeTarget,
 } from '@landed/schema/master-resume'
+import { MAX_FILE_BYTES } from '@landed/schema/application-files'
 import { ApiError } from './api'
 import type { DataStore, DbResume } from './store/types'
 import { followJob, startJob, type Runtime, type RuntimeAgent } from '../hooks/runtimes'
@@ -100,6 +101,25 @@ async function prepare(file: File): Promise<{ file: { type: string; data_base64:
   }
   if (/\.(txt|md|markdown)$/i.test(file.name) || file.type.startsWith('text/')) return { file: null, text: await file.text() }
   throw new Error(/\.doc$/i.test(file.name) ? 'Old .doc files aren\'t supported — save it as .docx or PDF.' : 'Use a PDF, Word (.docx), image or text file.')
+}
+
+/** Keep the resume file itself, not only what was read from it: the newest
+ *  PDF / Word file of a batch becomes the file the extension attaches to
+ *  "Resume/CV" upload fields (Extension page, where it can be swapped). */
+async function keepResumeFile(files: File[]) {
+  const store = binding?.store
+  const file = files
+    .filter((f) => /\.(pdf|docx?)$/i.test(f.name) && f.size > 0 && f.size <= MAX_FILE_BYTES)
+    .sort((a, b) => b.lastModified - a.lastModified)[0]
+  if (!store || !file) return
+  const url = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result))
+    r.onerror = () => reject(new Error("Couldn't read the file."))
+    r.readAsDataURL(file)
+  })
+  await store.saveApplicationFile({ kind: 'resume', name: file.name, data: url.slice(url.indexOf(',') + 1) })
+  binding?.onData()
 }
 
 /** The flattened master as a canonical resume (auto-fill uses parsed_json). */
@@ -237,6 +257,7 @@ export const useResumeTask = create<State>((set, get) => {
       batchTargets.set(batch, target)
       const items: UploadItem[] = files.map((f) => ({ id: crypto.randomUUID(), name: baseName(f), status: 'preparing', job_id: null, batch }))
       set((s) => ({ uploads: [...s.uploads.filter((u) => u.status === 'preparing' || u.status === 'reading'), ...items] }))
+      void keepResumeFile(files).catch((e) => console.warn('[landed] could not keep the resume file', e))
       await Promise.all(files.map(async (file, i) => {
         const item = items[i]
         try {

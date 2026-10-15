@@ -14,7 +14,7 @@ const danger = 'oklch(0.45 0.15 30)'
 const card: CSSProperties = { background: 'var(--surface)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }
 
 const SLOTS: { kind: FileKind; title: string; help: string }[] = [
-  { kind: 'resume', title: 'Resume / CV', help: 'Goes into “Resume”, “CV” and “Attach resume” upload fields.' },
+  { kind: 'resume', title: 'Resume / CV', help: 'Goes into “Resume”, “CV” and “Attach resume” upload fields. The newest file you add on My Resume lands here too.' },
   { kind: 'cover_letter', title: 'Cover letter', help: 'Optional. A general one for “Cover letter” fields; leave empty to write them yourself.' },
 ]
 
@@ -63,7 +63,7 @@ function Slot({ kind, title, help }: { kind: FileKind; title: string; help: stri
             <span style={muted}>{kb(current.size)} · {formatRelative(current.created_at)}</span>
           </span>
         ) : (
-          <span style={muted}>No file — these fields stay yellow for you.</span>
+          <span style={muted}>{kind === 'resume' ? 'No file yet — upload your resume on My Resume, or choose it here.' : 'No file — these fields stay yellow for you.'}</span>
         )}
         <input ref={picker} type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }}
           onChange={(e) => { void onPick(e.target.files?.[0]); e.target.value = '' }} />

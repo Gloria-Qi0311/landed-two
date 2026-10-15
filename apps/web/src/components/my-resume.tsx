@@ -73,7 +73,7 @@ export function UploadPane({ manual, onOpenMaster }: { manual: ReactNode; onOpen
         <div style={{ fontSize: 17, fontWeight: 600, fontFamily: 'var(--font-display)', marginBottom: 4 }}>Add your resumes</div>
         <div style={muted}>
           Add every resume you have: different versions, older ones, other languages. Your agent reads each one, and your master
-          resume picks up anything new.
+          resume picks up anything new. The newest PDF or Word file is also kept for the extension to attach to applications.
         </div>
       </div>
 

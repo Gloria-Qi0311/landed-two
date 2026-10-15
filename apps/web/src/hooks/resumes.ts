@@ -101,6 +101,12 @@ export function useResumeTaskRunner() {
   const userId = useAuth((s) => s.user?.id)
   useEffect(() => {
     if (!ready || !userId) return
-    useResumeTask.getState().bind(userId, { store, onData: () => qc.invalidateQueries({ queryKey: ['resumes'] }) })
+    useResumeTask.getState().bind(userId, {
+      store,
+      onData: () => {
+        qc.invalidateQueries({ queryKey: ['resumes'] })
+        qc.invalidateQueries({ queryKey: ['application_files'] })
+      },
+    })
   }, [ready, userId, store, qc])
 }
