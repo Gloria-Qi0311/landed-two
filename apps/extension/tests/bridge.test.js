@@ -98,14 +98,18 @@ describe('bridge handler', () => {
       payload: {
         resumes: [
           { id: 'r1', name: 'CV', parsed_json: { basic: {} }, is_current: true, created_at: '2026-10-09', user_id: 'x', extra: 1 },
+          { id: 'v1', name: 'Ops', parsed_json: {}, kind: 'version', target: { role: 'Product Operations Analyst', company: 'Instawork', jd_text: 'long…', notes: {} } },
           { id: 2, name: 'bad id' },
           null,
         ],
       },
     }, FROM_WEB)
-    expect(res).toEqual({ ok: true, data: { count: 1 } })
+    expect(res).toEqual({ ok: true, data: { count: 2 } })
     expect(saved['landed:local-resumes'].resumes).toEqual([
-      { id: 'r1', name: 'CV', parsed_json: { basic: {} }, is_current: true, created_at: '2026-10-09' },
+      { id: 'r1', name: 'CV', parsed_json: { basic: {} }, is_current: true, created_at: '2026-10-09', kind: 'source', target: null },
+      // A version keeps what it's for (not its job description or notes).
+      { id: 'v1', name: 'Ops', parsed_json: {}, is_current: false, created_at: '', kind: 'version',
+        target: { role: 'Product Operations Analyst', company: 'Instawork', job_url: null, application_id: null } },
     ])
     expect(await handle({ type: 'sync-resumes', payload: {} }, FROM_WEB)).toMatchObject({ ok: false })
   })

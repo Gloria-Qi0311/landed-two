@@ -970,7 +970,7 @@ async function handleFill(resumeData, customFields, opts) {
   // "Attach" button count too.
   const fileInputs = /** @type {HTMLInputElement[]} */ (Array.from(document.querySelectorAll('input[type="file"]')));
   const files = fileInputs.length ? await loadApplicationFiles() : {};
-  const answered = new Set(fileInputs);
+  const answered = /** @type {Set<Element>} */ (new Set(fileInputs));
   for (const el of fileInputs) {
     const label = fileInputLabel(el);
     const kind = CA ? CA.fileKind(label) : null;

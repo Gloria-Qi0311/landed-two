@@ -102,6 +102,13 @@
     })
   }
 
+  function sanitizeTarget(raw) {
+    if (!raw || typeof raw !== 'object') return null
+    const text = (v, max) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
+    const role = text(raw.role, 200)
+    return role ? { role, company: text(raw.company, 120), job_url: text(raw.job_url, 2000), application_id: text(raw.application_id, 64) } : null
+  }
+
   function createBridgeHandler(deps) {
     const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
@@ -139,6 +146,10 @@
               parsed_json: r.parsed_json == null ? null : r.parsed_json,
               is_current: !!r.is_current,
               created_at: typeof r.created_at === 'string' ? r.created_at : '',
+              // What a tailored version is for, so a fill can pick it
+              // for that job (lib/resume-pick.js).
+              kind: ['source', 'master', 'version'].includes(r.kind) ? r.kind : 'source',
+              target: sanitizeTarget(r.target),
             }))
           await chromeLocal.set({
             [cfg.LOCAL_RESUMES_KEY]: { resumes, synced_at: new Date().toISOString() },

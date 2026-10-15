@@ -17,7 +17,7 @@
 // chrome.runtime.onStartup re-arms on browser restart in case the
 // onInstalled handler never ran.
 
-importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js', 'lib/bridge-handler.js', 'lib/apply-assist-bridge.js')
+importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js', 'lib/bridge-handler.js', 'lib/apply-assist-bridge.js', 'lib/resume-pick.js')
 
 // Every read-modify-write of the pending-event queue (ingest, Cloud push,
 // web-bridge take) runs under this lock so none of them clobbers another —
@@ -377,18 +377,41 @@ function fillTab(tabId, resume) {
   })
 }
 
+function getTab(tabId) {
+  return new Promise((resolve) => {
+    try { chrome.tabs.get(tabId, (tab) => { void chrome.runtime.lastError; resolve(tab || null) }) }
+    catch { resolve(null) }
+  })
+}
+
+/** "auto": the resume lib/resume-pick.js picks for this page — the version
+ *  tailored for its job (or the application Landed opened it for), else the
+ *  current one. */
+async function autoResumeFor(tabId) {
+  const [tab, tabs] = await Promise.all([getTab(tabId), loadAssistTabs()])
+  const opened = tabs[tabId]
+  const pick = self.LandedResumePick.pickResumeForPage({
+    url: tab?.url || '', title: tab?.title || '', applicationId: opened?.application_id || null,
+  }, assistResumes)
+  return pick ? pick.resume : null
+}
+
 async function runAssistCommand(command) {
   if (!assistPort || command?.type !== 'assist_fill') return
   await loadAssistResumes()
-  const resume = assistResumes.find((item) => item.id === command.resume_id)
+  const auto = command.resume_id === 'auto'
+  const resume = auto ? null : assistResumes.find((item) => item.id === command.resume_id)
   const tabIds = Array.isArray(command.tab_ids)
     ? [...new Set(command.tab_ids.filter(Number.isInteger))].slice(0, 5)
     : []
   let results
-  if (!resume || tabIds.length === 0) {
-    results = tabIds.map((tabId) => ({ tabId, error: resume ? 'No pages selected' : 'Resume is not available in this browser' }))
+  if (tabIds.length === 0 || (!auto && !resume)) {
+    results = tabIds.map((tabId) => ({ tabId, error: resume || auto ? 'No pages selected' : 'Resume is not available in this browser' }))
   } else {
-    results = await Promise.all(tabIds.map((tabId) => fillTab(tabId, resume)))
+    results = await Promise.all(tabIds.map(async (tabId) => {
+      const chosen = auto ? await autoResumeFor(tabId) : resume
+      return chosen ? fillTab(tabId, chosen) : { tabId, error: 'Resume is not available in this browser' }
+    }))
   }
   const summary = self.LandedApplyAssistBridge.fillSummary(results)
   const result = {

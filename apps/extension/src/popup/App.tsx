@@ -7,7 +7,9 @@
 // mode it autofills from the resumes the open Landed tab hands over through
 // the page bridge (lib/bridge-handler.js). Signing in to Landed Cloud is
 // optional — it adds background portal push straight to the server.
-// Resume picker + fill flow (the Workspace surface) unchanged from PR #67.
+// Fill flow: one button fills the checked tabs, each with the resume
+// lib/resume-pick.js picks for it (the version tailored for that job, else
+// the current one) unless the user chooses one.
 import React, { useEffect, useState } from 'react'
 import * as auth from '@lib/auth.js'
 import * as config from '@lib/config.js'
@@ -15,6 +17,7 @@ import * as config from '@lib/config.js'
 // and avoids Vite's CJS-interop edge case for named imports out of UMD
 // modules. Sub-agent flagged the named form as fragile-but-working.
 import * as sentinels from '@lib/portal-sentinels.js'
+import * as resumePick from '@lib/resume-pick.js'
 const { NEEDS_AUTH_KEY, FATAL_STATE_KEY } = sentinels
 
 // NEEDS_AUTH_KEY is the chrome.storage.local sentinel the SW sets on
@@ -274,13 +277,25 @@ function LoginForm({
 }
 
 // ── Signed-in: resume list + Use → fill (preserved from PR #67) ───────────
+type ResumeTarget = { role: string; company: string | null; job_url: string | null; application_id: string | null }
 type DbResume = {
   id: string
   name: string
   parsed_json: any
   is_current: boolean
   created_at: string
+  kind?: 'source' | 'master' | 'version'
+  /** a tailored version's job (from the Landed page) … */
+  target?: ResumeTarget | null
+  /** … or as the Cloud API returns it */
+  target_json?: ResumeTarget | null
 }
+
+type Pick = { resume: DbResume; why: 'tailored' | 'current' | 'master' | 'newest' }
+const pickFor = (tab: BrowserTab, resumes: DbResume[]): Pick | null =>
+  (resumePick as unknown as { pickResumeForPage: (page: { url: string; title: string }, list: DbResume[]) => Pick | null })
+    .pickResumeForPage({ url: tab.url, title: tab.title }, resumes)
+const WHY: Record<Pick['why'], string> = { tailored: 'tailored for this job', current: 'current', master: 'master', newest: 'newest' }
 
 type BrowserTab = { id: number; title: string; url: string; active: boolean }
 type FillResult = {
@@ -311,7 +326,9 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
   const inCloud = signedIn && !cloudOff
   const [cloudResumes, setCloudResumes] = useState<DbResume[] | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [fillingId, setFillingId] = useState<string | null>(null)
+  const [filling, setFilling] = useState(false)
+  // null: pick per page (the tailored version for that job, else current)
+  const [chosenId, setChosenId] = useState<string | null>(null)
   const [fillNotice, setFillNotice] = useState<string | null>(null)
   const [tabs, setTabs] = useState<BrowserTab[]>([])
   const [selectedTabs, setSelectedTabs] = useState<number[]>([])
@@ -376,17 +393,28 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
 
   const resumes = inCloud ? cloudResumes : byCurrentThenNewest(handedOver?.resumes ?? [])
 
-  async function fillWith(resume: DbResume) {
-    setFillingId(resume.id); setFillNotice(null)
+  const resumeFor = (tab: BrowserTab): Pick | null => {
+    const list = resumes ?? []
+    const chosen = chosenId ? list.find((r) => r.id === chosenId) : null
+    return chosen ? { resume: chosen, why: chosen.is_current ? 'current' : 'newest' } : pickFor(tab, list)
+  }
+
+  async function fillAll() {
+    setFilling(true); setFillNotice(null)
     setFillResults([])
     try {
       const targets = tabs.filter((tab) => selectedTabs.includes(tab.id)).slice(0, 5)
       if (targets.length === 0) throw new Error('Choose at least one job application tab')
       setFillResults(targets.map((tab) => ({ tabId: tab.id, title: tab.title, kind: 'running' })))
       const results = await Promise.all(targets.map((tab) => new Promise<FillResult>((resolve) => {
+        const pick = resumeFor(tab)
+        if (!pick) {
+          resolve({ tabId: tab.id, title: tab.title, kind: 'error', error: 'No resume to fill with' })
+          return
+        }
         chrome.tabs.sendMessage(tab.id, {
           action: 'fill',
-          resume: resume.parsed_json,
+          resume: pick.resume.parsed_json,
           aiTakeover: true,
         }, (response) => {
           const runtimeError = chrome.runtime.lastError
@@ -411,7 +439,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
     } catch (e) {
       setFillNotice(toErr(e))
     } finally {
-      setFillingId(null)
+      setFilling(false)
     }
   }
 
@@ -467,6 +495,10 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
                     <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tab.title}</span>
                     <span style={{ display: 'block', color: 'var(--fg-muted)', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {new URL(tab.url).hostname}
+                      {checked && resumes && resumes.length > 0 && (() => {
+                        const pick = resumeFor(tab)
+                        return pick ? <span style={{ color: pick.why === 'tailored' ? 'oklch(0.42 0.12 155)' : 'var(--fg-muted)' }}> · {pick.resume.name} ({WHY[pick.why]})</span> : null
+                      })()}
                     </span>
                   </span>
                 </label>
@@ -503,24 +535,30 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
         />
       )}
 
-      <div>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-          Your resumes {resumes && `(${resumes.length})`}
-        </div>
-        {resumes === null && <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>Loading…</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {resumes === null && <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>Loading your resumes…</div>}
         {resumes && resumes.length === 0 && (
           <div style={{ padding: 12, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 }}>
             {inCloud
-              ? 'No resumes yet. Open Landed → Resumes to add one, then come back.'
-              : <>No resumes here yet. Open <a href={config.API_URL} target="_blank" rel="noreferrer" className="link">Landed</a> and add one under Resumes — it shows up here automatically.</>}
+              ? 'No resumes yet. Open Landed → My Resume to add one, then come back.'
+              : <>No resumes here yet. Open <a href={config.API_URL} target="_blank" rel="noreferrer" className="link">Landed</a> and add one under My Resume — it shows up here automatically.</>}
           </div>
         )}
         {resumes && resumes.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-            {resumes.map((r) => (
-              <ResumeRow key={r.id} resume={r} filling={fillingId === r.id} targetCount={selectedTabs.length} onFill={() => fillWith(r)} />
-            ))}
-          </div>
+          <>
+            <button type="button" className="btn-primary" onClick={() => void fillAll()} disabled={filling || selectedTabs.length === 0}
+              style={{ justifyContent: 'center', fontSize: 13, padding: '10px 14px' }}>
+              {filling ? 'Filling…' : selectedTabs.length > 1 ? `Fill ${selectedTabs.length} pages` : 'Fill this page'}
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--fg-muted)' }}>
+              Resume
+              <select value={chosenId ?? ''} onChange={(e) => setChosenId(e.target.value || null)}
+                style={{ flex: 1, minWidth: 0, fontSize: 11, padding: '3px 4px', fontFamily: 'inherit' }}>
+                <option value="">Automatic — tailored for the job, else current</option>
+                {resumes.map((r) => <option key={r.id} value={r.id}>{r.name}{r.is_current ? ' (current)' : ''}</option>)}
+              </select>
+            </label>
+          </>
         )}
       </div>
 
@@ -556,27 +594,6 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       )}
       {error && <ErrorBanner message={error} />}
     </>
-  )
-}
-
-function ResumeRow({ resume, filling, targetCount, onFill }: { resume: DbResume; filling: boolean; targetCount: number; onFill: () => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8 }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resume.name}</div>
-          {resume.is_current && (
-            <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 6px', background: 'oklch(0.92 0.06 155)', color: 'oklch(0.40 0.13 155)', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current</span>
-          )}
-        </div>
-        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: 2 }}>
-          {new Date(resume.created_at).toLocaleDateString()}
-        </div>
-      </div>
-      <button className="btn-primary" onClick={onFill} disabled={filling || targetCount === 0} style={{ fontSize: 11.5, padding: '6px 11px' }}>
-        {filling ? 'Filling…' : targetCount > 1 ? `Fill ${targetCount}` : 'Fill'}
-      </button>
-    </div>
   )
 }
 

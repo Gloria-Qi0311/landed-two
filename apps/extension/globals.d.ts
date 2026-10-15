@@ -93,6 +93,8 @@ declare global {
     ResumeFillerFieldDetect: any
     ResumeFillerValueMatch: any
     ResumeFillerCrossLingual: any
+    LandedChoiceAnswers: any
+    LandedResumePick: any
     ResumeFillerLabelClassifier: any
     ResumeFillerLLMMatch: any
     ResumeFillerLLMProviders: any

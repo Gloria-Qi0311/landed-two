@@ -5,6 +5,8 @@ import ServiceManagement
 import SwiftUI
 
 private let safariExtensionIdentifier = "dev.landed.connector.SafariExtension"
+/// Fill each page with the resume picked for it (tailored version, else current).
+private let autoResume = "auto"
 
 struct AssistTab: Codable, Identifiable, Hashable {
     let id: Int
@@ -157,9 +159,12 @@ final class AssistModel: NSObject, ObservableObject {
             didChooseDefaults = true
         }
 
+        // "auto": each page gets the version tailored for its job, else the
+        // current resume (extension lib/resume-pick.js). A chosen resume
+        // that's gone falls back to automatic.
         let ids = Set(resumes.map(\.id))
-        if selectedResumeId.isEmpty || !ids.contains(selectedResumeId) {
-            selectedResumeId = resumes.first(where: { $0.isCurrent })?.id ?? resumes.first?.id ?? ""
+        if selectedResumeId.isEmpty || (selectedResumeId != autoResume && !ids.contains(selectedResumeId)) {
+            selectedResumeId = autoResume
         }
     }
 
@@ -214,7 +219,7 @@ final class AssistModel: NSObject, ObservableObject {
             notice = "Choose at least one application page."
             return
         }
-        guard !selectedResumeId.isEmpty else {
+        guard !resumes.isEmpty else {
             notice = "Open the Landed web app once so the browser extension can receive your resumes."
             return
         }
@@ -228,7 +233,7 @@ final class AssistModel: NSObject, ObservableObject {
                     .filter { selectedTabs.contains(tabKey(session.sessionId, $0.id)) }
                     .map(\.id)
                 if ids.isEmpty { continue }
-                guard session.resumes.contains(where: { $0.id == selectedResumeId }) else {
+                guard selectedResumeId == autoResume ? !session.resumes.isEmpty : session.resumes.contains(where: { $0.id == selectedResumeId }) else {
                     unavailable += ids.count
                     continue
                 }
@@ -355,6 +360,7 @@ struct LandedMenuView: View {
                     Text("Resume").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
                     Picker("Resume", selection: $model.selectedResumeId) {
+                        Text("Automatic").tag(autoResume)
                         ForEach(model.resumes) { resume in
                             Text(resume.isCurrent ? "\(resume.name) · current" : resume.name).tag(resume.id)
                         }
@@ -371,7 +377,7 @@ struct LandedMenuView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.selectedTabs.isEmpty || model.selectedResumeId.isEmpty)
+                .disabled(model.selectedTabs.isEmpty || model.resumes.isEmpty)
             }
 
             if !model.notice.isEmpty {

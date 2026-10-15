@@ -128,7 +128,11 @@ export function useExtensionBridge() {
   useEffect(() => {
     if (!resumes) return
     const send = () => void bridgeRequest('sync-resumes', {
-      resumes: resumes.map(({ id, name, parsed_json, is_current, created_at }) => ({ id, name, parsed_json, is_current, created_at })),
+      resumes: resumes.map(({ id, name, parsed_json, is_current, created_at, kind, target_json }) => ({
+        id, name, parsed_json, is_current, created_at, kind,
+        // A tailored version's job, so the extension picks it for that page.
+        target: target_json ? { role: target_json.role, company: target_json.company, job_url: target_json.job_url, application_id: target_json.application_id } : null,
+      })),
     })
     send()
     return onExtensionReady(send)
