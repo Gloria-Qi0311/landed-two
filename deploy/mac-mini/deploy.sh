@@ -36,4 +36,10 @@ ssh "$HOST" "cd '$DIR' && git checkout -q '$BRANCH' && git reset -q --hard '$BRA
 if [ -n "$LOCAL_MAC_ZIP" ]; then
   scp "$LOCAL_MAC_ZIP" "$HOST:$DIR/apps/daemon/dist/Landed-mac.zip"
   echo "→ uploaded the Safari-capable Landed for Mac download"
+  # The signed update manifest goes last, so installed apps (src/updater.ts)
+  # never see it before the zip it describes.
+  if [ -f "${LOCAL_MAC_ZIP%.zip}.json" ]; then
+    scp "${LOCAL_MAC_ZIP%.zip}.json" "$HOST:$DIR/apps/daemon/dist/Landed-mac.json"
+    echo "→ published it as an update; installed apps pick it up within 6 hours"
+  fi
 fi

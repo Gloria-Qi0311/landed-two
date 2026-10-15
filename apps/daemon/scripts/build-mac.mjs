@@ -9,7 +9,8 @@
 //   node scripts/build-mac.mjs            # build
 //   node scripts/build-mac.mjs --install  # …and copy to ~/Applications
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,6 +22,32 @@ const dist = join(root, 'dist')
 const app = join(dist, 'Landed.app')
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'inherit' })
+
+// Every build has an id that sorts by time ("20261015T0150Z-4120f35"); the
+// installed app updates itself to a newer one (src/updater.ts). CFBundleVersion
+// carries the same time so Launch Services prefers the newest copy.
+const now = new Date()
+const stamp = `${now.toISOString().slice(0, 19).replace(/[-:]/g, '')}Z` // 20261015T085012Z
+let commit = 'local'
+try { commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim() } catch { /* not a checkout */ }
+const build = `${stamp}-${commit}`
+const bundleVersion = `${stamp.slice(0, 4)}.${stamp.slice(4, 8)}.${stamp.slice(9, 15)}` // 2026.1015.085012
+
+// Updates are signed with a key that never leaves the release machine
+// (~/.landed-release, created on the first build there); the app carries the
+// public half and installs only updates it verifies. Hosts without the key
+// (the headless mini) build an unsigned download that nothing auto-installs.
+const releaseDir = process.env.LANDED_RELEASE_DIR || join(homedir(), '.landed-release')
+const keyFile = join(releaseDir, 'update-signing-key.pem')
+const canSign = process.env.LANDED_SIGN_UPDATES !== '0' && existsSync('/Applications/Xcode.app/Contents/Developer/usr/bin/safari-web-extension-converter')
+if (canSign && !existsSync(keyFile)) {
+  mkdirSync(releaseDir, { recursive: true, mode: 0o700 })
+  const { privateKey } = generateKeyPairSync('ed25519')
+  writeFileSync(keyFile, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 })
+  chmodSync(keyFile, 0o600)
+  console.log(`created the update signing key ${keyFile} — back it up: without it, installed apps can't verify updates`)
+}
+const signingKey = existsSync(keyFile) ? createPrivateKey(readFileSync(keyFile)) : null
 
 if (process.platform !== 'darwin') {
   console.error('Landed.app can only be built on macOS.')
@@ -79,7 +106,7 @@ writeFileSync(join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>Landed.icns</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
-  <key>CFBundleVersion</key><string>${version}</string>
+  <key>CFBundleVersion</key><string>${bundleVersion}</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
@@ -90,8 +117,13 @@ writeFileSync(join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding
 </dict></plist>
 `)
 
-// 3. Bundle the daemon and matching browser bridge.
+// 3. Bundle the daemon and matching browser bridge, with the build id and the
+// key that updates must be signed with (setup copies both next to the daemon).
 copyFileSync(join(dist, 'landed-daemon.mjs'), join(app, 'Contents', 'Resources', 'landed-daemon.mjs'))
+writeFileSync(join(app, 'Contents', 'Resources', 'build.json'), `${JSON.stringify({ version, build })}\n`)
+if (signingKey) {
+  writeFileSync(join(app, 'Contents', 'Resources', 'update-key.pem'), createPublicKey(signingKey).export({ type: 'spki', format: 'pem' }))
+}
 const extension = join(repo, 'apps', 'extension', 'dist')
 if (!existsSync(extension)) throw new Error('extension build did not produce apps/extension/dist')
 cpSync(extension, join(app, 'Contents', 'Resources', 'extension'), { recursive: true })
@@ -172,7 +204,16 @@ if (existsSync(embeddedSafari)) {
 }
 run('codesign', ['--force', '--sign', '-', app])
 run('ditto', ['-c', '-k', '--keepParent', app, join(dist, 'Landed-mac.zip')])
-console.log(`built ${app} and ${join(dist, 'Landed-mac.zip')}`)
+console.log(`built ${app} and ${join(dist, 'Landed-mac.zip')} (${build})`)
+
+// 6. The update manifest the server publishes next to the zip.
+if (signingKey) {
+  const zip = readFileSync(join(dist, 'Landed-mac.zip'))
+  const sha256 = createHash('sha256').update(zip).digest('hex')
+  const signature = sign(null, Buffer.from(`landed-mac\n${build}\n${sha256}\n${zip.length}`), signingKey).toString('base64')
+  writeFileSync(join(dist, 'Landed-mac.json'), `${JSON.stringify({ version, build, sha256, size: zip.length, signature }, null, 2)}\n`)
+  console.log(`signed update ${join(dist, 'Landed-mac.json')}`)
+}
 
 if (process.argv.includes('--install')) {
   const targetApp = join(homedir(), 'Applications', 'Landed.app')

@@ -143,7 +143,16 @@ export function installService(opts: { dryRun?: boolean } = {}): { plist: string
     const bin = join(home(), 'bin')
     mkdirSync(bin, { recursive: true, mode: 0o700 })
     script = join(bin, 'landed-daemon.mjs')
-    if (self !== script) copyFileSync(self, script)
+    if (self !== script) {
+      copyFileSync(self, script)
+      // Which build this is, and the key its updates must be signed with
+      // (src/updater.ts). A build without them doesn't update itself.
+      for (const name of ['build.json', 'update-key.pem']) {
+        const from = join(dirname(self), name)
+        if (existsSync(from)) copyFileSync(from, join(bin, name))
+        else rmSync(join(bin, name), { force: true })
+      }
+    }
   }
   const bundledExtension = join(dirname(self), 'extension')
   const installedExtension = join(home(), 'extension')

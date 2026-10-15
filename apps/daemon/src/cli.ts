@@ -30,6 +30,7 @@ import {
 } from './mac.ts'
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 import { runNativeHost } from './native-host.ts'
+import { startUpdater } from './updater.ts'
 import { startSafariBridgeServer } from './safari-bridge.ts'
 
 const VERSION = '0.10.0'
@@ -151,6 +152,7 @@ async function service() {
   takeLock()
   log(`Landed ${VERSION} service started`)
   await startSafariBridgeServer(log)
+  startUpdater(() => loadConfig()?.server ?? null, log)
   for (;;) {
     const config = loadConfig()
     if (!config) {

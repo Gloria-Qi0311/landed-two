@@ -30,15 +30,22 @@ function StatusCard() {
         {connected && <span style={{ ...muted, fontFamily: 'var(--font-mono)' }}>v{ext.data}</span>}
       </div>
       {connected ? (
-        <div style={muted}>
-          It fills with the resume you pick in the Landed menu bar ({current ? <Link to="/resumes">{current.name}</Link> : 'none marked current yet'}), or — when you
-          start from a lead or application here — the version tailored for that job. Unknown fields go to the AI on your Mac (Ollama, or your Claude Code).
-          It never clicks Submit.
+        <div style={{ ...muted, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span>
+            It fills with the resume you pick in the Landed menu bar ({current ? <Link to="/resumes">{current.name}</Link> : 'none marked current yet'}), or — when you
+            start from a lead or application here — the version tailored for that job. Unknown fields go to the AI on your Mac (Ollama, or your Claude Code).
+            It never clicks Submit.
+          </span>
+          <span>
+            Landed for Mac updates itself (and the extension with it). <a href="/api/downloads/landed-mac.zip" download>Download it again</a> to reinstall or
+            set up another Mac.
+          </span>
         </div>
       ) : (
         <div style={{ ...muted, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span>Safari: install Landed for Mac — the extension comes with it — then turn it on in Safari Settings → Extensions.</span>
           <span>Chrome, Edge or Brave: Landed for Mac's menu has “Chromium Extension Folder”; load it once from the browser's extensions page.</span>
+          <span>Install it once — after that it updates itself, the extension included.</span>
           <span>
             <a className="btn-secondary" href="/api/downloads/landed-mac.zip" download style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
               <Icon name="download" size={12} /> Download Landed for Mac

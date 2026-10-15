@@ -480,8 +480,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if #available(macOS 13.0, *) {
             try? SMAppService.mainApp.register()
         }
-        // A first launch should be visible, not another silent installer.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.showPopover() }
+        // A first launch should be visible, not another silent installer — but
+        // a relaunch after a self-update (src/updater.ts) stays out of the way.
+        if !CommandLine.arguments.contains("--updated") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.showPopover() }
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
