@@ -9,6 +9,7 @@ import { HTTPException } from 'hono/http-exception'
 import { authRoutes, requireCloud, requireUser, type AppEnv } from './auth.ts'
 import type { Config } from './config.ts'
 import type { Sql } from './db.ts'
+import { createPasswordResetSender, type PasswordResetSender } from './email.ts'
 import { pgErrorStatus } from './http.ts'
 import type { PortalEventsHub } from './realtime.ts'
 import { accountRoutes } from './routes/account.ts'
@@ -36,8 +37,17 @@ const agentBody = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge })
 // A run's worth of results at once (up to 60 jobs / 100 email updates).
 const agentBatchBody = bodyLimit({ maxSize: 512 * 1024, onError: tooLarge })
 
-export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtimes: RuntimeHub) {
+export function createApp(
+  sql: Sql,
+  config: Config,
+  hub: PortalEventsHub,
+  runtimes: RuntimeHub,
+  services: { passwordResetSender?: PasswordResetSender | null } = {},
+) {
   const app = new Hono<AppEnv>()
+  const passwordResetSender = services.passwordResetSender === undefined
+    ? (config.email ? createPasswordResetSender(config.email) : null)
+    : services.passwordResetSender
 
   // The extension calls the API from chrome-extension://<id> with a Bearer
   // token. Wildcard origin without credentials: browsers never attach the
@@ -76,7 +86,7 @@ export function createApp(sql: Sql, config: Config, hub: PortalEventsHub, runtim
   app.route('/', mcpRoutes(sql, config))
 
   app.get('/api/health', (c) => c.json({ ok: true }))
-  app.route('/api/auth', authRoutes(sql, config))
+  app.route('/api/auth', authRoutes(sql, config, passwordResetSender))
   app.route('/api/downloads', downloadRoutes())
   // External agents authenticate with a narrow connection token, never a
   // browser/extension session token.

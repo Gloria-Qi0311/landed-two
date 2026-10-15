@@ -12,13 +12,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@landed/schema": "workspace:*",
     "@hono/node-server": "^2.1.4",
+    "@landed/schema": "workspace:*",
     "hono": "^4.13.13",
+    "nodemailer": "^10.1.1",
     "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@types/node": "^25.8.0",
+    "@types/nodemailer": "^8.0.2",
     "typescript": "^6.0.3"
   }
 }

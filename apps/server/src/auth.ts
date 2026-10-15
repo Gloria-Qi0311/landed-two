@@ -13,7 +13,9 @@ import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import type { Config } from './config.ts'
 import type { Sql } from './db.ts'
+import type { PasswordResetSender } from './email.ts'
 import { fail, jsonBody } from './http.ts'
+import { hashRecoveryCode, normalizeRecoveryCode } from './recovery-codes.ts'
 
 export type SessionUser = { id: string; email: string; cloud_sync: boolean }
 export type AppEnv = { Variables: { user: SessionUser; sessionHash: string } }
@@ -21,6 +23,8 @@ export type AppEnv = { Variables: { user: SessionUser; sessionHash: string } }
 export const SESSION_COOKIE = 'landed_session'
 const SESSION_TTL_DAYS = 60
 const SESSION_TTL_MS = SESSION_TTL_DAYS * 86_400_000
+const RESET_TTL_MINUTES = 30
+const RESET_TTL_MS = RESET_TTL_MINUTES * 60_000
 
 // ── password hashing (scrypt, no native deps) ─────────────────────────────
 
@@ -103,6 +107,8 @@ export function requireUser(sql: Sql): MiddlewareHandler<AppEnv> {
 const WINDOW_MS = 15 * 60_000
 const MAX_FAILURES = 10
 const failures = new Map<string, number[]>()
+const resetRequests = new Map<string, number[]>()
+const resetAttempts = new Map<string, number[]>()
 
 function recentFailures(key: string): number[] {
   const cutoff = Date.now() - WINDOW_MS
@@ -118,6 +124,30 @@ function clientIp(c: Context): string {
   return c.req.header('CF-Connecting-IP') ?? c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ?? 'local'
 }
 
+function tooManyResetRequests(key: string): boolean {
+  const cutoff = Date.now() - 60 * 60_000
+  const hits = (resetRequests.get(key) ?? []).filter((time) => time > cutoff)
+  hits.push(Date.now())
+  resetRequests.set(key, hits)
+  return hits.length > 5
+}
+
+function tooManyResetAttempts(key: string): boolean {
+  const cutoff = Date.now() - WINDOW_MS
+  const hits = (resetAttempts.get(key) ?? []).filter((time) => time > cutoff)
+  hits.push(Date.now())
+  resetAttempts.set(key, hits)
+  return hits.length > 20
+}
+
+function publicOrigin(c: Context, config: Pick<Config, 'publicUrl'>): string {
+  if (config.publicUrl) return config.publicUrl
+  const url = new URL(c.req.url)
+  const proto = c.req.header('x-forwarded-proto')?.split(',')[0].trim() || url.protocol.replace(':', '')
+  const host = c.req.header('x-forwarded-host')?.split(',')[0].trim() || c.req.header('host') || url.host
+  return `${proto}://${host}`
+}
+
 // ── routes ────────────────────────────────────────────────────────────────
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -131,7 +161,7 @@ function credentials(body: Record<string, unknown>) {
   return { email, password, mode } as const
 }
 
-export function authRoutes(sql: Sql, config: Config) {
+export function authRoutes(sql: Sql, config: Config, sendPasswordReset: PasswordResetSender | null = null) {
   const app = new Hono<AppEnv>()
 
   async function startSession(c: Context, user: SessionUser, mode: 'cookie' | 'token') {
@@ -186,6 +216,87 @@ export function authRoutes(sql: Sql, config: Config) {
     return startSession(c, { id: row.id, email: row.email, cloud_sync: row.cloud_sync }, mode)
   })
 
+  app.post('/forgot-password', async (c) => {
+    if (!sendPasswordReset) fail(503, 'password recovery is not configured on this server')
+    const { email } = credentials(await jsonBody(c))
+    const keys = ['ip:' + clientIp(c), 'email:' + email]
+    if (keys.some(tooManyResetRequests)) fail(429, 'too many reset requests — try again later')
+
+    const [user] = await sql<{ id: string }[]>`select id from users where email = ${email}`
+    if (user) {
+      const rawToken = randomBytes(32).toString('base64url')
+      const tokenHash = sha256(rawToken)
+      await sql.begin(async (tx) => {
+        await tx`delete from password_reset_tokens where user_id = ${user.id}`
+        await tx`
+          insert into password_reset_tokens (token_hash, user_id, expires_at)
+          values (${tokenHash}, ${user.id}, ${new Date(Date.now() + RESET_TTL_MS)})`
+      })
+      const resetUrl = `${publicOrigin(c, config)}/reset-password#token=${encodeURIComponent(rawToken)}`
+      try {
+        await sendPasswordReset({ to: email, resetUrl, expiresInMinutes: RESET_TTL_MINUTES })
+      } catch (error) {
+        await sql`delete from password_reset_tokens where token_hash = ${tokenHash}`
+        console.error('[auth] password reset email failed:', error instanceof Error ? error.message : 'unknown error')
+      }
+    }
+    c.header('Cache-Control', 'no-store')
+    return c.json({ message: 'If that email has a Landed account, a reset link is on its way.' }, 202)
+  })
+
+  app.post('/reset-password', async (c) => {
+    if (tooManyResetAttempts('ip:' + clientIp(c))) fail(429, 'too many reset attempts — try again in 15 minutes')
+    const body = await jsonBody(c)
+    const rawToken = typeof body.token === 'string' ? body.token : ''
+    const password = typeof body.password === 'string' ? body.password : ''
+    if (!/^[A-Za-z0-9_-]{40,100}$/.test(rawToken)) fail(400, 'reset link is invalid or has expired')
+    if (password.length < 8) fail(400, 'password must be at least 8 characters')
+    if (password.length > 1024) fail(400, 'password too long')
+    const passwordHash = await hashPassword(password)
+    const resetHash = sha256(rawToken)
+    const user = await sql.begin(async (tx) => {
+      const [row] = await tx<SessionUser[]>`
+        select u.id, u.email, u.cloud_sync
+        from password_reset_tokens r join users u on u.id = r.user_id
+        where r.token_hash = ${resetHash} and r.expires_at > now()
+        for update of r`
+      if (!row) fail(400, 'reset link is invalid or has expired')
+      await tx`update users set password_hash = ${passwordHash} where id = ${row.id}`
+      await tx`delete from sessions where user_id = ${row.id}`
+      await tx`delete from password_reset_tokens where user_id = ${row.id}`
+      return row
+    })
+    c.header('Cache-Control', 'no-store')
+    return startSession(c, user, 'cookie')
+  })
+
+  app.post('/recover-with-code', async (c) => {
+    const body = await jsonBody(c)
+    const { email, password } = credentials(body)
+    const normalizedCode = normalizeRecoveryCode(body.code)
+    const rateKeys = ['ip:' + clientIp(c), 'email:' + email]
+    if (rateKeys.some(tooManyResetAttempts)) fail(429, 'too many recovery attempts — try again in 15 minutes')
+    if (!normalizedCode) fail(400, 'recovery code is invalid or has already been used')
+    if (password.length < 8) fail(400, 'password must be at least 8 characters')
+    const passwordHash = await hashPassword(password)
+    const codeHash = hashRecoveryCode(normalizedCode)
+    const user = await sql.begin(async (tx) => {
+      const [row] = await tx<SessionUser[]>`
+        select u.id, u.email, u.cloud_sync
+        from account_recovery_codes r join users u on u.id = r.user_id
+        where r.code_hash = ${codeHash} and u.email = ${email}
+        for update of r`
+      if (!row) fail(400, 'recovery code is invalid or has already been used')
+      await tx`update users set password_hash = ${passwordHash} where id = ${row.id}`
+      await tx`delete from sessions where user_id = ${row.id}`
+      await tx`delete from password_reset_tokens where user_id = ${row.id}`
+      await tx`delete from account_recovery_codes where code_hash = ${codeHash}`
+      return row
+    })
+    c.header('Cache-Control', 'no-store')
+    return startSession(c, user, 'cookie')
+  })
+
   app.post('/logout', async (c) => {
     const token = readToken(c)
     if (token) await sql`delete from sessions where token_hash = ${sha256(token)}`
@@ -217,4 +328,5 @@ export const requireCloud: MiddlewareHandler<AppEnv> = async (c, next) => {
 
 export async function deleteExpiredSessions(sql: Sql) {
   await sql`delete from sessions where expires_at < now()`
+  await sql`delete from password_reset_tokens where expires_at < now()`
 }

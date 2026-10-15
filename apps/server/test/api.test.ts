@@ -7,6 +7,7 @@ import { after, before, describe, test } from 'node:test'
 import { createApp } from '../src/app.ts'
 import type { Config } from '../src/config.ts'
 import { connect, type Sql } from '../src/db.ts'
+import type { PasswordResetEmail } from '../src/email.ts'
 import { migrate } from '../src/migrate.ts'
 import { PortalEventsHub } from '../src/realtime.ts'
 import { RuntimeHub } from '../src/runtime-hub.ts'
@@ -28,6 +29,7 @@ const baseConfig: Config = {
 let sql: Sql
 let hub: PortalEventsHub
 let app: ReturnType<typeof createApp>
+const passwordResetEmails: PasswordResetEmail[] = []
 
 type Res = { status: number; body: any; headers: Headers }
 
@@ -65,7 +67,9 @@ before(async () => {
   await migrate(sql)
   hub = new PortalEventsHub(sql)
   await hub.start()
-  app = createApp(sql, baseConfig, hub, new RuntimeHub())
+  app = createApp(sql, baseConfig, hub, new RuntimeHub(), {
+    passwordResetSender: async (message) => { passwordResetEmails.push(message) },
+  })
 })
 
 after(async () => {
@@ -107,6 +111,139 @@ describe('auth', () => {
     await signup('dup@example.com')
     assert.equal((await call('POST', '/api/auth/signup', { body: { email: 'dup@example.com', password: 'whatever123' } })).status, 409)
     assert.equal((await call('POST', '/api/auth/signup', { body: { email: 'short@example.com', password: 'short' } })).status, 400)
+  })
+
+  test('password reset is private, one-use, and revokes every old session', async () => {
+    const oldToken = await signup('reset@example.com', 'old-password-1', { cloud: false })
+    const before = passwordResetEmails.length
+    const requested = await call('POST', '/api/auth/forgot-password', {
+      body: { email: 'RESET@example.com' },
+      headers: { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'landed.example.com', 'CF-Connecting-IP': '203.0.113.10' },
+    })
+    assert.equal(requested.status, 202)
+    assert.match(requested.body.message, /If that email has a Landed account/)
+    assert.equal(passwordResetEmails.length, before + 1)
+    const email = passwordResetEmails.at(-1)!
+    assert.equal(email.to, 'reset@example.com')
+    assert.equal(email.expiresInMinutes, 30)
+    const link = new URL(email.resetUrl)
+    assert.equal(link.origin + link.pathname, 'https://landed.example.com/reset-password')
+    const token = new URLSearchParams(link.hash.slice(1)).get('token')!
+    assert.match(token, /^[A-Za-z0-9_-]{40,100}$/)
+    const [stored] = await sql`select token_hash, expires_at from password_reset_tokens`
+    assert.notEqual(stored.token_hash, token, 'the raw email token is never stored')
+    assert.ok(Date.parse(stored.expires_at) > Date.now())
+
+    const unknown = await call('POST', '/api/auth/forgot-password', {
+      body: { email: 'nobody@example.com' }, headers: { 'CF-Connecting-IP': '203.0.113.11' },
+    })
+    assert.equal(unknown.status, 202)
+    assert.deepEqual(unknown.body, requested.body, 'unknown accounts get the same response')
+    assert.equal(passwordResetEmails.length, before + 1, 'no email for an unknown account')
+
+    assert.equal((await call('POST', '/api/auth/reset-password', { body: { token, password: 'short' } })).status, 400)
+    const reset = await call('POST', '/api/auth/reset-password', { body: { token, password: 'new-password-2' } })
+    assert.equal(reset.status, 200, JSON.stringify(reset.body))
+    assert.equal(reset.body.user.email, 'reset@example.com')
+    const cookie = (reset.headers.get('set-cookie') ?? '').split(';')[0]
+    assert.match(cookie, /^landed_session=/)
+    assert.equal((await call('GET', '/api/me', { cookie })).status, 200, 'reset starts a fresh web session')
+    assert.equal((await call('GET', '/api/me', { token: oldToken })).status, 401, 'old sessions are revoked')
+    assert.equal((await call('POST', '/api/auth/login', { body: { email: 'reset@example.com', password: 'old-password-1' } })).status, 401)
+    assert.equal((await call('POST', '/api/auth/login', { body: { email: 'reset@example.com', password: 'new-password-2' } })).status, 200)
+    assert.equal((await call('POST', '/api/auth/reset-password', { body: { token, password: 'another-password-3' } })).status, 400, 'link is one-use')
+  })
+
+  test('a newer password reset link invalidates the older link', async () => {
+    await signup('newest-reset@example.com', 'old-password-1', { cloud: false })
+    const request = () => call('POST', '/api/auth/forgot-password', {
+      body: { email: 'newest-reset@example.com' }, headers: { 'CF-Connecting-IP': '203.0.113.12' },
+    })
+    await request()
+    const first = new URLSearchParams(new URL(passwordResetEmails.at(-1)!.resetUrl).hash.slice(1)).get('token')!
+    await request()
+    const second = new URLSearchParams(new URL(passwordResetEmails.at(-1)!.resetUrl).hash.slice(1)).get('token')!
+    assert.equal((await call('POST', '/api/auth/reset-password', { body: { token: first, password: 'new-password-1' } })).status, 400)
+    assert.equal((await call('POST', '/api/auth/reset-password', { body: { token: second, password: 'new-password-2' } })).status, 200)
+  })
+
+  test('offline recovery codes are shown once, stored as hashes, and consumed once', async () => {
+    const oldToken = await signup('codes@example.com', 'codes-old-password', { cloud: false })
+    assert.deepEqual((await call('GET', '/api/recovery-codes', { token: oldToken })).body, {
+      remaining: 0, created_at: null,
+    })
+    assert.equal((await call('POST', '/api/recovery-codes', {
+      token: oldToken, body: { password: 'wrong-password' },
+    })).status, 403)
+
+    const generated = await call('POST', '/api/recovery-codes', {
+      token: oldToken, body: { password: 'codes-old-password' },
+    })
+    assert.equal(generated.status, 200, JSON.stringify(generated.body))
+    assert.equal(generated.body.codes.length, 8)
+    assert.equal(new Set(generated.body.codes).size, 8)
+    for (const code of generated.body.codes) assert.match(code, /^LND-[0-9A-F]{5}(?:-[0-9A-F]{5}){3}$/)
+    const stored = await sql<{ code_hash: string }[]>`
+      select r.code_hash from account_recovery_codes r join users u on u.id = r.user_id
+      where u.email = 'codes@example.com'`
+    assert.equal(stored.length, 8)
+    assert.ok(stored.every((row) => /^[0-9a-f]{64}$/.test(row.code_hash)))
+    assert.ok(stored.every((row) => !generated.body.codes.includes(row.code_hash)), 'raw codes are never stored')
+    assert.equal((await call('GET', '/api/recovery-codes', { token: oldToken })).body.remaining, 8)
+
+    const recovered = await call('POST', '/api/auth/recover-with-code', {
+      body: { email: 'CODES@example.com', code: generated.body.codes[0].toLowerCase(), password: 'codes-new-password' },
+      headers: { 'CF-Connecting-IP': '203.0.113.30' },
+    })
+    assert.equal(recovered.status, 200, JSON.stringify(recovered.body))
+    const freshCookie = (recovered.headers.get('set-cookie') ?? '').split(';')[0]
+    assert.match(freshCookie, /^landed_session=/)
+    assert.equal((await call('GET', '/api/me', { token: oldToken })).status, 401, 'old sessions are revoked')
+    assert.equal((await call('GET', '/api/recovery-codes', { cookie: freshCookie })).body.remaining, 7)
+    assert.equal((await call('POST', '/api/auth/recover-with-code', {
+      body: { email: 'codes@example.com', code: generated.body.codes[0], password: 'codes-next-password' },
+      headers: { 'CF-Connecting-IP': '203.0.113.31' },
+    })).status, 400, 'a used recovery code cannot be reused')
+    assert.equal((await call('POST', '/api/auth/login', {
+      body: { email: 'codes@example.com', password: 'codes-old-password' },
+    })).status, 401)
+    assert.equal((await call('POST', '/api/auth/login', {
+      body: { email: 'codes@example.com', password: 'codes-new-password' },
+    })).status, 200)
+
+    const replacement = await call('POST', '/api/recovery-codes', {
+      cookie: freshCookie, body: { password: 'codes-new-password' },
+    })
+    assert.equal(replacement.status, 200)
+    assert.equal(replacement.body.codes.length, 8)
+    assert.equal((await call('POST', '/api/auth/recover-with-code', {
+      body: { email: 'codes@example.com', code: generated.body.codes[1], password: 'codes-next-password' },
+      headers: { 'CF-Connecting-IP': '203.0.113.32' },
+    })).status, 400, 'replacing a set invalidates every old code')
+  })
+
+  test('recovery-code failures do not reveal whether an account exists', async () => {
+    const invalidCode = 'LND-00000-00000-00000-00000'
+    const known = await call('POST', '/api/auth/recover-with-code', {
+      body: { email: 'codes@example.com', code: invalidCode, password: 'valid-new-password' },
+      headers: { 'CF-Connecting-IP': '203.0.113.33' },
+    })
+    const unknown = await call('POST', '/api/auth/recover-with-code', {
+      body: { email: 'nobody-codes@example.com', code: invalidCode, password: 'valid-new-password' },
+      headers: { 'CF-Connecting-IP': '203.0.113.34' },
+    })
+    assert.equal(known.status, 400)
+    assert.equal(unknown.status, 400)
+    assert.deepEqual(unknown.body, known.body)
+  })
+
+  test('forgot-password reports when email delivery is not configured', async () => {
+    const withoutEmail = createApp(sql, baseConfig, hub, new RuntimeHub(), { passwordResetSender: null })
+    const res = await withoutEmail.request('/api/auth/forgot-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'reset@example.com' }),
+    })
+    assert.equal(res.status, 503)
+    assert.match(((await res.json()) as { error: string }).error, /not configured/)
   })
 
   test('unauthenticated API calls get 401', async () => {

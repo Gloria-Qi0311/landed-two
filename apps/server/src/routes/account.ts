@@ -1,6 +1,7 @@
 // Account-level routes — available whether or not Landed Cloud sync is on.
 //
 //   GET/PATCH /me        profile (onboarding flag, auto_apply_updates, email_watch) + cloud_sync state
+//   GET/POST /recovery-codes status / replace the account's offline recovery codes
 //   POST /cloud/enable   upload this device's snapshot and turn sync on, atomically
 //                        (held agent observations become Cloud data)
 //   POST /cloud/disable  { password } — delete every data row and turn sync off;
@@ -13,6 +14,7 @@ import { deleteCookie } from 'hono/cookie'
 import { SESSION_COOKIE, verifyPassword, type AppEnv } from '../auth.ts'
 import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
+import { generateRecoveryCodes, hashRecoveryCode, normalizeRecoveryCode } from '../recovery-codes.ts'
 import { uploadSnapshot } from './sync.ts'
 
 const ME_COLUMNS = ['id', 'email', 'cloud_sync', 'onboarded_at', 'auto_apply_updates', 'email_watch', 'email_checked_at', 'automations', 'plan', 'created_at']
@@ -65,6 +67,34 @@ export function accountRoutes(sql: Sql) {
       update users set ${sql(patch)} where id = ${c.get('user').id}
       returning ${sql(ME_COLUMNS)}`
     return c.json(row)
+  })
+
+  app.get('/recovery-codes', async (c) => {
+    const [row] = await sql<{ remaining: number; created_at: string | null }[]>`
+      select count(*)::int as remaining, min(created_at) as created_at
+      from account_recovery_codes where user_id = ${c.get('user').id}`
+    return c.json({
+      remaining: Number(row.remaining),
+      created_at: row.created_at ? new Date(row.created_at).toISOString() : null,
+    })
+  })
+
+  app.post('/recovery-codes', async (c) => {
+    const userId = c.get('user').id
+    await checkPassword(sql, userId, (await jsonBody(c)).password)
+    const codes = generateRecoveryCodes()
+    const createdAt = new Date()
+    await sql.begin(async (tx) => {
+      await tx`delete from account_recovery_codes where user_id = ${userId}`
+      for (const code of codes) {
+        const normalized = normalizeRecoveryCode(code)!
+        await tx`
+          insert into account_recovery_codes (code_hash, user_id, created_at)
+          values (${hashRecoveryCode(normalized)}, ${userId}, ${createdAt})`
+      }
+    })
+    c.header('Cache-Control', 'no-store')
+    return c.json({ codes, created_at: createdAt.toISOString() })
   })
 
   app.post('/cloud/enable', async (c) => {

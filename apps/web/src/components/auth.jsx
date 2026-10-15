@@ -28,7 +28,7 @@ function usePersisted(open) {
 
 export function ProfileMenu({
   open, onClose, account, onShowTour, theme, setTheme,
-  onTurnOnCloud, onSignOut, onLeaveCloud, onExport, onImport,
+  onTurnOnCloud, onSignOut, onLeaveCloud, onExport, onImport, onRecoveryCodes,
 }) {
   const navigate = useNavigate();
   const persisted = usePersisted(open && account.mode === 'local');
@@ -119,6 +119,7 @@ export function ProfileMenu({
       </div>
       <div style={{ borderTop: '0.5px solid var(--border)', padding: '4px 0' }}>
         <Item icon={<Icon name="doc" size={13} />} label="My resumes" onClick={() => navigate('/resumes')} />
+        <Item icon={<Icon name="refresh" size={13} />} label="Recovery codes…" onClick={onRecoveryCodes} />
         <Item icon={<Icon name="adjust" size={13} />} label="Preferences" />
       </div>
       <div style={{ borderTop: '0.5px solid var(--border)', padding: '4px 0' }}>
@@ -152,23 +153,58 @@ export function AccountAvatar({ account, size = 24 }) {
 // Everyone signs in (email + password against apps/server). Signing in does
 // NOT move data anywhere: each account's data stays in this browser until
 // the user turns on Landed Cloud sync from the account menu.
-export function LoginScreen() {
+export function LoginScreen({ initialMode = 'signin' }) {
+  const navigate = useNavigate();
   const signIn = useAuth((s) => s.signIn);
   const signUp = useAuth((s) => s.signUp);
+  const requestPasswordReset = useAuth((s) => s.requestPasswordReset);
+  const resetPassword = useAuth((s) => s.resetPassword);
+  const recoverWithCode = useAuth((s) => s.recoverWithCode);
   const sessionExpired = useAuth((s) => s.sessionExpired);
-  const [mode, setMode] = authState('signin'); // 'signin' | 'signup'
+  const [mode, setMode] = authState(initialMode); // signin | signup | forgot | reset | recovery
   const [email, setEmail] = authState(() => localStorage.getItem('landed:last-email') || '');
+  const [recoveryCode, setRecoveryCode] = authState('');
   const [password, setPassword] = authState('');
+  const [confirmPassword, setConfirmPassword] = authState('');
   const [loading, setLoading] = authState(false);
   const [error, setError] = authState(null);
+  const [notice, setNotice] = authState(null);
   const isSignup = mode === 'signup';
+  const isForgot = mode === 'forgot';
+  const isReset = mode === 'reset';
+  const isRecovery = mode === 'recovery';
+  const usesNewPassword = isSignup || isReset || isRecovery;
+  const resetToken = isReset ? new URLSearchParams(window.location.hash.slice(1)).get('token') || '' : '';
 
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setLoading(true);
     const trimmed = email.trim();
     try {
+      if (isForgot) {
+        const message = await requestPasswordReset(trimmed);
+        localStorage.setItem('landed:last-email', trimmed);
+        setNotice(message);
+        setLoading(false);
+        return;
+      }
+      if (isReset) {
+        if (!resetToken) throw new Error('This reset link is invalid or incomplete.');
+        if (password !== confirmPassword) throw new Error('Passwords do not match.');
+        const user = await resetPassword(resetToken, password);
+        localStorage.setItem('landed:last-email', user.email);
+        navigate('/applications', { replace: true });
+        return;
+      }
+      if (isRecovery) {
+        if (password !== confirmPassword) throw new Error('Passwords do not match.');
+        const user = await recoverWithCode(trimmed, recoveryCode, password);
+        localStorage.setItem('landed:last-email', user.email);
+        navigate('/applications', { replace: true });
+        return;
+      }
       await (isSignup ? signUp : signIn)(trimmed, password);
       localStorage.setItem('landed:last-email', trimmed);
     } catch (err) {
@@ -180,7 +216,39 @@ export function LoginScreen() {
   const switchMode = () => {
     setMode(isSignup ? 'signin' : 'signup');
     setError(null);
+    setNotice(null);
+    setPassword('');
+    setConfirmPassword('');
+    setRecoveryCode('');
   };
+
+  const showMode = (nextMode) => {
+    setMode(nextMode);
+    setError(null);
+    setNotice(null);
+    setPassword('');
+    setConfirmPassword('');
+    setRecoveryCode('');
+  };
+
+  const title = isReset ? 'Choose a new password.'
+    : isForgot ? 'Reset your password.'
+      : isRecovery ? 'Use a recovery code.'
+      : isSignup ? 'Create your account.' : 'Land your next role.';
+  const description = isReset
+    ? 'Use a new password with at least 8 characters. All older Landed sessions will be signed out.'
+    : isForgot
+      ? 'Enter your account email. We’ll send a secure, one-time link that expires in 30 minutes.'
+      : isRecovery
+        ? 'Enter one of the single-use codes you saved earlier, then choose a new password.'
+      : isSignup
+        ? 'Your pipeline stays in this browser. Turn on Landed Cloud sync later if you want it on every device.'
+        : 'Your data stays on your device unless you turned on Landed Cloud sync.';
+  const submitDisabled = loading || (isReset
+    ? !resetToken || !password || !confirmPassword
+    : isForgot ? !email
+      : isRecovery ? !email || !recoveryCode || !password || !confirmPassword
+        : !email || !password);
 
   return (
     <div style={{
@@ -202,16 +270,14 @@ export function LoginScreen() {
 
         <div style={{ marginTop: 40, marginBottom: 24 }}>
           <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.025em', lineHeight: 1.15, fontFamily: 'var(--font-display)', marginBottom: 6 }}>
-            {isSignup ? 'Create your account.' : 'Land your next role.'}
+            {title}
           </div>
           <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', lineHeight: 1.55 }}>
-            {isSignup
-              ? 'Your pipeline stays in this browser. Turn on Landed Cloud sync later if you want it on every device.'
-              : 'Your data stays on your device unless you turned on Landed Cloud sync.'}
+            {description}
           </div>
         </div>
 
-        {sessionExpired && (
+        {sessionExpired && !isReset && !isRecovery && (
           <div role="status" style={{
             fontSize: 11.5, padding: '7px 10px', marginBottom: 12, borderRadius: 6, lineHeight: 1.5,
             background: 'oklch(0.97 0.03 70)', border: '0.5px solid oklch(0.86 0.07 70)', color: 'oklch(0.38 0.1 60)',
@@ -221,32 +287,83 @@ export function LoginScreen() {
         )}
 
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <label htmlFor="login-email" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Email</label>
-          <input
-            id="login-email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="you@work.com"
-            required
-            autoFocus={!email}
-            style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
-          />
+          {!isReset && <>
+            <label htmlFor="login-email" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Email</label>
+            <input
+              id="login-email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="you@work.com"
+              required
+              autoFocus={!email || isForgot}
+              style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
+            />
+          </>}
 
-          <label htmlFor="login-password" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, marginTop: 4 }}>Password</label>
-          <input
-            id="login-password"
-            type="password"
-            autoComplete={isSignup ? 'new-password' : 'current-password'}
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder={isSignup ? 'At least 8 characters' : ''}
-            minLength={isSignup ? 8 : undefined}
-            required
-            autoFocus={!!email}
-            style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
-          />
+          {isRecovery && <>
+            <label htmlFor="recovery-code" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, marginTop: 4 }}>Recovery code</label>
+            <input
+              id="recovery-code"
+              type="text"
+              autoComplete="one-time-code"
+              value={recoveryCode}
+              onChange={e => setRecoveryCode(e.target.value.toUpperCase())}
+              placeholder="LND-XXXXX-XXXXX-XXXXX-XXXXX"
+              required
+              spellCheck={false}
+              style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'var(--font-mono)', letterSpacing: '0.02em' }}
+            />
+          </>}
+
+          {!isForgot && <>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 4 }}>
+              <label htmlFor="login-password" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>
+                {(isReset || isRecovery) ? 'New password' : 'Password'}
+              </label>
+              {mode === 'signin' && (
+                <button type="button" onClick={() => showMode('forgot')} style={{
+                  background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+                  color: 'var(--accent)', fontSize: 11, fontFamily: 'inherit', fontWeight: 500,
+                }}>Forgot password?</button>
+              )}
+            </div>
+            <input
+              id="login-password"
+              type="password"
+              autoComplete={usesNewPassword ? 'new-password' : 'current-password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder={usesNewPassword ? 'At least 8 characters' : ''}
+              minLength={usesNewPassword ? 8 : undefined}
+              required
+              autoFocus={isReset || (!isRecovery && !!email)}
+              style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
+            />
+          </>}
+
+          {(isReset || isRecovery) && <>
+            <label htmlFor="confirm-password" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, marginTop: 4 }}>Confirm new password</label>
+            <input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              minLength={8}
+              required
+              style={{ padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' }}
+            />
+          </>}
+
+          {notice && (
+            <div role="status" style={{
+              fontSize: 11.5, color: 'oklch(0.38 0.1 150)',
+              padding: '7px 10px', background: 'oklch(0.97 0.03 150)',
+              border: '0.5px solid oklch(0.86 0.06 150)', borderRadius: 6, lineHeight: 1.5,
+            }}>{notice}</div>
+          )}
 
           {error && (
             <div style={{
@@ -256,19 +373,38 @@ export function LoginScreen() {
             }}>{error}</div>
           )}
 
-          <button type="submit" disabled={loading || !email || !password} className="btn-primary"
-            style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px', fontSize: 12.5, opacity: (loading || !email || !password) ? 0.6 : 1 }}>
-            {loading ? (isSignup ? 'Creating account…' : 'Signing in…') : (isSignup ? 'Create account' : 'Sign in')}
+          <button type="submit" disabled={submitDisabled} className="btn-primary"
+            style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px', fontSize: 12.5, opacity: submitDisabled ? 0.6 : 1 }}>
+            {loading
+              ? ((isReset || isRecovery) ? 'Updating password…' : isForgot ? 'Sending link…' : isSignup ? 'Creating account…' : 'Signing in…')
+              : ((isReset || isRecovery) ? 'Set new password' : isForgot ? (notice ? 'Send another link' : 'Email me a reset link') : isSignup ? 'Create account' : 'Sign in')}
             {!loading && <Icon name="arrowRight" size={12} />}
           </button>
 
-          <button type="button" onClick={switchMode} style={{
+          {isForgot && <button type="button" onClick={() => showMode('recovery')} style={{
+            alignSelf: 'flex-start', marginTop: 6,
+            background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+            color: 'var(--accent)', fontSize: 12, fontFamily: 'inherit', fontWeight: 500,
+          }}>
+            Use a recovery code instead →
+          </button>}
+          {(isForgot || isRecovery) && <button type="button" onClick={() => showMode('signin')} style={{
+            alignSelf: 'flex-start', marginTop: 2,
+            background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+            color: 'var(--fg-muted)', fontSize: 11.5, fontFamily: 'inherit', fontWeight: 500,
+          }}>← Back to sign in</button>}
+          {isRecovery && <button type="button" onClick={() => showMode('forgot')} style={{
+            alignSelf: 'flex-start', marginTop: 2,
+            background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+            color: 'var(--accent)', fontSize: 11.5, fontFamily: 'inherit', fontWeight: 500,
+          }}>Use an email reset link instead</button>}
+          {!isReset && !isForgot && !isRecovery && <button type="button" onClick={switchMode} style={{
             alignSelf: 'flex-start', marginTop: 6,
             background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
             color: 'var(--accent)', fontSize: 12, fontFamily: 'inherit', fontWeight: 500,
           }}>
             {isSignup ? 'Already have an account? Sign in →' : 'New here? Create an account →'}
-          </button>
+          </button>}
         </form>
 
         <div style={{ marginTop: 'auto', paddingTop: 24, fontSize: 10.5, color: 'var(--fg-muted)', lineHeight: 1.6 }}>

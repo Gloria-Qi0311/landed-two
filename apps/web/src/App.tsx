@@ -24,6 +24,7 @@ import {
 import { Sidebar, PageHeader } from './components/shell';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
 import { EmptyDeviceNotice, OfflineNotice, RestoreBackupDialog, TurnOffCloudDialog, TurnOnCloudDialog } from './components/cloud';
+import { RecoveryCodesDialog } from './components/recovery-codes';
 import { downloadBackup, readBackupFile, signOut } from './lib/cloud';
 import { currentStore, type ApplicationPatch, type DbJobLead, type Snapshot } from './lib/store';
 import type { Stage } from '@landed/observation-processor';
@@ -69,6 +70,8 @@ export function App() {
   // A cloud agent's connect request (OAuth consent): sign in first if
   // needed, then the consent page, outside the app shell.
   const authorizing = location.pathname === '/authorize-agent';
+  const resettingPassword = location.pathname === '/reset-password';
+  const forgotPassword = location.pathname === '/forgot-password';
 
   // Theme: apply on <body> + persist (the login screen is themed too)
   useEffect(() => {
@@ -101,6 +104,8 @@ export function App() {
   if (!authReady) {
     return <div style={{ height: '100vh', width: '100vw', background: 'var(--bg)' }} />;
   }
+  if (resettingPassword) return <LoginScreen initialMode="reset" />;
+  if (forgotPassword) return <LoginScreen initialMode="forgot" />;
   if (!user) return <LoginScreen />;
   if (authorizing) return <AuthorizeAgentPage />;
   return <SignedInApp key={sessionKey!} theme={theme} setTheme={setTheme} />;
@@ -112,7 +117,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
 
   const user = useAuth((s) => s.user)!;
   const account = { mode: user.cloud_sync ? ('cloud' as const) : ('local' as const), email: user.email };
-  const [dialog, setDialog] = useState<null | 'sync-on' | 'sync-off' | { restore: Snapshot }>(null);
+  const [dialog, setDialog] = useState<null | 'sync-on' | 'sync-off' | 'recovery-codes' | { restore: Snapshot }>(null);
   const backupInput = useRef<HTMLInputElement>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -215,6 +220,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
         onSignOut={handleSignOut}
         onExport={handleExport}
         onImport={() => backupInput.current?.click()}
+        onRecoveryCodes={() => setDialog('recovery-codes')}
       />
       <input
         ref={backupInput}
@@ -230,6 +236,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
       {showTour && <OnboardingTour onClose={handleTourClose} />}
       {dialog === 'sync-on' && <TurnOnCloudDialog onClose={() => setDialog(null)} />}
       {dialog === 'sync-off' && <TurnOffCloudDialog onClose={() => setDialog(null)} />}
+      {dialog === 'recovery-codes' && <RecoveryCodesDialog onClose={() => setDialog(null)} />}
       {dialog && typeof dialog === 'object' && (
         <RestoreBackupDialog
           snapshot={dialog.restore}

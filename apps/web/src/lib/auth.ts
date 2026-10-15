@@ -42,6 +42,9 @@ type AuthState = {
   hydrate: () => Promise<void>
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
+  requestPasswordReset: (email: string) => Promise<string>
+  resetPassword: (token: string, password: string) => Promise<User>
+  recoverWithCode: (email: string, code: string, password: string) => Promise<User>
   setUser: (user: User | null) => void
   signOut: () => Promise<void>
 }
@@ -75,6 +78,20 @@ export const useAuth = create<AuthState>((set, get) => ({
   signUp: async (email, password) => {
     const { user } = await api.post<{ user: User }>('/auth/signup', { email, password })
     get().setUser(user)
+  },
+  requestPasswordReset: async (email) => {
+    const { message } = await api.post<{ message: string }>('/auth/forgot-password', { email })
+    return message
+  },
+  resetPassword: async (token, password) => {
+    const { user } = await api.post<{ user: User }>('/auth/reset-password', { token, password })
+    get().setUser(user)
+    return user
+  },
+  recoverWithCode: async (email, code, password) => {
+    const { user } = await api.post<{ user: User }>('/auth/recover-with-code', { email, code, password })
+    get().setUser(user)
+    return user
   },
   setUser: (user) => {
     cacheAccount(user)

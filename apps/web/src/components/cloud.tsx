@@ -16,7 +16,7 @@ const FIELD = {
   input: { padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit' },
 } as const
 
-function Dialog({ icon, title, onClose, children, footer, width = 420 }: {
+export function Dialog({ icon, title, onClose, children, footer, width = 420 }: {
   icon: string
   title: string
   onClose: () => void
@@ -65,7 +65,7 @@ function Dialog({ icon, title, onClose, children, footer, width = 420 }: {
   )
 }
 
-function ErrorBox({ message }: { message: string }) {
+export function ErrorBox({ message }: { message: string }) {
   return (
     <div role="alert" style={{
       fontSize: 11.5, color: 'oklch(0.45 0.15 30)', padding: '6px 10px',
@@ -74,7 +74,7 @@ function ErrorBox({ message }: { message: string }) {
   )
 }
 
-function Note({ children }: { children: ReactNode }) {
+export function Note({ children }: { children: ReactNode }) {
   return (
     <div style={{
       padding: '9px 11px', background: 'var(--surface-2)', border: '0.5px solid var(--border)',

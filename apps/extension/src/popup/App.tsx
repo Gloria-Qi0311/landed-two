@@ -236,6 +236,16 @@ function LoginForm({
           disabled={busy}
         />
 
+        <a
+          href={`${config.API_URL}/forgot-password`}
+          target="_blank"
+          rel="noreferrer"
+          className="link"
+          style={{ alignSelf: 'flex-end', marginTop: -4, fontSize: 11.5 }}
+        >
+          Forgot password?
+        </a>
+
         {error && <ErrorBanner message={error} />}
 
         <button type="submit" className="btn-primary" disabled={busy || !ready} style={{ marginTop: 6, justifyContent: 'center', padding: '8px 12px' }}>

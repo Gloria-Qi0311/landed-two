@@ -2,7 +2,7 @@
 
 The Landed backend: a Hono API on Node + PostgreSQL. It replaced Supabase. Landed is local-first: every user signs in here, but an account's job-hunt data stays in the browser unless the account turns on **Landed Cloud sync** (`users.cloud_sync`). The server owns:
 
-- **Auth**: email + password (scrypt) with opaque session tokens. The web app gets an httpOnly cookie and the extension gets a Bearer token.
+- **Auth**: email + password (scrypt) with opaque session tokens. The web app gets an httpOnly cookie and the extension gets a Bearer token. Password recovery supports standard SMTP or Cloudflare Email Sending, plus offline single-use recovery codes that do not depend on an email provider.
 - **Cloud sync switch**: `POST /cloud/enable` uploads the device snapshot and turns sync on in one transaction; `POST /cloud/disable` (password) deletes the Cloud copy and turns it off, keeping the account.
 - **Data**: REST endpoints for every table, scoped to the signed-in user. They only serve accounts with sync on; others get `409 { code: "cloud_off" }`.
 - **Realtime**: an insert on `portal_events` fires a Postgres `NOTIFY`, which the server sends to that user over SSE at `GET /api/portal-events/stream`.
@@ -40,6 +40,12 @@ pnpm --filter @landed/server test
 | `COOKIE_SECURE` | `true` in production (the browser connects over https). |
 | `SIGNUP` | `first-only` (default) allows sign-up only while there are no users. `open` lets anyone sign up. |
 | `WEB_DIST` | Built web app to serve. Default `../web/dist`. Set it to an empty value to disable. |
+| `PUBLIC_URL` | Public origin used in OAuth metadata and password-reset links. |
+| `EMAIL_TRANSPORT` | `smtp` (portable default) or `cloudflare`. Leave unset to disable email recovery; offline recovery codes still work. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | Standard SMTP relay. Port defaults to `587`; `SMTP_SECURE` defaults to `true` only on port `465`. This can point at a self-hosted mail server. |
+| `SMTP_USER` / `SMTP_PASS` | Optional SMTP credentials. Set both or neither (for a trusted local relay). |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_EMAIL_API_TOKEN` | Optional Cloudflare Email Sending credentials when `EMAIL_TRANSPORT=cloudflare`. |
+| `EMAIL_FROM` / `EMAIL_FROM_NAME` | Sender address and display name; name defaults to `Landed`. Configure SPF, DKIM, and DMARC for public email delivery. |
 
 ## API surface
 
@@ -48,8 +54,11 @@ All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` 
 | Route | Purpose |
 |---|---|
 | `POST /auth/signup`, `POST /auth/login` | `{ email, password, mode? }`. With `mode: "token"` the response returns a Bearer token (extension); otherwise it sets the cookie. |
+| `POST /auth/forgot-password`, `POST /auth/reset-password` | Request a 30-minute, one-use email link; consume it with `{ token, password }`. Resetting revokes every old session. |
+| `POST /auth/recover-with-code` | Reset with `{ email, code, password }`. The code is consumed and every old session is revoked. |
 | `POST /auth/logout`, `GET /auth/session` | Revoke the session / probe who is signed in |
 | `GET/PATCH /me` | Account profile (`onboarded_at`, `cloud_sync`); works with sync off |
+| `GET/POST /recovery-codes` | Inspect remaining codes or replace them after confirming the current password. Raw codes are returned once and only hashes are stored. |
 | `POST /cloud/enable`, `POST /cloud/disable` | Turn Cloud sync on (body: device snapshot) / off (`{ password }`); work with sync off |
 | `GET /companies`, `GET/POST /applications`, `PATCH /applications/:id`, `POST /import` | Pipeline data. `POST /applications` finds or creates the company. |
 | `GET/POST /resumes`, `PATCH/DELETE /resumes/:id`, `POST /resumes/:id/current` | Resumes; at most one is current |
