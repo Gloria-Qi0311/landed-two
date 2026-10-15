@@ -3,13 +3,13 @@
 # your own computer, from the repo. No GitHub in between: the commit is
 # pushed straight to a repo on the mini over SSH, then setup.sh runs there.
 #
-#   deploy/mac-mini/deploy.sh                       # yuanchenjie@antaresmac-mini
+#   deploy/mac-mini/deploy.sh                       # antaresyuan@antaresmac-mini
 #   PUBLIC_URL=https://landed.example.com deploy/mac-mini/deploy.sh
 #   deploy/mac-mini/deploy.sh other-user@other-host
 #
 # Needs: SSH key access (ssh-copy-id <host> once), a clean working tree.
 set -eu
-HOST="${1:-${LANDED_DEPLOY_HOST:-yuanchenjie@antaresmac-mini}}"
+HOST="${1:-${LANDED_DEPLOY_HOST:-antaresyuan@antaresmac-mini}}"
 DIR="${LANDED_REMOTE_DIR:-landed}"
 cd "$(git rev-parse --show-toplevel)"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
