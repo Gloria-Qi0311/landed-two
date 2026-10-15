@@ -31,7 +31,7 @@ import {
 import { AuthError, createEventSink, LandedClient } from './connection.ts'
 import { runNativeHost } from './native-host.ts'
 
-const VERSION = '0.9.0'
+const VERSION = '0.9.1'
 const MAX_PARALLEL = 2
 
 const describe = (agents: AgentInfo[]) =>

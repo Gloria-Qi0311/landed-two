@@ -26,7 +26,7 @@ Build the app with `pnpm --filter @landed/daemon build:mac`. That writes `dist/L
 
 ### Apply Assist
 
-Landed for Mac is a native menu-bar app. Open it and use the briefcase icon to choose up to five application pages, select a resume, and start a fill without opening an extension panel. It also carries the matching lightweight browser bridge and registers its Native Messaging host.
+Landed for Mac is a native menu-bar app. Open it and use the Landed L icon to choose up to five application pages, select a resume, and start a fill without opening an extension panel. It also carries the matching lightweight browser bridge and registers its Native Messaging host.
 
 Each Chromium browser/profile needs the bridge once: load `~/.landed/extension` from its extensions page (Developer mode → **Load unpacked**). The menu app has a **Bridge folder** button for this step. Chrome, Brave, Edge, and Chromium can all connect to the same menu app; a future Safari App Extension and store builds can reuse the same local bridge protocol.
 

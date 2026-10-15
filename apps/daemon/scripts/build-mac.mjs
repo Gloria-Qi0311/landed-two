@@ -34,6 +34,26 @@ rmSync(dist, { recursive: true, force: true })
 mkdirSync(join(app, 'Contents', 'MacOS'), { recursive: true })
 mkdirSync(join(app, 'Contents', 'Resources'), { recursive: true })
 
+// Finder and download icon. Keep the source as SVG so every generated ICNS
+// size uses the same Landed L + arrival-dot geometry as the product UI.
+const iconSource = join(root, 'macos', 'LandedAppIcon.svg')
+const iconPng = join(dist, 'LandedAppIcon.png')
+const iconset = join(dist, 'Landed.iconset')
+run('sips', ['-s', 'format', 'png', iconSource, '--out', iconPng])
+mkdirSync(iconset, { recursive: true })
+for (const [size, name] of [
+  [16, 'icon_16x16.png'], [32, 'icon_16x16@2x.png'],
+  [32, 'icon_32x32.png'], [64, 'icon_32x32@2x.png'],
+  [128, 'icon_128x128.png'], [256, 'icon_128x128@2x.png'],
+  [256, 'icon_256x256.png'], [512, 'icon_256x256@2x.png'],
+  [512, 'icon_512x512.png'], [1024, 'icon_512x512@2x.png'],
+]) {
+  run('sips', ['-z', String(size), String(size), iconPng, '--out', join(iconset, name)])
+}
+run('iconutil', ['-c', 'icns', iconset, '-o', join(app, 'Contents', 'Resources', 'Landed.icns')])
+rmSync(iconset, { recursive: true, force: true })
+rmSync(iconPng, { force: true })
+
 // 1. Bundle the Node daemon into one file.
 const bundle = await rolldown({ input: join(root, 'src', 'cli.ts'), platform: 'node', logLevel: 'warn' })
 await bundle.write({ file: join(dist, 'landed-daemon.mjs'), format: 'esm' })
@@ -57,6 +77,7 @@ writeFileSync(join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>Landed</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>Landed.icns</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
   <key>CFBundleVersion</key><string>${version}</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>

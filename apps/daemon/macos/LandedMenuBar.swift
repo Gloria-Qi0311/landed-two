@@ -256,9 +256,7 @@ struct LandedMenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 9) {
-                Image(systemName: "briefcase.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.tint)
+                LandedMark(size: 24)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Landed Apply Assist").font(.headline)
                     Text(model.aiLabel).font(.caption).foregroundStyle(model.sessions.contains(where: { $0.ollamaReady }) ? .green : .secondary)
@@ -357,6 +355,65 @@ struct LandedMenuView: View {
     }
 }
 
+/// The product mark shared with the web app: Landed's geometric L and
+/// arrival dot. It intentionally follows the current macOS foreground color
+/// while the dot keeps the brand accent in both light and dark appearances.
+struct LandedMark: View {
+    let size: CGFloat
+
+    var body: some View {
+        Canvas { context, canvasSize in
+            let scale = min(canvasSize.width, canvasSize.height) / 24
+            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                CGPoint(x: x * scale, y: y * scale)
+            }
+
+            var letter = Path()
+            letter.move(to: point(7, 5.5))
+            letter.addLine(to: point(10, 5.5))
+            letter.addLine(to: point(10, 15.5))
+            letter.addLine(to: point(17, 15.5))
+            letter.addLine(to: point(17, 18.5))
+            letter.addLine(to: point(7, 18.5))
+            letter.closeSubpath()
+            context.fill(letter, with: .foreground)
+
+            let dot = CGRect(x: 16 * scale, y: 5 * scale, width: 4 * scale, height: 4 * scale)
+            context.fill(Path(ellipseIn: dot), with: .color(Color(red: 0.89, green: 0.31, blue: 0.27)))
+        }
+        .frame(width: size, height: size)
+        .accessibilityLabel("Landed")
+    }
+}
+
+private func landedStatusImage() -> NSImage {
+    let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { bounds in
+        let scale = min(bounds.width, bounds.height) / 24
+        func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+            NSPoint(x: x * scale, y: (24 - y) * scale)
+        }
+
+        let letter = NSBezierPath()
+        letter.move(to: point(7, 5.5))
+        letter.line(to: point(10, 5.5))
+        letter.line(to: point(10, 15.5))
+        letter.line(to: point(17, 15.5))
+        letter.line(to: point(17, 18.5))
+        letter.line(to: point(7, 18.5))
+        letter.close()
+        NSColor.labelColor.setFill()
+        letter.fill()
+
+        NSColor(red: 0.89, green: 0.31, blue: 0.27, alpha: 1).setFill()
+        NSBezierPath(ovalIn: NSRect(x: 16 * scale, y: 15 * scale, width: 4 * scale, height: 4 * scale)).fill()
+        return true
+    }
+    // A template would make the red arrival dot monochrome.
+    image.isTemplate = false
+    image.accessibilityDescription = "Landed"
+    return image
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -366,8 +423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "briefcase.fill", accessibilityDescription: "Landed")
-            button.image?.isTemplate = true
+            button.image = landedStatusImage()
             button.toolTip = "Landed Apply Assist"
             button.target = self
             button.action = #selector(togglePopover)
