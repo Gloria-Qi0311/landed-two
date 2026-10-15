@@ -271,12 +271,19 @@ function allTabs() {
   })
 }
 
+// Kept in memory too: when storage isn't readable (Safari, before the
+// extension is fully allowed) a new id on every publish left thousands of
+// one-off sessions for the menu app to read.
+let assistSessionIdCache = null
+
 async function assistSessionId() {
+  if (assistSessionIdCache) return assistSessionIdCache
   const stored = await chromeGet(ASSIST_SESSION_KEY)
-  if (typeof stored[ASSIST_SESSION_KEY] === 'string') return stored[ASSIST_SESSION_KEY]
+  if (typeof stored[ASSIST_SESSION_KEY] === 'string') return (assistSessionIdCache = stored[ASSIST_SESSION_KEY])
   const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
     ? crypto.randomUUID()
     : `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  assistSessionIdCache = id
   await chromeSet({ [ASSIST_SESSION_KEY]: id })
   return id
 }

@@ -83,8 +83,32 @@ export function sanitizeSnapshot(raw: unknown): AssistSnapshot | null {
   return { session_id: value.session_id as string, browser: browser || 'Browser', tabs, resumes }
 }
 
+// A session not seen for this long is gone (the menu app ignores ones older
+// than 15 s); its file is removed so the menu never reads a pile of them.
+const SESSION_TTL_MS = 10 * 60_000
+let lastPrune = 0
+
+export function pruneAssistSessions(now = Date.now()) {
+  if (!existsSync(assistSessionsDir())) return 0
+  let removed = 0
+  for (const name of readdirSync(assistSessionsDir())) {
+    const path = join(assistSessionsDir(), name)
+    try {
+      if (now - statSync(path).mtimeMs > SESSION_TTL_MS) {
+        rmSync(path, { force: true })
+        removed++
+      }
+    } catch { /* already gone */ }
+  }
+  return removed
+}
+
 export function writeAssistSession(session: AssistSession) {
   ensureDirs()
+  if (Date.now() - lastPrune > 60_000) {
+    lastPrune = Date.now()
+    pruneAssistSessions()
+  }
   const target = join(assistSessionsDir(), `${session.session_id}.json`)
   const temp = `${target}.${process.pid}.${randomUUID()}.tmp`
   writeFileSync(temp, `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 })

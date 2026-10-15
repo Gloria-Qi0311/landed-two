@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'node:test'
 import {
-  assistCommandsDir, assistSessionsDir, sanitizeSnapshot, takeAssistCommands, writeAssistSession,
+  assistCommandsDir, assistSessionsDir, pruneAssistSessions, sanitizeSnapshot, takeAssistCommands, writeAssistSession,
 } from '../src/assist-bridge.ts'
 import { createSafariBridgeHandler } from '../src/safari-bridge.ts'
 
@@ -94,4 +94,19 @@ test('Safari polls over loopback and receives only its queued menu commands', as
   assert.equal(saved.ok, true)
   const after = JSON.parse(readFileSync(join(assistSessionsDir(), 'safari-1.json'), 'utf8'))
   assert.equal(after.last_result.command_id, 's1')
+})
+
+test('sessions not seen for ten minutes are removed, live ones stay', () => {
+  useHome()
+  const session = (id: string) => ({
+    session_id: id, browser: 'Safari', tabs: [], resumes: [], connected_at: '2026-10-15T00:00:00.000Z',
+    last_seen: '2026-10-15T00:00:00.000Z', ollama_ready: false, ollama_model: null, last_result: null,
+  })
+  writeAssistSession(session('live'))
+  writeAssistSession(session('gone'))
+  const old = new Date(Date.now() - 11 * 60_000)
+  utimesSync(join(assistSessionsDir(), 'gone.json'), old, old)
+  assert.equal(pruneAssistSessions(), 1)
+  assert.ok(existsSync(join(assistSessionsDir(), 'live.json')))
+  assert.ok(!existsSync(join(assistSessionsDir(), 'gone.json')))
 })

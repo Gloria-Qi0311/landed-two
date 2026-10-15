@@ -263,10 +263,17 @@ final class AssistModel: NSObject, ObservableObject {
     }
 
     func openSafariExtensionPreferences() {
-        SFSafariApplication.showPreferencesForExtension(
-            withIdentifier: safariExtensionIdentifier,
-            completionHandler: nil
-        )
+        SFSafariApplication.showPreferencesForExtension(withIdentifier: safariExtensionIdentifier) { error in
+            guard error != nil else { return }
+            // Safari lists an unsigned build only once unsigned extensions are
+            // allowed, so this fails silently until then: say what to do.
+            DispatchQueue.main.async {
+                if let safari = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") {
+                    NSWorkspace.shared.openApplication(at: safari, configuration: NSWorkspace.OpenConfiguration())
+                }
+                self.notice = "Safari doesn't list Landed yet. In Safari: Settings → Developer → turn on Allow unsigned extensions, then Settings → Extensions → turn on Landed and allow it on other websites."
+            }
+        }
     }
 
     func openLanded() {
@@ -304,7 +311,7 @@ struct LandedMenuView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("No browser pages available", systemImage: "safari")
                         .font(.subheadline.weight(.semibold))
-                    Text("Safari local build: enable Develop → Allow Unsigned Extensions, then turn on Landed in Safari Settings → Extensions. For Chrome, Brave, or Edge, load the bundled extension folder once.")
+                    Text("Safari: Settings → Developer → Allow unsigned extensions (again after every Safari restart for this local build), then Settings → Extensions → turn on Landed and allow it on other websites. For Chrome, Brave, or Edge, load the bundled extension folder once.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack {
                         Button("Open Safari Extension Settings") { model.openSafariExtensionPreferences() }
