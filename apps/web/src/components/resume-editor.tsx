@@ -7,7 +7,7 @@ import { EditableList, EditableText } from './editable'
 import { Icon } from './primitives'
 
 const sectionLabel = { fontSize: 11, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' } as const
-const block = { background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 } as const
+const block = { background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 } as const
 const kvLabel = { fontSize: 10.5, color: 'var(--fg-muted)', marginBottom: 1 } as const
 
 function Section({ title, onAdd, addLabel, children }: { title: string; onAdd?: () => void; addLabel?: string; children: ReactNode }) {

@@ -23,12 +23,12 @@ const TYPE_LABEL: Record<string, string> = {
 
 function Card({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
   return (
-    <section style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
-      <div style={{ padding: '10px 14px', borderBottom: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 600 }}>{title}</div>
+    <section style={{ background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
         <div style={{ marginLeft: 'auto' }}>{right}</div>
       </div>
-      <div style={{ padding: 14 }}>{children}</div>
+      <div style={{ padding: 16 }}>{children}</div>
     </section>
   )
 }

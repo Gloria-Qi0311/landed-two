@@ -34,8 +34,8 @@ export function RuntimePanel() {
   const list = (runtimes.data ?? []).filter((r) => !r.revoked_at)
 
   return (
-    <section style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
-      <div style={{ padding: '10px 14px', borderBottom: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+    <section style={{ background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <Icon name="device" size={14} />
         <div style={{ fontSize: 12.5, fontWeight: 600 }}>Your computer</div>
         {!pairing && (

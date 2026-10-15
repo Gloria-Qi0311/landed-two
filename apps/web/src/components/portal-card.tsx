@@ -61,7 +61,7 @@ export function PortalCard({ app, companyName }: { app: App; companyName: string
   }
 
   return (
-    <div style={{ background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Icon name="external" size={12} />
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)' }}>Candidate portal</span>

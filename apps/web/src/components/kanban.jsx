@@ -35,15 +35,14 @@ function CardContent({ app, comp, c, isDuplicate, onSetDeadline, grouped }) {
       {/* In a company group the group header names the company. */}
       {!grouped && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <CompanyMark company={comp} size={24} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{comp.name}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{comp.loc}</div>
-          </div>
+          <CompanyMark company={comp} size={22} />
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{comp.name}</div>
         </div>
       )}
-      <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{app.role}</div>
-      {grouped && app.location && <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: -5 }}>{app.location}</div>}
+      <div>
+        <div style={{ fontSize: 13, color: 'var(--fg)', fontWeight: 550, lineHeight: 1.35, letterSpacing: '-0.005em' }}>{app.role}</div>
+        {app.location && <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 2 }}>{app.location}</div>}
+      </div>
       {app.stage === 'ghosted' && (
         <span style={{ fontSize: 10, color: stageColors.ghosted.fg, background: stageColors.ghosted.bg, border: `0.5px solid ${stageColors.ghosted.ring}`, padding: '1px 6px', borderRadius: 4, width: 'fit-content' }}>
           Ghosted
@@ -104,18 +103,17 @@ function DraggableCard({ app, comp, c, onOpen, isDuplicate, onSetDeadline, group
       {...listeners}
       onClick={() => { if (!isDragging) onOpen(app.id); }}
       style={{
-        background: 'var(--surface)',
-        border: '0.5px solid var(--border)',
-        borderRadius: 8,
-        padding: grouped ? 9 : 10,
+        // In a company card each application is a row; otherwise a card of its own.
+        ...(grouped
+          ? { padding: '9px 12px 10px', borderTop: '1px solid var(--border-subtle)', gap: 6 }
+          : { background: 'var(--surface)', borderRadius: 10, boxShadow: 'var(--shadow-sm)', padding: 12, gap: 9 }),
         cursor: isDragging ? 'grabbing' : 'grab',
-        display: 'flex', flexDirection: 'column', gap: grouped ? 6 : 8,
-        boxShadow: '0 1px 0 rgba(0,0,0,0.02)',
+        display: 'flex', flexDirection: 'column',
         opacity: isDragging ? 0.35 : 1,
         // Hide the source while DragOverlay renders the floating preview
         visibility: isDragging ? 'hidden' : 'visible',
       }}
-      className="kanban-card"
+      className={grouped ? 'kanban-row' : 'kanban-card'}
     >
       <CardContent app={app} comp={comp} c={c} isDuplicate={isDuplicate} onSetDeadline={onSetDeadline} grouped={grouped} />
     </div>
@@ -139,16 +137,25 @@ function byCompany(items, nameOf) {
 
 function CompanyGroup({ name, mark, count, children }) {
   return (
-    <div style={{ border: '0.5px solid var(--border)', borderRadius: 9, background: 'color-mix(in oklch, var(--surface) 55%, transparent)', padding: 5, display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 0' }}>
-        <CompanyMark company={mark} size={20} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-        <span style={{ fontSize: 10.5, color: 'var(--fg-muted)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
+    <div style={{ background: 'var(--surface)', borderRadius: 10, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 9px' }}>
+        <CompanyMark company={mark} size={22} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg-muted)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+        <span style={{ fontSize: 11, color: 'var(--fg-muted)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
       </div>
       {children}
     </div>
   );
 }
+
+// A lane: a soft column with its name and count; no box around it.
+const laneStyle = (over, tint) => ({
+  minWidth: 276, width: 276, flexShrink: 0, borderRadius: 14,
+  background: over ? tint : 'oklch(from var(--surface-3) l c h / 0.55)',
+  display: 'flex', flexDirection: 'column', maxHeight: '100%',
+  transition: 'background 120ms',
+});
+const laneCount = { marginLeft: 'auto', fontSize: 11.5, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: 'var(--fg-muted)' };
 
 // ────────────────────────────────────────────────────────────────────────
 // Droppable column. Highlights its border/background when an active drag
@@ -157,24 +164,13 @@ function CompanyGroup({ name, mark, count, children }) {
 function DroppableColumn({ stage, items, c, getCompany, onOpen, duplicateIds }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   return (
-    <div
-      ref={setNodeRef}
-      style={{
-        minWidth: 280, width: 280, flexShrink: 0,
-        background: isOver ? c.bg : 'var(--surface-2)',
-        borderRadius: 10,
-        border: `0.5px solid ${isOver ? c.dot : 'var(--border)'}`,
-        display: 'flex', flexDirection: 'column',
-        maxHeight: '100%',
-        transition: 'background 120ms, border-color 120ms',
-      }}
-    >
-      <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '0.5px solid var(--border)' }}>
+    <div ref={setNodeRef} style={laneStyle(isOver, c.bg)}>
+      <div style={{ padding: '12px 14px 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 8, height: 8, borderRadius: 4, background: c.dot }} />
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fg)' }}>{stage.label}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, fontVariantNumeric: 'tabular-nums', color: 'var(--fg-muted)', background: 'var(--surface)', padding: '1px 7px', borderRadius: 8, border: '0.5px solid var(--border)' }}>{items.length}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{stage.label}</span>
+        <span style={laneCount}>{items.length}</span>
       </div>
-      <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1 }}>
+      <div style={{ padding: '2px 8px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: 1 }}>
         {/* Most recent first; a company's cards together. */}
         {byCompany([...items].sort((x, y) => (x.lastActivity ?? 0) - (y.lastActivity ?? 0)), (a) => getCompany(a.companyId)?.name).map((g) => {
           if (g.items.length === 1) {
@@ -189,7 +185,7 @@ function DroppableColumn({ stage, items, c, getCompany, onOpen, duplicateIds }) 
           );
         })}
         {items.length === 0 && (
-          <div style={{ fontSize: 11, color: 'var(--fg-muted)', textAlign: 'center', padding: 16, border: '1px dashed var(--border)', borderRadius: 6 }}>empty</div>
+          <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', textAlign: 'center', padding: '18px 8px', opacity: 0.8 }}>Nothing here yet</div>
         )}
       </div>
     </div>
@@ -204,13 +200,8 @@ function DroppableColumn({ stage, items, c, getCompany, onOpen, duplicateIds }) 
 const LEAD_PREFIX = 'lead:';
 const PROVIDER_LABELS = { meta_muse: 'Muse', claude: 'Claude', codex: 'Codex' };
 
-function hueOf(name) {
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return h;
-}
 
-const leadMark = (lead) => ({ name: lead.company_name, hue: hueOf(lead.company_key || lead.company_name), logo: lead.company_name.slice(0, 2).toUpperCase() });
+const leadMark = (lead) => ({ name: lead.company_name, hue: null, logo: null });
 
 function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }) {
   const agents = [...new Set(lead.sources.map((s) => PROVIDER_LABELS[s.provider] ?? s.provider ?? 'agent'))];
@@ -221,16 +212,13 @@ function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }) {
         {grouped ? (
           // In a company group: the title leads, the group header names the company.
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{lead.title}</div>
-            {lead.location && <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{lead.location}</div>}
+            <div style={{ fontSize: 13, color: 'var(--fg)', fontWeight: 550, lineHeight: 1.35 }}>{lead.title}</div>
+            {lead.location && <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 2 }}>{lead.location}</div>}
           </div>
         ) : (
           <>
-            <CompanyMark company={leadMark(lead)} size={24} />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.company_name}</div>
-              <div style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>{lead.location || ''}</div>
-            </div>
+            <CompanyMark company={leadMark(lead)} size={22} />
+            <div style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--fg-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.company_name}</div>
           </>
         )}
         {lead.job_url && (
@@ -248,7 +236,12 @@ function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }) {
           </button>
         )}
       </div>
-      {!grouped && <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 500, lineHeight: 1.3 }}>{lead.title}</div>}
+      {!grouped && (
+        <div>
+          <div style={{ fontSize: 13, color: 'var(--fg)', fontWeight: 550, lineHeight: 1.35 }}>{lead.title}</div>
+          {lead.location && <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 2 }}>{lead.location}</div>}
+        </div>
+      )}
       {onSetDeadline && <DeadlineChip compact deadline={lead.deadline} onSave={(d) => onSetDeadline(lead.id, d)} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--fg-muted)' }}>
         <Icon name="wand" size={10} />
@@ -260,18 +253,18 @@ function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }) {
 
 const leadCardStyle = {
   background: 'var(--surface)',
-  border: '1px dashed var(--border-strong)',
-  borderRadius: 8,
-  padding: 10,
-  display: 'flex', flexDirection: 'column', gap: 8,
+  borderRadius: 10,
+  boxShadow: 'var(--shadow-sm)',
+  padding: 12,
+  display: 'flex', flexDirection: 'column', gap: 9,
 };
 
 function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline, grouped }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: LEAD_PREFIX + lead.id });
   return (
-    <div ref={setNodeRef} {...attributes} {...listeners} className="kanban-card"
+    <div ref={setNodeRef} {...attributes} {...listeners} className={grouped ? 'kanban-row' : 'kanban-card'}
       title={lead.description || undefined}
-      style={{ ...leadCardStyle, ...(grouped ? { padding: 9, gap: 6 } : {}), cursor: isDragging ? 'grabbing' : 'grab', visibility: isDragging ? 'hidden' : 'visible' }}>
+      style={{ ...(grouped ? { padding: '9px 12px 10px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 6 } : leadCardStyle), cursor: isDragging ? 'grabbing' : 'grab', visibility: isDragging ? 'hidden' : 'visible' }}>
       <LeadCardContent lead={lead} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetDeadline} grouped={grouped} />
     </div>
   );
@@ -282,19 +275,16 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
   const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
   const count = leads.length + saved.length;
   return (
-    <div ref={setNodeRef} style={{
-      minWidth: 280, width: 280, flexShrink: 0, background: isOver ? 'var(--surface-2)' : 'transparent', borderRadius: 10,
-      border: '1px dashed var(--border-strong)', display: 'flex', flexDirection: 'column', maxHeight: '100%',
-    }}>
-      <div style={{ padding: '10px 12px 8px', borderBottom: '0.5px dashed var(--border)' }}>
+    <div ref={setNodeRef} style={laneStyle(isOver, 'var(--surface-3)')}>
+      <div style={{ padding: '12px 14px 8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name="wand" size={12} />
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fg)' }}>Leads</span>
-          <span style={{ marginLeft: 'auto', fontSize: 11, fontVariantNumeric: 'tabular-nums', color: 'var(--fg-muted)', background: 'var(--surface)', padding: '1px 7px', borderRadius: 8, border: '0.5px solid var(--border)' }}>{count}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>Leads</span>
+          <span style={laneCount}>{count}</span>
         </div>
-        <div style={{ fontSize: 10.5, color: 'var(--fg-muted)', marginTop: 3 }}>Not applied yet — drag into a stage when you apply</div>
+        <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3, lineHeight: 1.4 }}>Not applied yet — drag into a stage when you apply</div>
       </div>
-      <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1 }}>
+      <div style={{ padding: '2px 8px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: 1 }}>
         {/* Soonest deadline first; a company's leads and saved applications together. */}
         {byCompany(
           [...leads.map((l) => ({ lead: l, deadline: l.deadline })), ...saved.map((a) => ({ app: a, deadline: a.deadline }))].sort(byDeadline),
@@ -313,7 +303,7 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
           );
         })}
         {count === 0 && (
-          <div style={{ fontSize: 11, color: 'var(--fg-muted)', textAlign: 'center', padding: 16, border: '1px dashed var(--border)', borderRadius: 6, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', textAlign: 'center', padding: '18px 8px', lineHeight: 1.6 }}>
             Jobs your agents find land here.<br />Agent → tell it what you're looking for.
           </div>
         )}
@@ -374,7 +364,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveId(null)}
     >
-      <div style={{ display: 'flex', gap: 12, padding: '8px 28px 24px', overflowX: 'auto', height: '100%', alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', gap: 12, padding: '16px 28px 24px', overflowX: 'auto', height: '100%', alignItems: 'stretch' }}>
         <LeadsColumn leads={leads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
           onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds}
           onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} />
@@ -392,19 +382,18 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
       </div>
       <DragOverlay dropAnimation={null}>
         {activeLead ? (
-          <div style={{ ...leadCardStyle, width: 264, cursor: 'grabbing', transform: 'rotate(1deg)', boxShadow: '0 12px 32px rgba(0,0,0,0.18)' }}>
+          <div style={{ ...leadCardStyle, width: 260, cursor: 'grabbing', transform: 'rotate(1.5deg)', boxShadow: '0 14px 34px rgba(0,0,0,0.18)' }}>
             <LeadCardContent lead={activeLead} />
           </div>
         ) : activeApp ? (
           <div style={{
             background: 'var(--surface)',
-            border: `0.5px solid ${activeStageColors.dot}`,
-            borderRadius: 8, padding: 10,
-            display: 'flex', flexDirection: 'column', gap: 8,
-            boxShadow: '0 12px 32px rgba(0,0,0,0.18), 0 0 0 0.5px var(--border)',
+            borderRadius: 10, padding: 12,
+            display: 'flex', flexDirection: 'column', gap: 9,
+            boxShadow: `0 14px 34px rgba(0,0,0,0.18), 0 0 0 1px ${activeStageColors.ring}`,
             cursor: 'grabbing',
-            width: 264, // matches column inner width (280 - 8*2 padding)
-            transform: 'rotate(1deg)',
+            width: 260, // the lane's inner width (276 - 8*2 padding)
+            transform: 'rotate(1.5deg)',
           }}>
             <CardContent app={activeApp} comp={getCompany(activeApp.companyId)} c={activeStageColors} isDuplicate={duplicateIds.has(activeApp.id)} />
           </div>

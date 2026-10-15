@@ -46,7 +46,7 @@ export function InterviewRounds({ rounds, onChange }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {rounds.map((r, i) => [r, i] as const).sort(([a], [b]) => compareRounds(a, b)).map(([r, i]) => (
-        <div key={i} style={{ border: '0.5px solid var(--border)', borderRadius: 8, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 7, background: 'var(--surface-2)' }}>
+        <div key={i} style={{ borderRadius: 10, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 7, background: 'var(--surface-2)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <label style={{ fontSize: 11.5, color: 'var(--fg-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
               Round

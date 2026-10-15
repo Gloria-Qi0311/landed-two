@@ -63,8 +63,8 @@ function Asks({ children }: { children: ReactNode }) {
 }
 
 const cardStyle = {
-  border: '0.5px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)', padding: '10px 12px',
-  display: 'flex', flexDirection: 'column', gap: 6,
+  borderRadius: 12, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '12px 14px',
+  display: 'flex', flexDirection: 'column', gap: 8,
 } as const
 
 export function PanelQuestions() {

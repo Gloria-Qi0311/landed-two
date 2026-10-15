@@ -58,16 +58,16 @@ export function BriefCard({ brief, latest }: { brief: SearchBrief; latest: boole
 
   return (
     <div style={{
-      marginTop: 6, border: '0.5px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)',
+      marginTop: 8, borderRadius: 12, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)',
       opacity: stale ? 0.6 : 1, overflow: 'hidden',
     }}>
-      <div style={{ padding: '9px 12px', borderBottom: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600 }}>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600 }}>
         <Icon name="target" size={12} /> Search brief
         {confirmed && <span style={{ marginLeft: 'auto', fontWeight: 500, color: 'oklch(0.45 0.13 155)', display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="check" size={11} /> Confirmed</span>}
         {stale && <span style={{ marginLeft: 'auto', fontWeight: 400, color: 'var(--fg-muted)' }}>Earlier draft</span>}
       </div>
-      <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 500, lineHeight: 1.45 }}>{brief.summary}</div>
+      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 550, lineHeight: 1.45 }}>{brief.summary}</div>
         <div style={{ display: 'grid', gridTemplateColumns: '78px 1fr', columnGap: 10, rowGap: 4, fontSize: 11.5, lineHeight: 1.45 }}>
           <Field label="Roles">{brief.roles.join(' · ')}</Field>
           {brief.seniority && <Field label="Level">{brief.seniority}</Field>}
@@ -80,7 +80,10 @@ export function BriefCard({ brief, latest }: { brief: SearchBrief; latest: boole
           {brief.notes && <Field label="Notes">{brief.notes}</Field>}
         </div>
 
-        {!stale && (
+        {confirmed && (
+          <div style={muted}>This is your active search — run it again from the bar at the top. New jobs land in the Leads column.</div>
+        )}
+        {!stale && !confirmed && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
             <div>
               <button type="button" className={confirmed ? 'btn-secondary' : 'btn-primary'}
@@ -129,7 +132,7 @@ export function SearchStatus() {
   const { active, activeRuns, running, targets, start } = useSearchState()
   if (!active) return null
   return (
-    <div style={{ padding: '10px 14px', border: '0.5px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+    <div style={{ padding: '10px 14px', borderRadius: 12, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4 }}>
       <span style={{ marginTop: 2, color: running ? 'var(--accent)' : 'var(--fg-muted)', animation: running ? 'pulse 1.6s ease-in-out infinite' : undefined }}>
         <Icon name="search" size={13} />
       </span>

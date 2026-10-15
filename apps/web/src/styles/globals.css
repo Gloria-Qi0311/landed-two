@@ -4,22 +4,27 @@
 
 @layer base {
   :root {
-    --bg: oklch(0.985 0.002 240);
+    --bg: oklch(0.975 0.003 260);
     --surface: oklch(1 0 0);
-    --surface-2: oklch(0.975 0.003 240);
-    --surface-3: oklch(0.955 0.005 240);
-    --fg: oklch(0.22 0.01 240);
-    --fg-muted: oklch(0.55 0.01 240);
-    --border: oklch(0.90 0.005 240);
-    --border-subtle: oklch(0.94 0.004 240);
-    --border-strong: oklch(0.82 0.008 240);
-    --accent: oklch(0.48 0.13 240);
-    --accent-hover: oklch(0.42 0.14 240);
-    --font-body: 'Inter', system-ui, -apple-system, sans-serif;
-    --font-display: 'Inter', system-ui, sans-serif;
+    --surface-2: oklch(0.968 0.004 260);
+    --surface-3: oklch(0.945 0.006 260);
+    --fg: oklch(0.21 0.012 260);
+    --fg-muted: oklch(0.54 0.012 260);
+    --border: oklch(0.905 0.006 260);
+    --border-subtle: oklch(0.94 0.005 260);
+    --border-strong: oklch(0.83 0.01 260);
+    --accent: oklch(0.52 0.18 268);
+    --accent-hover: oklch(0.46 0.19 268);
+    --accent-soft: oklch(0.955 0.03 268);
+    --shadow-sm: 0 1px 2px oklch(0.2 0.02 260 / 0.06), 0 0 0 0.5px oklch(0.2 0.02 260 / 0.07);
+    --shadow-md: 0 4px 14px oklch(0.2 0.02 260 / 0.08), 0 0 0 0.5px oklch(0.2 0.02 260 / 0.08);
+    --radius: 10px;
+    --font-body: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+    --font-display: 'Inter', 'PingFang SC', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   }
   [data-theme="warm"] {
+    --accent-soft: oklch(0.96 0.03 40);
     --bg: oklch(0.985 0.005 60);
     --surface: oklch(1 0 0);
     --surface-2: oklch(0.975 0.008 60);
@@ -31,6 +36,7 @@
     --accent: oklch(0.52 0.14 40);
   }
   [data-theme="editorial"] {
+    --accent-soft: oklch(0.95 0.03 30);
     --bg: oklch(0.98 0.008 85);
     --surface: oklch(0.995 0.004 85);
     --surface-2: oklch(0.965 0.012 85);
@@ -43,16 +49,20 @@
     --font-display: 'Instrument Serif', Georgia, serif;
   }
   [data-theme="dark"] {
-    --bg: oklch(0.17 0.008 240);
-    --surface: oklch(0.21 0.008 240);
-    --surface-2: oklch(0.19 0.008 240);
-    --surface-3: oklch(0.25 0.01 240);
-    --fg: oklch(0.96 0.005 240);
-    --fg-muted: oklch(0.65 0.01 240);
-    --border: oklch(0.30 0.01 240);
-    --border-subtle: oklch(0.26 0.008 240);
-    --border-strong: oklch(0.38 0.012 240);
-    --accent: oklch(0.72 0.14 240);
+    --bg: oklch(0.17 0.008 260);
+    --surface: oklch(0.215 0.009 260);
+    --surface-2: oklch(0.195 0.009 260);
+    --surface-3: oklch(0.255 0.011 260);
+    --fg: oklch(0.96 0.005 260);
+    --fg-muted: oklch(0.66 0.012 260);
+    --border: oklch(0.30 0.012 260);
+    --border-subtle: oklch(0.26 0.01 260);
+    --border-strong: oklch(0.38 0.014 260);
+    --accent: oklch(0.72 0.15 268);
+    --accent-hover: oklch(0.78 0.14 268);
+    --accent-soft: oklch(0.30 0.06 268);
+    --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.3), 0 0 0 0.5px oklch(1 0 0 / 0.06);
+    --shadow-md: 0 6px 18px oklch(0 0 0 / 0.35), 0 0 0 0.5px oklch(1 0 0 / 0.08);
   }
   [data-density="compact"] { font-size: 12.5px; }
   [data-density="cozy"]    { font-size: 13.5px; }
@@ -70,48 +80,100 @@
   }
 
   button { font-family: inherit; }
-  input, textarea { font-family: inherit; }
-  input[type="text"] {
+  input, textarea, select { font-family: inherit; }
+  /* Native checkboxes, radios and ranges in the brand color, not browser blue. */
+  :root { accent-color: var(--accent); }
+
+  /* One look for every field: text, number, time/date, selects, text areas. */
+  input[type="text"], input[type="number"], input[type="time"], input[type="date"], input[type="datetime-local"],
+  input[type="email"], input[type="password"], input[type="url"], input:not([type]), select, textarea {
     background: var(--surface); color: var(--fg);
-    border: 0.5px solid var(--border); border-radius: 6px;
-    padding: 5px 10px; font-size: 12px; outline: none;
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: 5px 9px; font-size: 12.5px; line-height: 1.4; outline: none;
     transition: border-color 120ms, box-shadow 120ms;
+    color-scheme: light dark;
   }
-  input[type="text"]:focus {
-    border-color: var(--fg-muted);
-    box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
+  input:hover:not(:disabled):not([type="checkbox"]):not([type="radio"]):not([type="file"]), select:hover:not(:disabled), textarea:hover:not(:disabled) {
+    border-color: var(--border-strong);
   }
+  input:focus:not([type="checkbox"]):not([type="radio"]), select:focus, textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.16);
+  }
+  /* !important: many selects set their own padding/background inline, which
+     would otherwise hide the chevron. */
+  select {
+    appearance: none; -webkit-appearance: none; cursor: pointer;
+    padding-right: 26px !important;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>") !important;
+    background-repeat: no-repeat !important; background-position: right 9px center !important;
+  }
+  input::placeholder, textarea::placeholder { color: var(--fg-muted); opacity: 0.8; }
+  input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
+  ::selection { background: oklch(from var(--accent) l c h / 0.18); }
 }
 
 @layer components {
   .btn-primary {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 12px; font-size: 12px; font-weight: 500;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 6px 12px; font-size: 12.5px; font-weight: 500; line-height: 1.35;
     background: var(--fg); color: var(--bg);
-    border: none; border-radius: 6px; cursor: pointer;
-    transition: opacity 120ms;
+    border: none; border-radius: 8px; cursor: pointer;
+    box-shadow: 0 1px 2px oklch(0 0 0 / 0.12), inset 0 1px 0 oklch(1 0 0 / 0.1);
+    transition: opacity 120ms, transform 80ms;
     white-space: nowrap;
   }
-  .btn-primary:hover { opacity: 0.88; }
+  .btn-primary:hover:not(:disabled) { opacity: 0.86; }
+  .btn-primary:active:not(:disabled) { transform: translateY(0.5px); }
+  .btn-primary:disabled, .btn-secondary:disabled { cursor: default; }
   .btn-secondary {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 10px; font-size: 12px; font-weight: 500;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 6px 11px; font-size: 12.5px; font-weight: 500; line-height: 1.35;
     background: var(--surface); color: var(--fg);
-    border: 0.5px solid var(--border); border-radius: 6px; cursor: pointer;
-    transition: background 120ms;
+    border: none; border-radius: 8px; cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: background 120ms, box-shadow 120ms;
     white-space: nowrap;
   }
-  .btn-secondary:hover { background: var(--surface-2); }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface-2); }
+  .btn-ghost {
+    display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 12.5px; font-weight: 500;
+    background: transparent; color: var(--fg-muted); border: none; border-radius: 7px; cursor: pointer;
+  }
+  .btn-ghost:hover:not(:disabled) { background: var(--surface-3); color: var(--fg); }
+
+  /* On/off switch: <input type="checkbox" class="switch"> */
+  input.switch {
+    appearance: none; -webkit-appearance: none; flex-shrink: 0;
+    width: 30px; height: 18px; border-radius: 999px; margin: 0; cursor: pointer;
+    background: var(--border-strong); position: relative; transition: background 150ms;
+  }
+  input.switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+    background: white; box-shadow: 0 1px 2px oklch(0 0 0 / 0.25); transition: transform 150ms;
+  }
+  input.switch:checked { background: var(--accent); }
+  input.switch:checked::after { transform: translateX(12px); }
+  input.switch:disabled { opacity: 0.5; cursor: default; }
+  input.switch:focus-visible { outline: 2px solid oklch(from var(--accent) l c h / 0.4); outline-offset: 2px; }
+
+  /* Surfaces */
+  .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
   .btn-secondary.icon-only { padding: 6px; }
   .icon-btn:hover { background: var(--surface-3); }
 
-  .sidebar-item:hover { background: var(--surface-3); }
+  .sidebar-item:hover { background: var(--surface-3); color: var(--fg) !important; }
   /* Agent page chat list: delete only on hover / focus */
   .conversation-item .conversation-delete { opacity: 0; }
   .conversation-item:hover .conversation-delete, .conversation-item:focus-within .conversation-delete { opacity: 1; }
   /* click-to-edit text (components/editable.tsx): a soft halo, no layout shift */
   .editable:hover, .editable:focus-visible { background: var(--surface-2); box-shadow: 0 0 0 3px var(--surface-2); outline: none; }
-  .kanban-card:hover { background: var(--surface-2); border-color: var(--border-strong); transform: translateY(-1px); transition: all 120ms; }
+  .kanban-card { transition: box-shadow 140ms, transform 140ms, background 140ms; }
+  .kanban-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+  .kanban-row:hover { background: var(--surface-2); }
+  /* Agent chat box: one ring when anything inside has focus */
+  .composer:focus-within { box-shadow: var(--shadow-md), 0 0 0 3px oklch(from var(--accent) l c h / 0.14) !important; }
+  .composer textarea:focus { box-shadow: none !important; }
   /* "+ Apply-by date" on cards only shows on hover (components/deadline-chip.tsx) */
   .kanban-card .deadline-add { opacity: 0; transition: opacity 120ms; }
   .kanban-card:hover .deadline-add, .kanban-card .deadline-add:focus-visible { opacity: 1; }

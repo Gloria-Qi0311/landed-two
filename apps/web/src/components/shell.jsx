@@ -7,21 +7,22 @@ import { AccountAvatar } from './auth';
 export const Sidebar = ({ account, onProfileClick, navCounts = {} }) => {
 
   const NavItem = ({ to, icon, label, count }) => (
-    <NavLink to={to} end={to === '/applications'} className="sidebar-item" style={({ isActive }) => ({
+    <NavLink to={to} end={to === '/applications'} className={({ isActive }) => (isActive ? 'sidebar-item active' : 'sidebar-item')} style={({ isActive }) => ({
       width: '100%', textAlign: 'left', textDecoration: 'none',
       padding: '7px 10px', fontSize: 13,
-      background: isActive ? 'var(--surface-3)' : 'transparent',
+      background: isActive ? 'var(--surface)' : 'transparent',
+      boxShadow: isActive ? 'var(--shadow-sm)' : 'none',
       color: isActive ? 'var(--fg)' : 'var(--fg-muted)',
-      border: 'none', borderRadius: 6,
+      border: 'none', borderRadius: 8,
       cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9,
-      fontWeight: isActive ? 500 : 400,
+      fontWeight: isActive ? 550 : 450,
     })}>
       {icon}
       <span>{label}</span>
       {count > 0 && (
         <span style={{
           marginLeft: 'auto', minWidth: 18, padding: '0 5px', borderRadius: 9, fontSize: 10.5, fontWeight: 600,
-          lineHeight: '17px', textAlign: 'center', background: 'var(--accent)', color: 'var(--bg)',
+          lineHeight: '17px', textAlign: 'center', background: 'var(--accent)', color: 'white',
         }}>{count}</span>
       )}
     </NavLink>
@@ -29,17 +30,17 @@ export const Sidebar = ({ account, onProfileClick, navCounts = {} }) => {
 
   return (
     <aside style={{
-      width: 232, flexShrink: 0,
+      width: 224, flexShrink: 0,
       background: 'var(--surface-2)',
-      borderRight: '0.5px solid var(--border)',
+      borderRight: '1px solid var(--border-subtle)',
       display: 'flex', flexDirection: 'column',
       height: '100%',
     }}>
       {/* Brand */}
-      <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0 }}>
+      <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0 }}>
         <LandedMark size={22} />
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>Landed</div>
+          <div style={{ fontSize: 15, fontWeight: 650, color: 'var(--fg)', letterSpacing: '-0.025em', fontFamily: 'var(--font-display)' }}>Landed</div>
         </div>
       </div>
 
@@ -81,17 +82,17 @@ export const Sidebar = ({ account, onProfileClick, navCounts = {} }) => {
  */
 export const PageHeader = ({ title, subtitle, actions }) => (
   <div style={{
-    padding: '12px 28px 10px',
+    padding: '18px 28px 14px',
     display: 'flex', alignItems: 'center', gap: 10, rowGap: 8, flexWrap: 'wrap',
-    borderBottom: '0.5px solid var(--border)', background: 'var(--bg)',
+    borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg)',
     flexShrink: 0,
   }}>
     <div style={{ minWidth: 0, flex: '1 1 160px' }}>
-      <div style={{ fontSize: 15.5, fontWeight: 600, color: 'var(--fg)', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>
+      <div style={{ fontSize: 19, fontWeight: 650, color: 'var(--fg)', letterSpacing: '-0.025em', fontFamily: 'var(--font-display)', lineHeight: 1.25 }}>
         {title}
       </div>
       {subtitle && (
-        <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {subtitle}
         </div>
       )}

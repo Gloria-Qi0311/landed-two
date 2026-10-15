@@ -15,18 +15,37 @@ export const stageColors = {
 stageColors.phone = stageColors.interview;
 stageColors.onsite = stageColors.interview;
 
+// A company without its own color gets one from its name, so marks differ.
+export function hueFor(name = '') {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.codePointAt(0)) % 360;
+  return h;
+}
+
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/** "字节跳动" → "字", "Product Hunt" → "PH", "Stripe" → "ST". */
+export function initialsFor(name = '') {
+  const t = name.trim();
+  if (!t) return '?';
+  if (CJK.test(t[0])) return t[0];
+  const words = t.replace(/\(.*?\)/g, ' ').split(/[\s\-_.,&]+/).filter(Boolean);
+  if (words.length > 1 && /^[A-Za-z]/.test(words[1])) return (words[0][0] + words[1][0]).toUpperCase();
+  return t.slice(0, 2).toUpperCase();
+}
+
 export function CompanyMark({ company, size = 32 }) {
-  const bg = `oklch(0.94 0.04 ${company.hue})`;
-  const fg = `oklch(0.35 0.12 ${company.hue})`;
+  const hue = company.hue ?? hueFor(company.name);
+  const logo = company.logo || initialsFor(company.name);
+  const cjk = CJK.test(logo);
   return (
     <div style={{
-      width: size, height: size, borderRadius: size * 0.28,
-      background: bg, color: fg,
+      width: size, height: size, borderRadius: size * 0.3,
+      background: `oklch(0.93 0.05 ${hue})`, color: `oklch(0.38 0.13 ${hue})`,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: size * 0.42,
-      letterSpacing: '-0.02em', flexShrink: 0,
-      border: `0.5px solid oklch(0.88 0.04 ${company.hue})`,
-    }}>{company.logo}</div>
+      fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: size * (cjk ? 0.5 : logo.length > 1 ? 0.4 : 0.48),
+      letterSpacing: '-0.02em', flexShrink: 0, lineHeight: 1,
+    }}>{logo}</div>
   );
 }
 

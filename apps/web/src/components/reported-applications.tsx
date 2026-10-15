@@ -54,8 +54,8 @@ export function ReportedApplicationsCard({ applications }: { applications: Repor
   const pending = applications.map((_, i) => i).filter((i) => todo(matches.data?.[i]))
 
   return (
-    <div style={{ marginTop: 6, border: '0.5px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)', overflow: 'hidden' }}>
-      <div style={{ padding: '9px 12px', borderBottom: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600 }}>
+    <div style={{ marginTop: 8, borderRadius: 12, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600 }}>
         <Icon name="doc" size={12} /> {applications.length === 1 ? 'Application' : `${applications.length} applications`} from your screenshot
         {pending.length > 1 && (
           <button type="button" className="btn-primary" disabled={busy.length > 0} onClick={() => add(pending)}
@@ -69,7 +69,7 @@ export function ReportedApplicationsCard({ applications }: { applications: Repor
           const m = matches.data?.[i]
           const done = m?.kind === 'existing' && !m.forward
           return (
-            <div key={i} style={{ padding: '8px 12px', borderTop: i ? '0.5px solid var(--border-subtle)' : 'none', display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div key={i} style={{ padding: '10px 14px', borderTop: i ? '1px solid var(--border-subtle)' : 'none', display: 'flex', gap: 10, alignItems: 'center' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 500, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                   {r.company} — {r.role} <StagePill stage={r.stage} />

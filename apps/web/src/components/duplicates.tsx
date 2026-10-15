@@ -13,8 +13,8 @@ import { useStore, type DbApplication } from '../lib/store'
 const muted = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 } as const
 const danger = 'oklch(0.45 0.15 30)'
 const card = {
-  border: '0.5px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)', padding: '10px 12px',
-  display: 'flex', flexDirection: 'column', gap: 6,
+  borderRadius: 12, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '12px 14px',
+  display: 'flex', flexDirection: 'column', gap: 8,
 } as const
 
 type Group = { ids: string[]; apps: DbApplication[]; names: Map<string, string> }

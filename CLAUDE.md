@@ -87,6 +87,10 @@ Supabase was removed. The API server (`apps/server`, Hono + postgres.js) owns Cl
 - **Migrations are append-only**: add `apps/server/migrations/NNNN_name.sql`; never edit one that has been applied. The server applies pending migrations on start (`pnpm migrate` to run them alone).
 - In Cloud mode the web app talks to the API only through `apps/web/src/lib/api.ts` (same-origin, httpOnly session cookie). The extension uses `lib/auth.js` (Bearer token in `chrome.storage.local`).
 
+## Visual style (after the 2026-10-14 design pass)
+
+Tokens live in `apps/web/src/styles/globals.css` (per theme: cool default, warm, editorial, dark). Surfaces are **white cards with `var(--shadow-sm)`, not hairline borders** — avoid boxes inside boxes; a list inside a card uses `1px solid var(--border-subtle)` dividers. Board lanes are soft rounded columns with no border; a company with several cards in a lane is **one card with a row per application** (`CompanyGroup` in `kanban.jsx`). Company marks derive a color and initials from the name when the company has none (`hueFor` / `initialsFor` in `primitives.jsx`; CJK names show one character). Form controls are styled globally (text/number/time/date inputs, selects with a chevron that inline styles can't hide, `accent-color` for checkboxes and radios); on/off settings use `<input type="checkbox" className="switch">`. Buttons: `btn-primary` (dark), `btn-secondary` (white, shadow), `btn-ghost`. Before/after screenshots of every page: seed a throwaway account against `landed_test` and capture with Playwright using the installed Chrome (`chromium.launch({ channel: 'chrome' })`).
+
 ## Per-user state lives in the data store, not localStorage
 
 Account-level state (onboarding completion, preferences — things that should follow the person to any device regardless of Cloud sync) goes in the `users` row via `GET/PATCH /api/me`, read/written through `apps/web/src/hooks/profile.ts` (`useOnboardedAt` / `useMarkOnboarded` / `useResetOnboarded` pattern). Job-hunt data never goes there — it belongs in the data store.

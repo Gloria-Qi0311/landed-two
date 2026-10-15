@@ -181,8 +181,8 @@ function ConversationList({ conversations, loading }: { conversations: DbConvers
   }, [conversations])
 
   return (
-    <aside aria-label="Chats" style={{ width: 250, flexShrink: 0, borderRight: '0.5px solid var(--border)', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div style={{ padding: 10 }}>
+    <aside aria-label="Chats" style={{ width: 248, flexShrink: 0, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{ padding: '12px 10px 8px' }}>
         <button type="button" className={activeId ? 'btn-secondary' : 'btn-primary'} onClick={newChat} style={{ width: '100%', justifyContent: 'center' }}>
           <Icon name="plus" size={13} /> New chat
         </button>
@@ -214,9 +214,9 @@ function ConversationItem({ conv, active, replying, title, onOpen }: {
     <div role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => { if (e.key === 'Enter') onOpen() }}
       className="sidebar-item conversation-item" title={`${title} · ${formatRelative(conv.updated_at)}`}
       style={{
-        display: 'flex', alignItems: 'center', gap: 6, padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5,
-        background: active ? 'var(--surface)' : 'transparent', border: `0.5px solid ${active ? 'var(--border)' : 'transparent'}`,
-        color: active ? 'var(--fg)' : 'var(--fg-muted)', fontWeight: active ? 500 : 400,
+        display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5,
+        background: active ? 'var(--surface)' : 'transparent', boxShadow: active ? 'var(--shadow-sm)' : 'none',
+        color: active ? 'var(--fg)' : 'var(--fg-muted)', fontWeight: active ? 550 : 400,
       }}>
       {replying && <span title="Replying…" style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--accent)', flexShrink: 0, animation: 'pulse 1.6s ease-in-out infinite' }} />}
       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
@@ -331,8 +331,8 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
 
   return (
     <>
-      <div style={{ padding: '12px 28px 0' }}>
-        <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ padding: '14px 28px 12px', borderBottom: saved || turns.length ? '1px solid var(--border-subtle)' : 'none' }}>
+        <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {saved && title && (
             <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -344,7 +344,7 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
         </div>
       </div>
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto', padding: '14px 28px' }}>
-        <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 18 }}>
           {turns.length === 0 && runtime && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
               <div style={{ fontSize: 13, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
@@ -360,9 +360,10 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
           )}
           {turns.map((t, i) => (
             <div key={i} style={{
-              alignSelf: t.role === 'user' ? 'flex-end' : 'stretch', maxWidth: t.role === 'user' ? '85%' : '100%',
-              padding: t.role === 'user' ? '8px 12px' : '2px 0', borderRadius: 10, fontSize: 13,
-              background: t.role === 'user' ? 'var(--surface-3)' : 'transparent',
+              alignSelf: t.role === 'user' ? 'flex-end' : 'stretch', maxWidth: t.role === 'user' ? '80%' : '100%',
+              padding: t.role === 'user' ? '9px 14px' : '2px 0', borderRadius: t.role === 'user' ? '16px 16px 4px 16px' : 0,
+              fontSize: 13.5, lineHeight: 1.6,
+              background: t.role === 'user' ? 'var(--surface)' : 'transparent', boxShadow: t.role === 'user' ? 'var(--shadow-sm)' : 'none',
               color: t.error ? 'oklch(0.45 0.15 30)' : 'var(--fg)', whiteSpace: t.role === 'user' ? 'pre-wrap' : undefined,
             }}>
               {t.tools?.length ? (
@@ -382,7 +383,7 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
         </div>
       </div>
       <div
-        style={{ padding: '10px 28px 16px', borderTop: '0.5px solid var(--border)', background: dragging ? 'var(--surface-2)' : undefined }}
+        style={{ padding: '8px 28px 20px', background: dragging ? 'var(--accent-soft)' : undefined }}
         onDragOver={(e) => { if (runtime && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); setDragging(true) } }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => { e.preventDefault(); setDragging(false); void attach(imagesFrom(e.dataTransfer)) }}
@@ -403,22 +404,25 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
               {attachError && <span role="alert" style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)' }}>{attachError}</span>}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <div className="composer" style={{ display: 'flex', flexDirection: 'column', gap: 4, background: 'var(--surface)', borderRadius: 16, boxShadow: 'var(--shadow-md)', padding: '8px 8px 8px 14px' }}>
             <input ref={picker} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
               onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
-            <button type="button" className="btn-secondary" aria-label="Attach screenshots" title="Attach screenshots (or paste / drop them)"
-              disabled={!runtime || busy || attachments.length >= MAX_CHAT_IMAGES} onClick={() => picker.current?.click()}
-              style={{ padding: '8px 9px', opacity: !runtime || busy || attachments.length >= MAX_CHAT_IMAGES ? 0.6 : 1 }}>
-              <Icon name="image" size={14} />
-            </button>
             <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} rows={2} disabled={!runtime}
               onPaste={(e) => { const files = imagesFrom(e.clipboardData); if (files.length) { e.preventDefault(); void attach(files) } }}
-              placeholder={runtime ? `Message ${agentLabel}… (paste or drop screenshots, e.g. an application with no confirmation email)` : 'Your computer is offline — start the Landed daemon to continue this chat'}
-              style={{ flex: 1, resize: 'none', padding: '9px 12px', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.5, maxHeight: 180, borderRadius: 10 }} />
-            <button type="button" className="btn-primary" onClick={() => submit()} disabled={busy || (!draft.trim() && !attachments.length) || !runtime}
-              style={{ opacity: busy || (!draft.trim() && !attachments.length) || !runtime ? 0.6 : 1 }}>
-              {busy ? '…' : 'Send'}
-            </button>
+              placeholder={runtime ? `Message ${agentLabel}… — paste or drop screenshots too` : 'Your computer is offline — start Landed on it to continue this chat'}
+              style={{ resize: 'none', padding: '4px 0', fontSize: 13.5, lineHeight: 1.55, maxHeight: 200, border: 'none', boxShadow: 'none', background: 'transparent' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button type="button" className="btn-ghost" aria-label="Attach screenshots" title="Attach screenshots (or paste / drop them)"
+                disabled={!runtime || busy || attachments.length >= MAX_CHAT_IMAGES} onClick={() => picker.current?.click()}
+                style={{ marginLeft: -8, opacity: !runtime || busy || attachments.length >= MAX_CHAT_IMAGES ? 0.5 : 1 }}>
+                <Icon name="image" size={15} /> Screenshot
+              </button>
+              <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-muted)' }}>{runtime ? 'Enter to send · Shift+Enter for a new line' : ''}</span>
+              <button type="button" className="btn-primary" aria-label="Send" onClick={() => submit()} disabled={busy || (!draft.trim() && !attachments.length) || !runtime}
+                style={{ borderRadius: 10, padding: '6px 14px', opacity: busy || (!draft.trim() && !attachments.length) || !runtime ? 0.45 : 1 }}>
+                {busy ? '…' : 'Send'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

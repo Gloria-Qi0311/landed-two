@@ -30,8 +30,8 @@ import { useRuntimes } from '../hooks/runtimes'
 
 const muted = { fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 } as const
 const danger = 'oklch(0.45 0.15 30)'
-const card = { background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 } as const
-const select = { fontSize: 12.5, fontFamily: 'inherit', padding: '3px 6px', borderRadius: 6 } as const
+const card = { background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12 } as const
+const select = { fontSize: 12.5 } as const
 
 const when = (iso: string) => {
   const d = new Date(iso)
@@ -79,8 +79,8 @@ function SchedulePicker({ schedule, presets, onChange, disabled }: { schedule: S
 /** A labeled line of a card: When / Looks at / Then / Needs. */
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr', gap: 10, alignItems: 'baseline', paddingLeft: 44 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+    <div style={{ display: 'grid', gridTemplateColumns: '76px 1fr', gap: 12, alignItems: 'baseline', paddingLeft: 46 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
       <div style={{ fontSize: 12.5, lineHeight: 1.55, minWidth: 0 }}>{children}</div>
     </div>
   )
@@ -111,16 +111,16 @@ function AutomationCard({ kind, icon, title, flow, presets, designated, blocker,
   return (
     <section style={card}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <span style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--surface-2)', border: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Icon name={icon} size={15} />
+        <span style={{ width: 34, height: 34, borderRadius: 10, background: a.enabled ? 'var(--accent-soft)' : 'var(--surface-3)', color: a.enabled ? 'var(--accent)' : 'var(--fg-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 150ms' }}>
+          <Icon name={icon} size={16} />
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
-          <div style={{ ...muted, fontSize: 11.5 }}>{flow}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em' }}>{title}</div>
+          <div style={{ ...muted, fontSize: 12 }}>{flow}</div>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>
-          <input type="checkbox" checked={a.enabled} disabled={!loaded || set.isPending} onChange={(e) => save({ enabled: e.target.checked })} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', flexShrink: 0, color: a.enabled ? 'var(--fg)' : 'var(--fg-muted)' }}>
           {a.enabled ? 'On' : 'Off'}
+          <input type="checkbox" className="switch" aria-label={`${title}: ${a.enabled ? 'on' : 'off'}`} checked={a.enabled} disabled={!loaded || set.isPending} onChange={(e) => save({ enabled: e.target.checked })} />
         </label>
       </div>
 
@@ -149,7 +149,7 @@ function AutomationCard({ kind, icon, title, flow, presets, designated, blocker,
 function RunList({ runs }: { runs: AutomationRun[] }) {
   const stored = useAutomationSync((s) => s.stored)
   return (
-    <div style={{ marginLeft: 44, borderTop: '0.5px solid var(--border-subtle)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div style={{ marginLeft: 46, borderTop: '1px solid var(--border-subtle)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
       {runs.map((r) => (
         <div key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12 }}>
           <span style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0, background: r.status === 'ok' ? 'oklch(0.65 0.17 155)' : r.status === 'running' ? 'var(--accent)' : 'oklch(0.62 0.17 28)' }} />
@@ -227,8 +227,8 @@ function EmailCard({ designated, targets, cloudLine }: CardProps) {
         Emails received since the last check (each run starts an hour before the previous one, so nothing falls in between),
         read-only{agent?.mail ? ` (${agent.mail}, through ${agent.label})` : ''}: confirmations, assessments, interviews and their times,
         rejections, offers. It never sends, labels or deletes anything.
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, ...muted }}>
-          Think it missed something?
+        <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 8, rowGap: 4, marginTop: 6, ...muted }}>
+          <span style={{ whiteSpace: 'nowrap' }}>Think it missed something?</span>
           <button type="button" className="btn-secondary" disabled={!designated || !agent || queued}
             onClick={() => requestRunNow('email_check', { rescanDays: 30 })}
             style={{ fontSize: 11.5, padding: '1px 8px', opacity: !designated || !agent || queued ? 0.6 : 1 }}>

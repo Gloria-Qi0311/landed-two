@@ -47,8 +47,9 @@ function toCompanyShape(row: DbCompany) {
   return {
     id: row.id,
     name: row.name,
-    hue: row.hue ?? 220,
-    logo: row.logo_chars ?? row.name.slice(0, 2).toUpperCase(),
+    // No color or initials of its own: the mark derives them from the name.
+    hue: row.hue ?? null,
+    logo: row.logo_chars ?? null,
     sector: row.sector ?? '',
     loc: row.loc ?? '',
     portalOk: true, // legacy field — derived from portal_connections in #20

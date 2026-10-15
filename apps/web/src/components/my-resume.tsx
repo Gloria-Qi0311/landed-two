@@ -16,7 +16,7 @@ import { useJobLeads } from '../hooks/inbox'
 
 const muted = { fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 } as const
 const danger = 'oklch(0.45 0.15 30)'
-const card = { background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, padding: 16 } as const
+const card = { background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', borderRadius: 12, padding: 18 } as const
 const KIND_LABEL = { experience: 'Experience', internship: 'Internships', project: 'Projects' } as const
 
 /** Where the work runs, or what to do to make it run. */
