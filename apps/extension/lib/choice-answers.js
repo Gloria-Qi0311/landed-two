@@ -34,6 +34,7 @@
     ['consent', /(privacy (policy|notice|statement)|terms (and|&) conditions|terms of (use|service)|\bi (have read|agree|consent|acknowledge|accept|certify|confirm|authori[sz]e)\b|\bconsent\b|data (processing|protection)|隐私|同意.{0,8}(条款|政策|协议))/],
     ['needs_sponsorship', /(sponsor|签证担保|visa support|h-?1b)/],
     ['work_authorized', /((authori[sz]ed|eligible|permitted|entitled) to work|right to work|work authori[sz]ation|work permit|工作许可|合法.{0,6}工作)/],
+    ['adult', /((18|eighteen) (years|yrs)( of age)?( or older| and older| or over|\+)|at least (18|eighteen)|legal (working )?age|年满 ?18|成年)/],
     ['has_preferred_name', /((have|has) (a )?preferred name|preferred name (that is |which is )?different|different (from|than) your legal name)/],
     ['preferred_first_name', /(preferred (first|given) name|^preferred name$)/, 60],
     ['preferred_last_name', /(preferred (last|family) name|preferred surname)/, 60],
@@ -52,12 +53,16 @@
     ['open_to_other_locations', /(other locations|considered for (positions|roles|opportunities) (in|at) other)/],
     ['relocate', /(relocat|搬迁|异地工作)/],
     ['travel', /(\btravel\b|出差)/],
+    ['onsite', /(on-?site|in[- ]office|in the office|office \d+ days|days a week in|return to (the )?office|work arrangement|到岗|坐班)/],
     ['preferred_location_1', /(first choice|1st choice|first preference)/, 40],
     ['preferred_location_2', /(second choice|2nd choice|second preference)/, 40],
     ['preferred_location_3', /(third choice|3rd choice|third preference)/, 40],
     ['non_compete', /(non-?compete|restrictive covenant|竞业)/],
     ['heard_from', /(how did you (hear|find out|learn|discover)|where did you (hear|find|learn|see)|referral source|source of (application|referral)|how.{0,20}(hear|learn) about|如何得知|从哪里.{0,4}(得知|了解)|渠道)/],
     ['talent_network', /(talent (network|community|pool)|job alerts)/],
+    ['linkedin', /linkedin|领英/, 60],
+    ['github', /github/, 60],
+    ['website', /(^website|^web site|personal (website|site|page)|portfolio|^blog|个人网站|作品集)/, 60],
     ['hispanic_latino', /(hispanic|latino|latinx|^ethnicity)/],
     ['race', /(\brace\b|种族)/],
     ['gender', /(gender|^sex$|性别)/],
@@ -78,12 +83,13 @@
   }
 
   const YES_NO_KINDS = new Set([
-    'work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'open_to_other_locations', 'previously_employed',
+    'adult', 'onsite', 'work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'open_to_other_locations', 'previously_employed',
     'non_compete', 'talent_network',
   ]);
   const TEXT_KINDS = new Set([
     'legal_first_name', 'legal_middle_name', 'legal_last_name', 'preferred_first_name', 'preferred_last_name',
     'date_of_birth', 'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'country', 'earliest_start', 'heard_from',
+    'linkedin', 'github', 'website',
   ]);
 
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -237,7 +243,8 @@
     needs_sponsorship: 'Needs visa sponsorship now or in the future', earliest_start: 'Earliest full-time start',
     relocate: 'Willing to relocate', travel: 'Willing to travel', open_to_other_locations: 'Open to other locations',
     previously_employed: 'Has worked at this company before', non_compete: 'Bound by a non-compete', heard_from: 'Heard about the job from',
-    talent_network: 'Wants to join the talent network',
+    talent_network: 'Wants to join the talent network', adult: '18 years of age or older',
+    onsite: 'Open to working onsite / in the office full time',
   };
 
   /** Facts the local model may use to pick an option (never sent anywhere
@@ -283,7 +290,7 @@
     return null;
   }
 
-  const api = { ANSWERS_KEY, FILES_KEY, fileKind, norm, classify, answerFor, pickOption, answerFlat, answerFacts };
+  const api = { ANSWERS_KEY, FILES_KEY, fileKind, sameText, norm, classify, answerFor, pickOption, answerFlat, answerFacts };
   global.LandedChoiceAnswers = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

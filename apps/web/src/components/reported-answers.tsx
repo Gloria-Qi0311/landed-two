@@ -14,6 +14,7 @@ const muted: CSSProperties = { fontSize: 11.5, color: 'var(--fg-muted)', lineHei
 const LABELS: Partial<Record<keyof ApplicationAnswers, string>> = {
   legal_first_name: 'Legal first name', legal_middle_name: 'Legal middle name', legal_last_name: 'Legal last name',
   preferred_first_name: 'Preferred first name', preferred_last_name: 'Preferred last name', date_of_birth: 'Date of birth',
+  linkedin: 'LinkedIn', github: 'GitHub', website: 'Website', adult: '18 or older', onsite: 'Onsite',
   address_line1: 'Address', address_line2: 'Address line 2', city: 'City', state: 'State', postal_code: 'ZIP', country: 'Country',
   work_authorized: 'Authorized to work', needs_sponsorship: 'Needs sponsorship', earliest_start: 'Earliest start',
   relocate: 'Relocate', travel: 'Travel', open_to_other_locations: 'Other locations', previously_employed: 'Worked there before',

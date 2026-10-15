@@ -305,6 +305,8 @@ type FillResult = {
   filled?: number
   review?: number
   error?: string
+  /** upload fields with no saved file ("resume", "cover_letter") */
+  missing?: string[]
 }
 
 // Current resume first, then newest first.
@@ -427,6 +429,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
               kind: 'done',
               filled: Array.isArray(response.filled) ? response.filled.length : 0,
               review: Array.isArray(response.manual) ? response.manual.length : 0,
+              missing: Array.isArray(response.missing_files) ? response.missing_files : [],
             })
           }
         })
@@ -435,7 +438,9 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       const filled = results.reduce((sum, result) => sum + (result.filled || 0), 0)
       const review = results.reduce((sum, result) => sum + (result.review || 0), 0)
       const failed = results.filter((result) => result.kind === 'error').length
-      setFillNotice(`${filled} fields filled · ${review} need review${failed ? ` · ${failed} page${failed === 1 ? '' : 's'} unavailable` : ''}. You submit each page.`)
+      const noResumeFile = results.some((result) => result.missing?.includes('resume'))
+      setFillNotice(`${filled} fields filled · ${review} need review${failed ? ` · ${failed} page${failed === 1 ? '' : 's'} unavailable` : ''}. You submit each page.`
+        + (noResumeFile ? ' No resume file to attach yet: upload your resume on Landed → My Resume, or add it on the Extension page.' : ''))
     } catch (e) {
       setFillNotice(toErr(e))
     } finally {

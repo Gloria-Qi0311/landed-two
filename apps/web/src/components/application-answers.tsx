@@ -129,6 +129,12 @@ export function ApplicationAnswersPane() {
           <Row label="Date of birth" help="Some employers ask for day and month for background checks.">{text('date_of_birth', 'e.g. October 30')}</Row>
         </Section>
 
+        <Section title="Links" note="For “LinkedIn profile”, “GitHub” and “Website” fields — full links, even if your resume only names them.">
+          <Row label="LinkedIn">{text('linkedin', 'https://www.linkedin.com/in/…')}</Row>
+          <Row label="GitHub">{text('github', 'https://github.com/…')}</Row>
+          <Row label="Website / portfolio">{text('website', 'https://…')}</Row>
+        </Section>
+
         <Section title="Permanent address">
           <Row label="Address line 1">{text('address_line1', 'Street address')}</Row>
           <Row label="Address line 2">{text('address_line2', 'Apt, suite (optional)')}</Row>
@@ -139,6 +145,7 @@ export function ApplicationAnswersPane() {
         </Section>
 
         <Section title="Work eligibility">
+          <Row label="18 years of age or older?">{yesNo('adult')}</Row>
           <Row label="Legally authorized to work in the US?" help="Or the country of the job.">{yesNo('work_authorized')}</Row>
           <Row label="Need visa sponsorship, now or later?" help="Includes OPT / STEM OPT / CPT that will need H-1B.">{yesNo('needs_sponsorship')}</Row>
         </Section>
@@ -147,6 +154,7 @@ export function ApplicationAnswersPane() {
           <Row label="Earliest full-time start">{text('earliest_start', 'e.g. June 2027')}</Row>
           <Row label="Willing to relocate?">{yesNo('relocate')}</Row>
           <Row label="Willing to travel?">{yesNo('travel')}</Row>
+          <Row label="Open to working onsite?" help="In the office every day, e.g. “5 days a week” questions.">{yesNo('onsite')}</Row>
           <Row label="Preferred locations" help="First, second and third choice.">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{location(0)}{location(1)}{location(2)}</div>
           </Row>

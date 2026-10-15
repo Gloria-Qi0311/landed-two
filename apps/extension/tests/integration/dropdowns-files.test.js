@@ -10,9 +10,11 @@ const fs = require('fs')
 const path = require('path')
 
 const answers = {
-  country: 'United States', city: 'Seattle', work_authorized: 'yes', needs_sponsorship: null, preferred_locations: [], custom: [],
+  country: 'United States', city: 'Seattle', state: 'Washington', work_authorized: 'yes', needs_sponsorship: null, adult: 'yes',
+  onsite: null, linkedin: 'https://www.linkedin.com/in/alex-chen', preferred_locations: [], custom: [{ question: 'Open to working in the office every day?', answer: 'Yes' }],
   agree_to_terms: false,
 }
+const nativeRequests = []
 const pdf = Buffer.from('%PDF-1.4 fake resume').toString('base64')
 let stored = {}
 const onMessageListeners = []
@@ -20,7 +22,16 @@ global.chrome = {
   runtime: {
     lastError: undefined,
     onMessage: { addListener: (fn) => onMessageListeners.push(fn) },
-    sendMessage: (message, callback) => callback?.({ ok: true, values: {}, choices: {} }),
+    sendMessage: (message, callback) => {
+      const request = message?.request
+      if (request) nativeRequests.push(request)
+      if (request?.type === 'choose_options') {
+        // The local model answers the onsite question from the saved facts.
+        const q = request.questions.find((x) => /onsite/.test(x.question))
+        return callback?.({ ok: true, choices: q ? { [q.id]: { option_index: q.options.indexOf('Yes'), confidence: 0.95 } } : {} })
+      }
+      callback?.({ ok: true, values: {} })
+    },
   },
   storage: { local: { get: (key, cb) => cb(typeof key === 'string' ? { [key]: stored[key] } : {}) } },
 }
@@ -48,7 +59,7 @@ require('../../lib/choice-answers.js')
 require('../../content.js')
 
 const resume = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'fixtures', 'sample-resume.json'), 'utf8'))
-const fill = () => new Promise((resolve) => onMessageListeners[0]({ action: 'fill', resume, aiTakeover: false }, null, resolve))
+const fill = () => new Promise((resolve) => onMessageListeners[0]({ action: 'fill', resume, aiTakeover: true }, null, resolve))
 const $ = (sel) => document.querySelector(sel)
 
 /** A react-select look-alike: a search box in a control, options rendered
@@ -121,11 +132,17 @@ beforeEach(() => {
       ${select('city', 'Location (City)')}
       ${select('auth', 'Are you legally authorized to work in the United States?')}
       ${select('discipline', 'Discipline')}
-      <label for="resume">Resume/CV</label><input type="file" id="resume" accept=".pdf,.doc,.docx,.txt,.rtf">
-      <label for="cover">Cover Letter</label><input type="file" id="cover" accept=".pdf,.doc,.docx">
+      ${select('adult', 'Are you 18 years of age or older?')}
+      ${select('onsite5', 'Are you open to a onsite working model in which you would come into the office 5 days a week?')}
+      <label for="li">LinkedIn Profile</label><input id="li">
+      <!-- As on Greenhouse: the heading isn't tied to the hidden input behind "Attach". -->
+      <div class="file-upload"><div class="label">Resume/CV</div><button type="button">Attach</button>
+        <input type="file" id="resume" class="visually-hidden" accept=".pdf,.doc,.docx,.txt,.rtf"></div>
+      <div class="file-upload"><div class="label">Cover Letter</div><button type="button">Attach</button>
+        <input type="file" id="cover_letter" class="visually-hidden" accept=".pdf,.doc,.docx"></div>
       <button id="submit" type="submit">Submit application</button>
     </form>`
-  for (const id of ['resume', 'cover']) {
+  for (const id of ['resume', 'cover_letter']) {
     const el = document.getElementById(id)
     let files = []
     Object.defineProperty(el, 'files', { configurable: true, get: () => files, set: (v) => { files = v } })
@@ -136,11 +153,15 @@ test('dropdowns get a real option; nothing typed is left behind; files are attac
   const school = wire('school', ['Harvard University', 'Stanford University', 'University of Washington'], { asyncSearch: true })
   const degree = wire('degree', ["Bachelor's Degree", "Master's Degree", 'Doctor of Philosophy (Ph.D.)'])
   const country = wire('country', ['Canada', 'United States', 'Mexico'])
-  const city = wire('city', ['Seattle, Washington, United States', 'Seaside, Oregon, United States'], { asyncSearch: true })
+  // "Seattle Hill" comes first in the results, as in the screenshot.
+  const city = wire('city', ['Seattle Hill, Washington, United States', 'Seattle, Washington, United States', 'Seaside, Oregon, United States'], { asyncSearch: true })
+  const adult = wire('adult', ['Yes', 'No'])
+  const onsite = wire('onsite5', ['Yes', 'No'])
   const auth = wire('auth', ['Yes', 'No'])
   const discipline = wire('discipline', ['Accounting', 'Engineering'])
   let submitted = false
   $('#submit').addEventListener('click', () => { submitted = true })
+  nativeRequests.length = 0
   let changed = 0
   $('#resume').addEventListener('change', () => { changed++ })
 
@@ -157,17 +178,31 @@ test('dropdowns get a real option; nothing typed is left behind; files are attac
     expect(document.getElementById(id).value).toBe('')
   }
 
+  expect(adult.value).toBe('Yes')
+  expect(onsite.value).toBe('Yes') // no rule answer: the local model picked it
+  expect($('#li').value).toBe('https://www.linkedin.com/in/alex-chen')
+  expect(document.querySelectorAll('[id*="-option-"]').length).toBe(0) // every menu closed
+
   expect($('#resume').files.map((f) => f.name)).toEqual(['Alex Chen Resume.pdf'])
   expect(changed).toBe(1)
   expect($('#resume').getAttribute('data-landed-status')).toBe('filled')
-  expect($('#cover').files).toEqual([])
-  expect($('#cover').getAttribute('data-landed-status')).toBe('review')
-  expect(result.filled).toEqual(expect.arrayContaining(['file:resume', 'answer:country', 'answer:city', 'answer:work_authorized']))
+  expect($('#cover_letter').files).toEqual([])
+  expect($('#cover_letter').getAttribute('data-landed-status')).toBe('review')
+  expect(result.missing_files).toEqual(['cover_letter'])
+  expect(result.filled).toEqual(expect.arrayContaining(['file:resume', 'answer:country', 'answer:city', 'answer:work_authorized', 'answer:adult', 'answer:linkedin']))
   expect(submitted).toBe(false)
 }, 20_000)
 
+test('no saved resume file: reported, so the popup can say where to add it', async () => {
+  for (const id of ['school', 'degree', 'country', 'city', 'auth', 'discipline', 'adult', 'onsite5']) wire(id, ['Yes', 'No'])
+  stored['landed:application-files'] = {}
+  const result = await fill()
+  expect($('#resume').files).toEqual([])
+  expect(result.missing_files.sort()).toEqual(['cover_letter', 'resume'])
+}, 20_000)
+
 test('a file the field doesn\'t accept is left for the user', async () => {
-  wire('school', [])
+  for (const id of ['school', 'degree', 'country', 'city', 'auth', 'discipline', 'adult', 'onsite5']) wire(id, [])
   $('#resume').setAttribute('accept', '.docx')
   await fill()
   expect($('#resume').files).toEqual([])

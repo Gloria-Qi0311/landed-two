@@ -20,6 +20,11 @@ export type ApplicationAnswers = {
   /** as forms ask for it: "October 30" or "1999-10-30" */
   date_of_birth: string | null
 
+  // links forms ask for even when the resume has them only as text
+  linkedin: string | null
+  github: string | null
+  website: string | null
+
   // permanent address
   address_line1: string | null
   address_line2: string | null
@@ -29,6 +34,8 @@ export type ApplicationAnswers = {
   country: string | null
 
   // eligibility
+  /** 18 or older */
+  adult: YesNo | null
   work_authorized: YesNo | null
   needs_sponsorship: YesNo | null
 
@@ -37,6 +44,8 @@ export type ApplicationAnswers = {
   earliest_start: string | null
   relocate: YesNo | null
   travel: YesNo | null
+  /** fine with working onsite / in the office full time */
+  onsite: YesNo | null
   /** up to three, in order: "San Francisco, CA" */
   preferred_locations: string[]
   open_to_other_locations: YesNo | null
@@ -66,7 +75,7 @@ export type ApplicationAnswers = {
 
 export const EMPTY_ANSWERS: ApplicationAnswers = {
   legal_first_name: null, legal_middle_name: null, legal_last_name: null, preferred_first_name: null, preferred_last_name: null,
-  date_of_birth: null, address_line1: null, address_line2: null, city: null, state: null, postal_code: null, country: null,
+  date_of_birth: null, linkedin: null, github: null, website: null, adult: null, onsite: null, address_line1: null, address_line2: null, city: null, state: null, postal_code: null, country: null,
   work_authorized: null, needs_sponsorship: null, earliest_start: null, relocate: null, travel: null, preferred_locations: [],
   open_to_other_locations: null, previously_employed: null, non_compete: null, heard_from: null, talent_network: null,
   gender: null, hispanic_latino: null, race: null, veteran: null, disability: null, agree_to_terms: false, custom: [],
@@ -78,10 +87,10 @@ export const MAX_PREFERRED_LOCATIONS = 3
 const TEXT_FIELDS = {
   legal_first_name: 80, legal_middle_name: 80, legal_last_name: 80, preferred_first_name: 80, preferred_last_name: 80,
   date_of_birth: 40, address_line1: 200, address_line2: 200, city: 100, state: 100, postal_code: 20, country: 80,
-  earliest_start: 80, heard_from: 100, gender: 80, race: 120,
+  earliest_start: 80, heard_from: 100, gender: 80, race: 120, linkedin: 300, github: 300, website: 300,
 } as const
 const YES_NO_FIELDS = [
-  'work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'open_to_other_locations', 'previously_employed',
+  'adult', 'onsite', 'work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'open_to_other_locations', 'previously_employed',
   'non_compete', 'talent_network', 'hispanic_latino', 'veteran', 'disability',
 ] as const
 

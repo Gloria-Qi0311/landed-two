@@ -228,6 +228,17 @@ function clickOption(target) {
 function closeCombobox(el) {
   if (el) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
   document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  // react-select keeps its menu open while its search box has focus.
+  if (el && typeof el.blur === 'function') el.blur();
+}
+
+/** A dropdown's options without choosing one (for the local model). */
+async function peekComboboxOptions(el) {
+  const options = await openComboboxOptions(el);
+  const texts = options.map((opt) => (opt.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  closeCombobox(el);
+  await sleep(80);
+  return texts;
 }
 
 /** Choose an option in a custom dropdown: open it and pick from the full
@@ -255,17 +266,28 @@ async function chooseInCombobox(el, choose, query) {
   return false;
 }
 
-/** Search-box dropdowns for places ("Location (City)") list "Seattle,
- *  Washington, United States" for "Seattle, WA": take the first result that
- *  names the city. */
-function chooseCity(value) {
-  const city = CA.norm(String(value).split(',')[0]);
-  return (texts) => (city ? texts.findIndex((t) => CA.norm(t).startsWith(city)) : -1);
+/** Place autocompletes ("Location (City)") list "Seattle, Washington,
+ *  United States" for "Seattle, WA": the result whose place name IS the city
+ *  ("Seattle Hill" is another place), in the user's state when there are
+ *  several (WA = Washington). */
+function chooseCity(value, state) {
+  const parts = String(value).split(',').map((p) => CA.norm(p)).filter(Boolean);
+  const city = parts[0];
+  const region = state ? CA.norm(state) : parts[1] || '';
+  return (texts) => {
+    if (!city) return -1;
+    const exact = texts
+      .map((t, i) => ({ i, parts: String(t).split(',').map((p) => CA.norm(p)) }))
+      .filter((o) => o.parts[0] === city);
+    if (exact.length === 0) return -1;
+    const inRegion = region ? exact.find((o) => o.parts.slice(1).some((p) => CA.sameText(region, p) >= 0.95 || CA.sameText(p, region) >= 0.95)) : null;
+    return (inRegion || exact[0]).i;
+  };
 }
 
 async function tryFillCombobox(el, value, opts) {
   if (!value) return false;
-  const choose = opts && opts.city ? chooseCity(value) : (texts) => {
+  const choose = opts && opts.city ? chooseCity(value, opts.state) : (texts) => {
     const result = VM.pickBestOption(value, texts.map((text, i) => ({ text, value: text, raw: i })));
     return result ? result.candidate.raw : -1;
   };
@@ -322,17 +344,22 @@ function attachFile(input, file) {
   }
 }
 
-/** What an upload field is for: its label, else the text around it
- *  ("Resume/CV  Attach  Dropbox…"), else its name or id. */
-function fileInputLabel(el) {
-  const own = getFieldLabel(el);
-  if (own) return own;
+/** What an upload field is for. Upload fields are usually hidden behind an
+ *  "Attach" button, with the "Resume/CV" heading not tied to them, so look
+ *  at what names them, then their id or name ("resume", "cover_letter"),
+ *  then the text around them, closest first. */
+function fileInputKind(el) {
+  const clean = (t) => String(t || '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent || '').join(' ');
+  const candidates = [labelledBy, getFieldLabel(el), el.getAttribute('aria-label'), el.id, el.name].map(clean);
   let node = el.parentElement;
-  for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
-    const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
-    if (text.length >= 2) return text.slice(0, 120);
+  for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) candidates.push(clean(node.textContent).slice(0, 200));
+  for (const text of candidates) {
+    const kind = text && CA ? CA.fileKind(text) : null;
+    if (kind) return { kind, label: text.slice(0, 120) };
   }
-  return el.name || el.id || '';
+  return { kind: null, label: candidates.find(Boolean)?.slice(0, 120) || '' };
 }
 
 // ─── application answers (Landed → Extension page) ─────────────────────────
@@ -971,16 +998,17 @@ async function handleFill(resumeData, customFields, opts) {
   const fileInputs = /** @type {HTMLInputElement[]} */ (Array.from(document.querySelectorAll('input[type="file"]')));
   const files = fileInputs.length ? await loadApplicationFiles() : {};
   const answered = /** @type {Set<Element>} */ (new Set(fileInputs));
+  const missingFiles = new Set();
   for (const el of fileInputs) {
-    const label = fileInputLabel(el);
-    const kind = CA ? CA.fileKind(label) : null;
+    const { kind, label } = fileInputKind(el);
     const file = kind && files[kind];
     if (file && acceptsFile(el, file) && attachFile(el, file)) {
       markField(el, 'filled');
       filled.push('file:' + kind);
-    } else if (el.offsetParent || label) {
-      addManual(manual, el, label || '文件上传', '文件上传', null);
+      continue;
     }
+    if (kind && !file) missingFiles.add(kind);
+    if (el.offsetParent || label) addManual(manual, el, label || '文件上传', '文件上传', null);
   }
 
   // Phase 0: text fields the answers cover (legal names, address, date of
@@ -1052,11 +1080,12 @@ async function handleFill(resumeData, customFields, opts) {
     ))
   ).filter(el => el.offsetParent && el.tagName.toLowerCase() !== 'select');
 
+  let peeked = 0;
   for (const el of comboboxes) {
     const label = getFieldLabel(el) || '下拉选择';
     const kind = answers ? CA.classify(label) : null;
     const answer = kind && CA.answerFor(kind, answers);
-    const choose = answer && (kind === 'city' && answer.type === 'text' ? chooseCity(answer.value) : (texts) => CA.pickOption(answer, texts));
+    const choose = answer && (kind === 'city' && answer.type === 'text' ? chooseCity(answer.value, answers.state) : (texts) => CA.pickOption(answer, texts));
     if (answer && await chooseInCombobox(el, choose, answer.type === 'text' ? answer.value : '')) {
       filled.push('answer:' + kind);
       continue;
@@ -1069,11 +1098,23 @@ async function handleFill(resumeData, customFields, opts) {
     const key = match && match.key;
     if (key && flat[key]) {
       const value = CL.maybeTranslate(key, flat[key], label);
-      const ok = await tryFillCombobox(el, value, { city: key === 'location' || /city|城市/i.test(label) });
-      if (ok) filled.push(key);
-      else addManual(manual, el, label, '自定义下拉框', value);
+      const ok = await tryFillCombobox(el, value, { city: key === 'location' || /city|城市/i.test(label), state: answers && answers.state });
+      if (ok) {
+        filled.push(key);
+        continue;
+      }
+      addManual(manual, el, label, '自定义下拉框', value);
     } else {
       addManual(manual, el, label, '自定义下拉框', null);
+    }
+    // No rule answer: the local model may pick from its options (searched
+    // lists show none until typed in, so they stay with the user).
+    if (answers && kind !== 'consent' && peeked < 12) {
+      peeked++;
+      const texts = await peekComboboxOptions(el);
+      if (texts.length >= 2 && texts.length <= 40) {
+        aiChoices.push({ id: fieldId(el), question: label, options: texts, apply: (i) => chooseInCombobox(el, (now) => now.indexOf(texts[i]), '') });
+      }
     }
   }
 
@@ -1218,7 +1259,7 @@ async function handleFill(resumeData, customFields, opts) {
     }
   }
 
-  return { filled, manual };
+  return { filled, manual, missing_files: Array.from(missingFiles) };
 }
 
 async function runChoiceFallback(choices, answers, flat) {
@@ -1247,7 +1288,7 @@ async function runChoiceFallback(choices, answers, flat) {
     const pick = response.choices[c.id];
     const index = pick && Number.isInteger(pick.option_index) ? pick.option_index : -1;
     if (index < 0 || index >= c.options.length) continue;
-    c.apply(index);
+    if ((await c.apply(index)) === false) continue;
     (c.group || [document.querySelector(`[data-landed-field-id="${c.id}"]`)]).forEach((el) => el && markField(el, 'filled'));
     done.push(c.id);
   }
