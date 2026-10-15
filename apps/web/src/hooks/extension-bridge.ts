@@ -7,13 +7,15 @@
 //   - turns the submissions the extension saw ("thanks for applying"
 //     pages) into applications — lib/inbox.ts → ingestPortalConfirmations
 //   - hands the user's resumes to the extension so the side panel can
-//     autofill without a Cloud account
+//     autofill without a Cloud account, and the application answers
+//     (Extension page) so fills can answer choice questions
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { bridgeRequest, onExtensionReady } from '../lib/extension-bridge'
 import { useStore, type PortalEventInput } from '../lib/store'
 import { ingestPortalConfirmations } from '../lib/inbox'
 import { useResumes } from './resumes'
+import { useApplicationAnswers } from './answers'
 
 const PULL_INTERVAL_MS = 60_000
 
@@ -21,6 +23,7 @@ export function useExtensionBridge() {
   const qc = useQueryClient()
   const { store, ready } = useStore()
   const { data: resumes } = useResumes()
+  const { data: answers } = useApplicationAnswers()
 
   useEffect(() => {
     if (!ready) return
@@ -87,6 +90,13 @@ export function useExtensionBridge() {
       off()
     }
   }, [store, ready, qc])
+
+  useEffect(() => {
+    if (answers === undefined) return
+    const send = () => void bridgeRequest('sync-answers', { answers: answers?.answers ?? null })
+    send()
+    return onExtensionReady(send)
+  }, [answers])
 
   useEffect(() => {
     if (!resumes) return

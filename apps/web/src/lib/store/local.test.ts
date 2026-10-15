@@ -217,6 +217,22 @@ describe('job searches', () => {
   })
 })
 
+describe('application answers', () => {
+  test('one row per account, validated, kept across saves and snapshots', async () => {
+    const store = fresh()
+    expect(await store.getApplicationAnswers()).toBeNull()
+    const first = await store.saveApplicationAnswers({ country: ' China ', needs_sponsorship: 'yes', relocate: 'maybe' } as never)
+    expect(first.answers).toMatchObject({ country: 'China', needs_sponsorship: 'yes', relocate: null, custom: [] })
+    const second = await store.saveApplicationAnswers({ ...first.answers, travel: 'no' })
+    expect(second.id).toBe(first.id)
+    expect((await store.getApplicationAnswers())?.answers.travel).toBe('no')
+
+    const copy = fresh()
+    await copy.replaceWith(await store.exportSnapshot())
+    expect((await copy.getApplicationAnswers())?.answers).toMatchObject({ country: 'China', travel: 'no' })
+  })
+})
+
 describe('pipeline: one interview stage with rounds', () => {
   test('legacy phone/onsite become interview (+ the round they stood for); rounds are validated', async () => {
     const store = fresh()

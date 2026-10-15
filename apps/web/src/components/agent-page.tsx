@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { useSearchParams } from 'react-router-dom'
 import { extractBrief } from '@landed/schema/search-brief'
 import { extractApplications } from '@landed/schema/reported-application'
+import { extractAnswers } from '@landed/schema/application-answers'
 import { Icon } from './primitives'
 import { Markdown } from './markdown'
 import { PageHeader } from './shell'
@@ -20,6 +21,7 @@ import { PanelQuestions } from './panel-questions'
 import { PairingError, PairingSteps, RuntimePanel, usePairing } from './runtime-panel'
 import { AgentSettings } from './agent-settings'
 import { ReportedApplicationsCard } from './reported-applications'
+import { ReportedAnswersCard } from './reported-answers'
 import { DuplicatesReview } from './duplicates'
 import { imagesFrom, MAX_CHAT_IMAGES, prepareImage, type Attachment } from '../lib/chat-images'
 import { useAuth } from '../lib/auth'
@@ -435,18 +437,21 @@ function AgentReply({ text, latest, pending }: { text: string; latest: boolean; 
   if (!text) return <span style={{ color: 'var(--fg-muted)' }}>{pending ? 'Thinking…' : '(no reply)'}</span>
   const reply = extractBrief(text)
   const apps = extractApplications(reply.text)
+  const read = extractAnswers(apps.text)
   // "Find my duplicates": the agent can't see the applications, so it asks
   // Landed to show them (an empty ```landed-dedupe block).
-  const dedupe = /```landed-dedupe[^\n]*\n?[\s\S]*?```/.test(apps.text)
-  const visible = dedupe ? apps.text.replace(/```landed-dedupe[^\n]*\n?[\s\S]*?```/g, '').trim() : apps.text
+  const dedupe = /```landed-dedupe[^\n]*\n?[\s\S]*?```/.test(read.text)
+  const visible = dedupe ? read.text.replace(/```landed-dedupe[^\n]*\n?[\s\S]*?```/g, '').trim() : read.text
   return (
     <>
       {visible && <Markdown text={visible} />}
       {dedupe && !pending && <DuplicatesReview emptyText="No duplicates — every application here looks distinct." />}
       {reply.drafting && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Writing up your search brief…</div>}
       {apps.drafting && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Reading your applications…</div>}
+      {read.drafting && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Reading your answers…</div>}
       {reply.brief && <BriefCard brief={reply.brief} latest={latest} />}
       {apps.applications.length > 0 && <ReportedApplicationsCard applications={apps.applications} />}
+      {read.answers && !pending && <ReportedAnswersCard answers={read.answers} />}
     </>
   )
 }

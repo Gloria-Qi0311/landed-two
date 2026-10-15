@@ -691,7 +691,7 @@ describe('sync: local device <-> Landed Cloud', () => {
     assert.deepEqual(up.body, {
       companies: 2, companies_merged: 0, applications: 2, portal_connections: 1,
       portal_events: 2, resumes: 1, ai_runs: 1, agent_observations: 0, job_leads: 0, status_suggestions: 0,
-      job_searches: 0, agent_conversations: 0,
+      job_searches: 0, agent_conversations: 0, application_answers: 0,
     })
 
     const exp = await call('GET', '/api/export', { token: erin })
@@ -812,7 +812,7 @@ describe('local-first: Cloud sync is opt-in per account', () => {
     const off = await call('POST', '/api/cloud/disable', { token: mo, body: { password: 'mo-password-1' } })
     assert.equal(off.status, 200)
     const [{ id }] = await sql`select id from users where email = 'mo@example.com'`
-    for (const table of ['companies', 'applications', 'resumes', 'portal_events', 'portal_connections', 'ai_runs', 'ai_provider_keys']) {
+    for (const table of ['companies', 'applications', 'resumes', 'portal_events', 'portal_connections', 'ai_runs', 'ai_provider_keys', 'job_searches', 'agent_conversations', 'application_answers']) {
       const [{ n }] = await sql`select count(*)::int as n from ${sql(table)} where user_id = ${id}`
       assert.equal(n, 0, table)
     }
@@ -1380,6 +1380,41 @@ describe('agent chat history (Cloud)', () => {
     const fresh = await signup('chat-fresh@example.com')
     const device = { ...snap, agent_conversations: snap.agent_conversations.map((c: any) => ({ ...c, id: crypto.randomUUID() })) }
     assert.equal((await call('POST', '/api/sync/upload', { token: fresh, body: device })).body.agent_conversations, 1)
+  })
+
+  test('application answers: one per account, validated, in snapshots', async () => {
+    const owner = await signup('answers@example.com')
+    const other = await signup('answers-other@example.com')
+    assert.equal((await call('GET', '/api/application-answers', { token: owner })).body, null)
+    const id = crypto.randomUUID()
+    const saved = await call('PUT', '/api/application-answers', { token: owner, body: { id, answers: {
+      country: '  China ', needs_sponsorship: 'yes', relocate: 'maybe', gender: null,
+      custom: [{ question: 'Worked here before?', answer: 'No' }, { question: 'worked here before?', answer: 'dup' }, { question: '', answer: 'x' }],
+    } } })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    assert.equal(saved.body.answers.country, 'China')
+    assert.equal(saved.body.answers.needs_sponsorship, 'yes')
+    assert.equal(saved.body.answers.relocate, null, 'only yes/no')
+    assert.deepEqual(saved.body.answers.custom, [{ question: 'Worked here before?', answer: 'No' }])
+    // A second save keeps the first row (one per account).
+    const again = await call('PUT', '/api/application-answers', { token: owner, body: { id: crypto.randomUUID(), answers: { country: 'United States' } } })
+    assert.equal(again.body.id, id)
+    assert.equal(again.body.answers.country, 'United States')
+    assert.equal((await call('GET', '/api/application-answers', { token: other })).body, null, "never another account's")
+    assert.equal((await call('PUT', '/api/application-answers', { token: owner, body: { id: 'nope', answers: {} } })).status, 400)
+
+    const snap = (await call('GET', '/api/export', { token: owner })).body
+    assert.equal(snap.application_answers.length, 1)
+    const fresh = await signup('answers-fresh@example.com')
+    const device = { ...snap, application_answers: snap.application_answers.map((r: any) => ({ ...r, id: crypto.randomUUID() })) }
+    assert.equal((await call('POST', '/api/sync/upload', { token: fresh, body: device })).body.application_answers, 1)
+    assert.equal((await call('GET', '/api/application-answers', { token: fresh })).body.answers.country, 'United States')
+    // The account's own answers win over an uploaded copy.
+    const mine = { ...snap, application_answers: [{ ...snap.application_answers[0], id: crypto.randomUUID(), answers: { country: 'Canada' } }] }
+    assert.equal((await call('POST', '/api/sync/upload', { token: owner, body: mine })).body.application_answers, 0)
+    assert.equal((await call('GET', '/api/application-answers', { token: owner })).body.answers.country, 'United States')
+    const local = await signup('answers-local@example.com', undefined, { cloud: false })
+    assert.equal((await call('GET', '/api/application-answers', { token: local })).status, 409, 'sync-off accounts keep them in the browser')
   })
 
   test('chat tasks carry only recent, valid history', async () => {

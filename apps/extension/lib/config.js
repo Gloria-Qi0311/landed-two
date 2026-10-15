@@ -25,8 +25,10 @@
   // chrome.storage.local key holding { resumes, synced_at } handed over by
   // the web app in local mode (no Cloud account needed for autofill).
   const LOCAL_RESUMES_KEY = 'landed:local-resumes';
+  // Application answers from the Landed page (lib/choice-answers.js reads them).
+  const LOCAL_ANSWERS_KEY = 'landed:application-answers';
 
-  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY };
+  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.LandedConfig;
   }

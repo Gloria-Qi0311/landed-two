@@ -10,6 +10,8 @@
 //                 writes them to whichever store it uses; the queue is
 //                 cleared in the same locked step so nothing is delivered twice
 //   sync-resumes  page hands over its resumes so the side panel can autofill
+//   sync-answers  page hands over the application answers (Extension page) so
+//                 fills can answer choice questions; null clears them
 //   assist-open   "Open & autofill" on a lead or application: open its posting
 //                 in a new tab and fill it with the resume version Landed
 //                 picked; the tab remembers which application/lead it's for,
@@ -50,6 +52,25 @@
       const u = new URL(v)
       return (u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password ? u.toString() : null
     } catch { return null }
+  }
+
+  /** Application answers as the page sent them, bounded: flat strings,
+   *  booleans and nulls, up to three locations and forty other questions.
+   *  The content script validates again before using any of it. */
+  function sanitizeAnswers(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+    const out = {}
+    for (const [key, value] of Object.entries(raw).slice(0, 80)) {
+      if (!/^[a-z0-9_]{1,40}$/.test(key)) continue
+      if (typeof value === 'string') out[key] = value.slice(0, 500)
+      else if (value === null || typeof value === 'boolean') out[key] = value
+    }
+    out.preferred_locations = (Array.isArray(raw.preferred_locations) ? raw.preferred_locations : [])
+      .filter((l) => typeof l === 'string').slice(0, 3).map((l) => l.slice(0, 100))
+    out.custom = (Array.isArray(raw.custom) ? raw.custom : [])
+      .filter((c) => c && typeof c.question === 'string' && typeof c.answer === 'string')
+      .slice(0, 40).map((c) => ({ question: c.question.slice(0, 300), answer: c.answer.slice(0, 500) }))
+    return out
   }
 
   function createBridgeHandler(deps) {
@@ -94,6 +115,14 @@
             [cfg.LOCAL_RESUMES_KEY]: { resumes, synced_at: new Date().toISOString() },
           })
           return { ok: true, data: { count: resumes.length } }
+        }
+
+        case 'sync-answers': {
+          const answers = msg.payload ? sanitizeAnswers(msg.payload.answers) : null
+          await chromeLocal.set({
+            [cfg.LOCAL_ANSWERS_KEY || 'landed:application-answers']: { answers, synced_at: new Date().toISOString() },
+          })
+          return { ok: true, data: { saved: !!answers } }
         }
 
         case 'assist-open': {

@@ -122,6 +122,7 @@ export function Icon({ name, size = 16, stroke = 1.5 }) {
     device: <><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></>,
     download: <><path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 19h14"/></>,
     upload: <><path d="M12 15V4M7 9l5-5 5 5"/><path d="M5 19h14"/></>,
+    puzzle: <><path d="M4 8h4.5a2.5 2.5 0 015 0H18v4.5a2.5 2.5 0 010 5V20H4z"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round">

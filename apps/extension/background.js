@@ -224,7 +224,7 @@ async function pollAllPortals() {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || msg.action !== 'native-assist') return
   const request = msg.request
-  if (!request || !['ping', 'match_fields'].includes(request.type)) {
+  if (!request || !['ping', 'match_fields', 'choose_options'].includes(request.type)) {
     sendResponse({ ok: false, error: 'invalid native request' })
     return true
   }

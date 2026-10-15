@@ -19,6 +19,7 @@ const FD = window.ResumeFillerFieldDetect;
 const { normalize, getFieldLabel, matchResumeKey } = FD;
 const VM = window.ResumeFillerValueMatch;
 const CL = window.ResumeFillerCrossLingual;
+const CA = window.LandedChoiceAnswers;
 let landedFieldCounter = 0;
 
 function fieldId(el) {
@@ -154,27 +155,20 @@ function tryFillSelect(el, value) {
   }));
   const result = VM.pickBestOption(value, candidates);
   if (!result) return false;
-  el.value = result.candidate.raw.value;
-  el.dispatchEvent(new Event('change', { bubbles: true }));
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('blur', { bubbles: true }));
-  markField(el, 'filled');
+  setSelectOption(el, result.candidate.raw);
   return true;
 }
 
 // ─── 自定义下拉框（combobox / 非原生 select）─────────────────────────────────
 
-async function tryFillCombobox(el, value) {
-  if (!value) return false;
-
-  // Trigger expand.
+async function openComboboxOptions(el) {
   el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   el.click();
   el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
 
   await new Promise((r) => setTimeout(r, 350));
 
-  const visibleOptions = /** @type {HTMLElement[]} */ (
+  return /** @type {HTMLElement[]} */ (
     Array.from(document.querySelectorAll(
       '[role="option"], [role="listitem"], [role="menuitem"], li, .option, .item, .dropdown-item, .select-option'
     ))
@@ -183,27 +177,124 @@ async function tryFillCombobox(el, value) {
     const rect = opt.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   });
+}
 
-  const candidates = visibleOptions.map((opt) => ({
-    text: opt.textContent || '',
-    value: opt.textContent || '',
-    raw: opt,
-  }));
+function clickOption(target) {
+  target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  target.click();
+  target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+}
 
-  const result = VM.pickBestOption(value, candidates);
-  if (result) {
-    const target = result.candidate.raw;
-    target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    target.click();
-    target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+function closeCombobox() {
+  document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  document.body.click();
+}
+
+/** Open a custom dropdown and click the option `choose(texts)` points at. */
+async function chooseInCombobox(el, choose) {
+  const options = await openComboboxOptions(el);
+  const index = options.length ? choose(options.map((opt) => (opt.textContent || '').trim())) : -1;
+  if (index >= 0 && options[index]) {
+    clickOption(options[index]);
     markField(el, 'filled');
     return true;
   }
-
-  // No match → close dropdown.
-  document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  document.body.click();
+  closeCombobox();
   return false;
+}
+
+async function tryFillCombobox(el, value) {
+  if (!value) return false;
+  return chooseInCombobox(el, (texts) => {
+    const result = VM.pickBestOption(value, texts.map((text, i) => ({ text, value: text, raw: i })));
+    return result ? result.candidate.raw : -1;
+  });
+}
+
+function setSelectOption(el, option) {
+  el.value = option.value;
+  option.selected = true;
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('blur', { bubbles: true }));
+  markField(el, 'filled');
+}
+
+// ─── application answers (Landed → Extension page) ─────────────────────────
+
+function loadApplicationAnswers() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get(CA.ANSWERS_KEY, (res) => {
+        void chrome.runtime.lastError;
+        const stored = res && res[CA.ANSWERS_KEY];
+        resolve(stored && stored.answers && typeof stored.answers === 'object' ? stored.answers : null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/** What a radio / checkbox option says: its own label (wrapping or
+ *  for=), not the group's question, which getFieldLabel may return. */
+function optionText(el) {
+  const own = el.labels && el.labels.length ? Array.from(el.labels).map((l) => l.textContent || '').join(' ') : '';
+  return String(own.trim() || el.getAttribute('aria-label') || getFieldLabel(el) || el.value || '').replace(/\s+/g, ' ').trim();
+}
+
+/** The question a group of radios / checkboxes answers: its legend, its
+ *  group's label, or the text around the group minus the options. */
+function choiceGroupQuestion(inputs) {
+  const first = inputs[0];
+  const fieldset = first.closest('fieldset');
+  if (fieldset && inputs.every((i) => fieldset.contains(i))) {
+    const legend = fieldset.querySelector('legend');
+    if (legend && legend.textContent.trim()) return legend.textContent.replace(/\s+/g, ' ').trim();
+  }
+  const group = first.closest('[role="radiogroup"], [role="group"]');
+  if (group && inputs.every((i) => group.contains(i))) {
+    const by = group.getAttribute('aria-labelledby');
+    const labelled = by ? by.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ').trim() : '';
+    if (labelled) return labelled.replace(/\s+/g, ' ');
+    const aria = group.getAttribute('aria-label');
+    if (aria && aria.trim()) return aria.trim();
+  }
+  const optionTexts = inputs.map(optionText).filter(Boolean);
+  let node = first.parentElement;
+  for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+    if (!inputs.every((i) => node.contains(i))) continue;
+    let text = node.textContent || '';
+    for (const t of optionTexts) text = text.replace(t, ' ');
+    text = text.replace(/\s+/g, ' ').trim();
+    if (text.length >= 3) return text.slice(0, 300);
+  }
+  return '';
+}
+
+/** Radios by name (or by their group), checkboxes one by one unless they
+ *  share a group element. */
+function groupChoices(inputs) {
+  const groups = new Map();
+  for (const el of inputs) {
+    const container = el.closest('fieldset, [role="radiogroup"], [role="group"]');
+    const key = el.type === 'radio' && el.name
+      ? `radio:${el.form ? Array.from(document.forms).indexOf(el.form) : -1}:${el.name}`
+      : container ? container : el;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(el);
+  }
+  return Array.from(groups.values());
+}
+
+function clickChoice(el) {
+  if (el.checked) return;
+  el.click();
+  if (!el.checked) {
+    el.checked = true;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 }
 
 // ─── 年 / 月 select 检测 ─────────────────────────────────────────────────────
@@ -746,9 +837,33 @@ async function handleFill(resumeData, customFields, opts) {
 
   const filled = [];
   const manual = [];
+  // Saved application answers (null when the user has none): names, address,
+  // yes/no questions, EEO — see lib/choice-answers.js. Choice questions they
+  // don't answer may go to the local model below.
+  const answers = await loadApplicationAnswers();
+  const aiChoices = [];
+
+  // Phase 0: text fields the answers cover (legal names, address, date of
+  // birth, signature, today's date…) — before the resume rules, which would
+  // put a preferred name into "Legal first name".
+  const answered = new Set();
+  if (answers) {
+    for (const el of getVisibleInputs()) {
+      if (el instanceof HTMLInputElement && el.type === 'file') continue;
+      const kind = CA.classify(getFieldLabel(el) || '');
+      const isDate = el instanceof HTMLInputElement && el.type === 'date';
+      const answer = kind && CA.answerFor(kind, answers, { dateInput: isDate });
+      if (!answer) continue;
+      const value = answer.type === 'text' ? answer.value : answer.type === 'yesno' ? (answer.value === 'yes' ? 'Yes' : 'No') : null;
+      if (!value || (isDate && !/^\d{4}-\d{2}-\d{2}$/.test(value))) continue;
+      fillField(el, value);
+      filled.push('answer:' + kind);
+      answered.add(el);
+    }
+  }
 
   // Phase 1：填所有可见 input / textarea
-  fillInputBatch(getVisibleInputs(), flat, filled, manual, null);
+  fillInputBatch(getVisibleInputs(), flat, filled, manual, answered);
 
   // Phase 2：原生 <select> 匹配填值
   for (const el of document.querySelectorAll('select')) {
@@ -757,6 +872,18 @@ async function handleFill(resumeData, customFields, opts) {
 
     // 年/月 select 交给日期模块处理
     if (isYearSelect(el) || isMonthSelect(el)) continue;
+
+    const options = Array.from(el.options);
+    const kind = answers ? CA.classify(label) : null;
+    const answer = kind && CA.answerFor(kind, answers);
+    if (answer) {
+      const index = CA.pickOption(answer, options.map((o) => o.text));
+      if (index >= 0) {
+        setSelectOption(el, options[index]);
+        filled.push('answer:' + kind);
+        continue;
+      }
+    }
 
     if (isSensitiveLabel(label)) {
       addManual(manual, el, label, '敏感信息', null);
@@ -774,6 +901,9 @@ async function handleFill(resumeData, customFields, opts) {
     }
     const hint = key ? flat[key] || '—' : '—';
     addManual(manual, el, label, '下拉框', hint);
+    if (answers && kind !== 'consent') {
+      aiChoices.push({ id: fieldId(el), question: label, options: options.map((o) => o.text), apply: (i) => setSelectOption(el, options[i]) });
+    }
   }
 
   // Phase 3：combobox / 自定义下拉
@@ -785,6 +915,12 @@ async function handleFill(resumeData, customFields, opts) {
 
   for (const el of comboboxes) {
     const label = getFieldLabel(el) || '下拉选择';
+    const kind = answers ? CA.classify(label) : null;
+    const answer = kind && CA.answerFor(kind, answers);
+    if (answer && await chooseInCombobox(el, (texts) => CA.pickOption(answer, texts))) {
+      filled.push('answer:' + kind);
+      continue;
+    }
     if (isSensitiveLabel(label)) {
       addManual(manual, el, label, '敏感信息', null);
       continue;
@@ -815,18 +951,51 @@ async function handleFill(resumeData, customFields, opts) {
     : null;
   if (resume) await fillAllSectionDates(resume, filled);
 
-  // Phase 6: radio/checkbox choices stay human-reviewed in this first
-  // release. We surface them instead of guessing demographic, consent, or
-  // work-authorization answers. Date "current/present" boxes are handled
-  // above and omitted once selected.
+  // Phase 6: radio buttons and checkboxes. Answered only from the user's
+  // saved application answers (never guessed); consent boxes only when they
+  // turned on "Tick consent boxes for me". The rest stay yellow, and radio
+  // groups without a rule answer may go to the local model below. Date
+  // "current/present" boxes are handled above and omitted once selected.
   const choiceInputs = /** @type {HTMLInputElement[]} */ (
     Array.from(document.querySelectorAll('input[type="checkbox"], input[type="radio"]'))
-  );
-  for (const el of choiceInputs) {
-    if (!el.offsetParent) continue;
-    const label = getFieldLabel(el) || el.parentElement?.textContent?.trim() || el.name || '选择题';
-    if (el.checked && /至今|present|current|ongoing/i.test(label)) continue;
-    addManual(manual, el, label, isSensitiveLabel(label) ? '敏感信息' : '选择题', null);
+  ).filter((el) => el.offsetParent);
+  for (const group of groupChoices(choiceInputs)) {
+    const first = group[0];
+    const firstText = optionText(first) || first.parentElement?.textContent?.trim() || first.name || '选择题';
+    if (group.length === 1 && first.checked && /至今|present|current|ongoing/i.test(firstText)) continue;
+    const question = choiceGroupQuestion(group) || firstText;
+    const kind = answers ? CA.classify(question) : null;
+
+    if (answers && first.type === 'radio') {
+      const answer = kind && CA.answerFor(kind, answers);
+      const index = answer ? CA.pickOption(answer, group.map(optionText)) : -1;
+      if (index >= 0) {
+        clickChoice(group[index]);
+        group.forEach((el) => markField(el, 'filled'));
+        filled.push('answer:' + kind);
+        continue;
+      }
+    }
+    if (answers && first.type === 'checkbox' && answers.agree_to_terms === true) {
+      for (const box of group) {
+        const text = optionText(box);
+        const consent = CA.classify(text) === 'consent' || kind === 'consent';
+        if (consent && CA.pickOption({ type: 'agree' }, [text]) === 0) {
+          clickChoice(box);
+          markField(box, 'filled');
+          filled.push('answer:consent');
+        }
+      }
+      if (group.every((box) => box.getAttribute('data-landed-status') === 'filled')) continue;
+    }
+
+    const open = group.filter((el) => el.getAttribute('data-landed-status') !== 'filled');
+    const sensitive = isSensitiveLabel(question) || kind === 'consent';
+    open.forEach((el) => markField(el, 'review'));
+    addManual(manual, open[0], question, sensitive ? '敏感信息' : '选择题', null);
+    if (answers && first.type === 'radio' && !sensitive) {
+      aiChoices.push({ id: fieldId(first), question, options: group.map(optionText), apply: (i) => clickChoice(group[i]), group });
+    }
   }
 
   // Phase 7：user-learned custom fields and label→resumeKey mappings.
@@ -887,7 +1056,7 @@ async function handleFill(resumeData, customFields, opts) {
   // Phase 8 (optional, #9): typed local-model fallback for unmatched
   // labels. Failures degrade silently — the user sees the manual list.
   if (opts.aiTakeover) {
-    const aiFilled = await runLLMFallback(manual, flat);
+    const aiFilled = await runLLMFallback(manual, flat, answers ? CA.answerFlat(answers) : {});
     if (aiFilled.length > 0) {
       filled.push(...aiFilled);
       // Drop AI-filled entries from the manual list so the popup UI
@@ -897,12 +1066,55 @@ async function handleFill(resumeData, customFields, opts) {
         if (filledIdSet.has(manual[i].id)) manual.splice(i, 1);
       }
     }
+    // Choice questions the saved answers don't cover by rule: the local
+    // model picks an option from the user's answers, or leaves it.
+    const chosen = await runChoiceFallback(aiChoices, answers, flat);
+    if (chosen.length > 0) {
+      filled.push(...chosen.map((id) => 'ai-choice:' + id));
+      const done = new Set(chosen);
+      for (let i = manual.length - 1; i >= 0; i--) {
+        if (done.has(manual[i].id)) manual.splice(i, 1);
+      }
+    }
   }
 
   return { filled, manual };
 }
 
-async function runLLMFallback(manual, flat) {
+async function runChoiceFallback(choices, answers, flat) {
+  const open = choices.filter((c) => c.options.length >= 2 && c.options.length <= 40 && c.question);
+  if (!answers || open.length === 0) return [];
+  const response = await new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({
+        action: 'native-assist',
+        request: {
+          type: 'choose_options',
+          questions: open.slice(0, 40).map((c) => ({ id: c.id, question: c.question, options: c.options })),
+          facts: CA.answerFacts(answers, flat),
+        },
+      }, (res) => {
+        void chrome.runtime.lastError;
+        resolve(res || null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+  if (!response || !response.ok || !response.choices) return [];
+  const done = [];
+  for (const c of open) {
+    const pick = response.choices[c.id];
+    const index = pick && Number.isInteger(pick.option_index) ? pick.option_index : -1;
+    if (index < 0 || index >= c.options.length) continue;
+    c.apply(index);
+    (c.group || [document.querySelector(`[data-landed-field-id="${c.id}"]`)]).forEach((el) => el && markField(el, 'filled'));
+    done.push(c.id);
+  }
+  return done;
+}
+
+async function runLLMFallback(manual, flat, answerKeys) {
   if (!manual || manual.length === 0) return [];
   const modelEligible = manual.filter(canAskModel);
   if (modelEligible.length === 0) return [];
@@ -917,7 +1129,9 @@ async function runLLMFallback(manual, flat) {
         request: {
           type: 'match_fields',
           fields: modelEligible.map((m) => ({ id: m.id, label: m.label, kind: m.hint })),
-          resume: flat,
+          // Saved answers join as extra keys for the local model only (it
+          // sees key names, never values); the remote fallback below doesn't.
+          resume: { ...flat, ...(answerKeys || {}) },
         },
       }, (response) => {
         void chrome.runtime.lastError;

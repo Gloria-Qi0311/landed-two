@@ -44,6 +44,7 @@ import { AuthorizeAgentPage } from './components/authorize-agent';
 const AgentPage = lazy(() => import('./components/agent-page').then((m) => ({ default: m.AgentPage })));
 const AutomationPage = lazy(() => import('./components/automation-page').then((m) => ({ default: m.AutomationPage })));
 const ResumesPage = lazy(() => import('./components/resumes-page').then((m) => ({ default: m.ResumesPage })));
+const ExtensionPage = lazy(() => import('./components/extension-page').then((m) => ({ default: m.ExtensionPage })));
 
 // Preview empty states via `?preview=empty` URL param — used by the
 // screenshot harness. Real empty states render when the data layer returns
@@ -273,6 +274,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
               }
             />
             <Route path="/resumes" element={<ResumesPage />} />
+            <Route path="/extension" element={<ExtensionPage />} />
             {/* Removed pages: old links land somewhere useful. */}
             <Route path="/resume-match" element={<Navigate to="/resumes" replace />} />
             <Route path="/sync" element={<Navigate to="/applications" replace />} />

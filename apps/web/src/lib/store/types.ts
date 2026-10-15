@@ -7,6 +7,7 @@
 // components never care which backend they're talking to.
 import type { Resume } from '@landed/schema'
 import type { Conversation } from '@landed/schema/conversation'
+import type { ApplicationAnswers } from '@landed/schema/application-answers'
 import type { MasterResume, ResumeTarget, TailorNotes } from '@landed/schema/master-resume'
 import type { InterviewRound } from '@landed/schema/pipeline'
 import type { SearchBrief } from '@landed/schema/search-brief'
@@ -175,6 +176,16 @@ export type DbJobSearch = {
 /** A conversation on the Agent page (id = its Claude Code session id). */
 export type DbConversation = Conversation & { user_id: string }
 
+/** The account's answers to the questions forms ask that a resume doesn't
+ *  (one row per account). */
+export type DbApplicationAnswers = {
+  id: string
+  user_id: string
+  answers: ApplicationAnswers
+  created_at: string
+  updated_at: string
+}
+
 /** Account-level (users row on the server, not part of either store);
  *  carried in snapshots only for backup-file compatibility. */
 export type Profile = { onboarded_at: string | null }
@@ -238,11 +249,12 @@ export type Snapshot = {
   status_suggestions?: Owned<DbSuggestion>[]
   job_searches?: Owned<DbJobSearch>[]
   agent_conversations?: Owned<DbConversation>[]
+  application_answers?: Owned<DbApplicationAnswers>[]
 }
 
 export const SNAPSHOT_TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
-  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations',
+  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers',
 ] as const
 
 export function snapshotRowCount(s: Snapshot): number {
@@ -315,6 +327,11 @@ export interface DataStore {
   /** Insert or replace the whole conversation (title + turns); bumps updated_at. */
   saveConversation(c: Pick<Conversation, 'id' | 'title' | 'turns'> & Partial<Pick<Conversation, 'created_at'>>): Promise<DbConversation>
   deleteConversation(id: string): Promise<void>
+
+  /** null until the user saves them once. */
+  getApplicationAnswers(): Promise<DbApplicationAnswers | null>
+  /** Validated (parseApplicationAnswers); the row keeps its first id. */
+  saveApplicationAnswers(answers: ApplicationAnswers): Promise<DbApplicationAnswers>
 
   exportSnapshot(): Promise<Snapshot>
 }

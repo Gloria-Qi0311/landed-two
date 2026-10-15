@@ -7,13 +7,14 @@
 // device's data always uploads cleanly when the user turns Cloud on.
 import Dexie, { type Table } from 'dexie'
 import { parseConversation } from '@landed/schema/conversation'
+import { parseApplicationAnswers } from '@landed/schema/application-answers'
 import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { normalizeStage, orderRounds, parseDeadline, parseInterviews, sortRounds, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import { companyKey, titleKey } from '@landed/observation-processor'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
-  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
+  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbApplicationAnswers, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
   type DbPortalEvent, type DbResume, type DemoImport, type PortalEventInput, type Snapshot,
 } from './types'
@@ -75,6 +76,7 @@ class LandedDB extends Dexie {
   status_suggestions!: Table<DbSuggestion, string>
   job_searches!: Table<DbJobSearch, string>
   agent_conversations!: Table<DbConversation, string>
+  application_answers!: Table<DbApplicationAnswers, string>
 
   constructor(name: string) {
     super(name)
@@ -146,6 +148,10 @@ class LandedDB extends Dexie {
       await tx.table('applications').toCollection().modify((a: DbApplication) => {
         if (Array.isArray(a.interviews)) a.interviews = sortRounds(orderRounds(a.interviews))
       })
+    })
+    // v11: answers to the questions forms ask that a resume doesn't.
+    this.version(11).stores({
+      application_answers: 'id',
     })
   }
 }
@@ -549,6 +555,23 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       await db.agent_conversations.delete(id)
     },
 
+    async getApplicationAnswers() {
+      return (await db.application_answers.toArray())[0] ?? null
+    },
+    async saveApplicationAnswers(input) {
+      const answers = parseApplicationAnswers(input)
+      askPersist()
+      return db.transaction('rw', db.application_answers, async () => {
+        const existing = (await db.application_answers.toArray())[0]
+        const at = now()
+        const row: DbApplicationAnswers = {
+          id: existing?.id ?? uuid(), user_id: LOCAL_USER, answers, created_at: existing?.created_at ?? at, updated_at: at,
+        }
+        await db.application_answers.put(row)
+        return row
+      })
+    },
+
     async receiveAgentObservations(rows) {
       return db.transaction('rw', db.agent_observations, async () => {
         const stored: string[] = []
@@ -581,6 +604,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         status_suggestions: (await db.status_suggestions.toArray()).map(strip),
         job_searches: (await db.job_searches.toArray()).map(strip),
         agent_conversations: (await db.agent_conversations.toArray()).map(strip),
+        application_answers: (await db.application_answers.toArray()).map(strip),
       }))
     },
 
@@ -610,6 +634,9 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         await db.status_suggestions.bulkAdd(own(snapshot.status_suggestions) as DbSuggestion[])
         await db.job_searches.bulkAdd(own(snapshot.job_searches) as DbJobSearch[])
         await db.agent_conversations.bulkAdd(own(snapshot.agent_conversations) as DbConversation[])
+        // One per account: the first row of a backup, validated.
+        await db.application_answers.bulkAdd((own(snapshot.application_answers) as DbApplicationAnswers[]).slice(0, 1)
+          .map((r) => ({ ...r, answers: parseApplicationAnswers(r.answers) })))
       })
     },
     async clearAll() {

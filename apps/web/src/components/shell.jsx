@@ -50,6 +50,7 @@ export const Sidebar = ({ account, onProfileClick, navCounts = {} }) => {
         <NavItem to="/agent" icon={<Icon name="sparkle" size={14} />} label="Agent" count={navCounts.agent} />
         <NavItem to="/automation" icon={<Icon name="calendar" size={14} />} label="Automation" />
         <NavItem to="/resumes" icon={<Icon name="doc" size={14} />} label="My Resume" />
+        <NavItem to="/extension" icon={<Icon name="puzzle" size={14} />} label="Extension" />
       </div>
 
       <div style={{ flex: 1 }} />
