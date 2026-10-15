@@ -136,6 +136,9 @@ const TYPE_FOR_KIND = {
   rejection: 'rejection',
 }
 
+const LANDED_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const isLandedId = (v) => typeof v === 'string' && LANDED_ID.test(v)
+
 /** Translate a snapshot-store event into a portal_events row.
  *  payload_json captures the source signal so reconciliation can match
  *  back to applications / companies later.
@@ -160,6 +163,10 @@ export function mapEventToRow(event, userId) {
     payload.to = 'applied'
   }
   if (event.applied_at) payload.applied_at = event.applied_at
+  // Set when the tab was opened from Landed with Apply Assist: which
+  // application / lead the submission belongs to, whatever the page calls it.
+  if (isLandedId(event.application_id)) payload.application_id = event.application_id
+  if (isLandedId(event.lead_id)) payload.lead_id = event.lead_id
   return {
     user_id: userId,
     type,

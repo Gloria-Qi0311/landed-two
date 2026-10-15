@@ -10,6 +10,10 @@
 //                 writes them to whichever store it uses; the queue is
 //                 cleared in the same locked step so nothing is delivered twice
 //   sync-resumes  page hands over its resumes so the side panel can autofill
+//   assist-open   "Open & autofill" on a lead or application: open its posting
+//                 in a new tab and fill it with the resume version Landed
+//                 picked; the tab remembers which application/lead it's for,
+//                 so the "thanks for applying" page lands on that one
 //   hello         presence + version check
 //
 // Requests arrive from lib/web-bridge.js (a content script injected only on
@@ -36,8 +40,20 @@
     try { return new URL(sender.url).origin } catch { return null }
   }
 
+  const LANDED_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const landedId = (v) => (typeof v === 'string' && LANDED_ID.test(v) ? v : null)
+
+  /** A link the extension may open: http(s) only, no credentials. */
+  function postingUrl(v) {
+    if (typeof v !== 'string' || v.length > 2000) return null
+    try {
+      const u = new URL(v)
+      return (u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password ? u.toString() : null
+    } catch { return null }
+  }
+
   function createBridgeHandler(deps) {
-    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version } = deps
+    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
 
     return async function handle(msg, sender) {
@@ -78,6 +94,20 @@
             [cfg.LOCAL_RESUMES_KEY]: { resumes, synced_at: new Date().toISOString() },
           })
           return { ok: true, data: { count: resumes.length } }
+        }
+
+        case 'assist-open': {
+          const p = msg.payload || {}
+          const url = postingUrl(p.url)
+          if (!url) return { ok: false, error: 'not a link the extension can open' }
+          if (typeof p.resume_id !== 'string' || !p.resume_id) return { ok: false, error: 'resume_id is required' }
+          if (!openAndFill) return { ok: false, error: 'this browser cannot autofill' }
+          return openAndFill({
+            url,
+            resume_id: p.resume_id.slice(0, 64),
+            application_id: landedId(p.application_id),
+            lead_id: landedId(p.lead_id),
+          })
         }
 
         default:

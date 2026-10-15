@@ -8,7 +8,8 @@ import { Icon, StageBadge } from './primitives'
 import { formatRelative } from '../lib/time'
 import { AGENT_PROVIDERS } from '../lib/agent-prompt'
 import { STAGE_LABELS } from '../data'
-import { canUndo, isPanelQuestion } from '../lib/inbox'
+import { canUndo, isPanelQuestion, isSeenConfirmation, PORTAL_APPLIED } from '../lib/inbox'
+import { isDupQuestion } from '../lib/duplicates'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { useSuggestionActions, useSuggestions } from '../hooks/inbox'
 import type { DbSuggestion } from '../lib/store'
@@ -139,7 +140,7 @@ function RecentRow({ s, first, label }: { s: DbSuggestion; first: boolean; label
     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'center', padding: '8px 0', borderTop: first ? 'none' : '0.5px solid var(--border-subtle)', fontSize: 12 }}>
       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {label(s.application_id) ?? `${s.company_name}${s.role ? ` · ${s.role}` : ''}`}
-        <span style={{ color: 'var(--fg-muted)' }}> — {STATUS_TEXT[s.status] ?? s.status}{recentOutcome(s)}</span>
+        <span style={{ color: 'var(--fg-muted)' }}> — {s.dedupe_key.startsWith(PORTAL_APPLIED) ? 'you submitted it (seen by the extension)' : STATUS_TEXT[s.status] ?? s.status}{recentOutcome(s)}</span>
       </span>
       <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
         {s.kind === 'note' && s.state === 'auto_applied' ? 'Noted' : STATE_TEXT[s.state] ?? s.state} · {formatRelative(s.resolved_at ?? s.created_at)}
@@ -157,8 +158,9 @@ const RECENT_DAYS = 7
 
 /** Top-of-Applications strip. Renders nothing when there's nothing to show. */
 export function AgentUpdatesBar() {
-  // Landed's own questions are asked on the Agent page instead.
-  const suggestions = (useSuggestions().data ?? []).filter((s) => !isPanelQuestion(s))
+  // Landed's own questions are asked on the Agent page instead, and its
+  // bookkeeping ("not duplicates", a submission it already had) isn't news.
+  const suggestions = (useSuggestions().data ?? []).filter((s) => !isPanelQuestion(s) && !isDupQuestion(s) && !isSeenConfirmation(s))
   const apps = (useApplications().data ?? []) as AppShape[]
   const companies = (useCompanies().data ?? []) as CompanyShape[]
   const [open, setOpen] = useState(false)

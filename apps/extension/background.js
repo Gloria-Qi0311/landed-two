@@ -439,7 +439,106 @@ chrome.storage.onChanged.addListener((changes, area) => {
 })
 connectAssistBridge()
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+// ── Open & autofill from Landed ──────────────────────────────────────────
+//
+// "Open & autofill" on a lead or application in Landed (bridge request
+// assist-open): open its posting, fill the form once it has loaded with the
+// resume version Landed picked — again on the next page if the form isn't
+// on this one (an "Apply" button that leads to it) — and remember which
+// application/lead the tab is for, so the "thanks for applying" page lands
+// on that one. Same fill as the menu bar: it never submits.
+
+const ASSIST_TABS_KEY = 'landed:assist-tabs'
+const FILL_RETRIES_MS = [1500, 3000, 6000]
+
+function tabArea() {
+  // Session storage outlives the service worker but not the browser.
+  try { return chrome.storage.session || chrome.storage.local } catch { return chrome.storage.local }
+}
+
+function loadAssistTabs() {
+  return new Promise((resolve) => {
+    try { tabArea().get(ASSIST_TABS_KEY, (v) => resolve((v && v[ASSIST_TABS_KEY]) || {})) }
+    catch { resolve({}) }
+  })
+}
+
+let assistTabsLock = Promise.resolve()
+function updateAssistTabs(fn) {
+  const run = assistTabsLock.then(async () => {
+    const tabs = await loadAssistTabs()
+    const next = fn(tabs) || tabs
+    await new Promise((resolve) => {
+      try { tabArea().set({ [ASSIST_TABS_KEY]: next }, resolve) }
+      catch { resolve() }
+    })
+    return next
+  })
+  assistTabsLock = run.catch(() => {})
+  return run
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Fill a Landed-opened tab, retrying while the page builds its form. */
+async function fillAssistTab(tabId) {
+  for (const wait of FILL_RETRIES_MS) {
+    await delay(wait)
+    const entry = (await loadAssistTabs())[tabId]
+    if (!entry || entry.filled) return
+    await loadAssistResumes()
+    const resume = assistResumes.find((item) => item.id === entry.resume_id)
+    if (!resume) return
+    const result = await fillTab(tabId, resume)
+    if (result.filled > 0 || result.review > 0) {
+      await updateAssistTabs((tabs) => { if (tabs[tabId]) tabs[tabId].filled = true })
+      return
+    }
+  }
+}
+
+async function openAndFill({ url, resume_id, application_id, lead_id }) {
+  await loadAssistResumes()
+  const resume = assistResumes.find((item) => item.id === resume_id)
+  if (!resume) return { ok: false, error: "That resume isn't in this browser yet. Reload Landed so it syncs, then try again." }
+  const tab = await new Promise((resolve) => {
+    try { chrome.tabs.create({ url, active: true }, (t) => { void chrome.runtime.lastError; resolve(t || null) }) }
+    catch { resolve(null) }
+  })
+  if (!tab || !Number.isInteger(tab.id)) return { ok: false, error: 'Could not open the posting' }
+  await updateAssistTabs((tabs) => {
+    tabs[tab.id] = { resume_id, application_id, lead_id, filled: false, opened_at: Date.now() }
+  })
+  return { ok: true, data: { tab_id: tab.id, resume: resume.name } }
+}
+
+try {
+  chrome.tabs.onUpdated.addListener((tabId, info) => {
+    if (info.status !== 'complete') return
+    loadAssistTabs().then((tabs) => {
+      if (tabs[tabId] && !tabs[tabId].filled) void fillAssistTab(tabId)
+    })
+  })
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    loadAssistTabs().then((tabs) => {
+      if (tabs[tabId]) void updateAssistTabs((next) => { delete next[tabId] })
+    })
+  })
+} catch { /* tabs API unavailable */ }
+
+/** A portal event from a tab Landed opened carries its application/lead. */
+async function withAssistTab(sender, event) {
+  const tabId = sender && sender.tab && sender.tab.id
+  if (!Number.isInteger(tabId)) return event
+  const entry = (await loadAssistTabs())[tabId]
+  if (!entry) return event
+  return Object.assign({}, event, {
+    application_id: entry.application_id || undefined,
+    lead_id: entry.lead_id || undefined,
+  })
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.action !== 'portal-event') return
   const store = self.LandedSnapshotStore
   if (!store || !msg.event || !msg.portal) {
@@ -447,7 +546,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true
   }
   const storage = store.chromeStorageAdapter(chrome.storage.local)
-  withQueueLock(() => store.ingest(storage, msg.portal, [msg.event]))
+  withAssistTab(sender, msg.event)
+    .then((event) => withQueueLock(() => store.ingest(storage, msg.portal, [event])))
     .then((result) => {
       // Real-time fast path: don't wait for the 1-min alarm. Fire-and-
       // forget — if push fails, the alarm catches the leftover queue.
@@ -475,6 +575,7 @@ const handleBridge = self.LandedBridge.createBridgeHandler({
   withLock: withQueueLock,
   onQueueChanged: () => refreshBadge(),
   version: chrome.runtime.getManifest().version,
+  openAndFill,
 })
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

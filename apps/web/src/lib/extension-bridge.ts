@@ -12,22 +12,30 @@ const TIMEOUT_MS = 2000
 
 type Reply = { source: string; id?: string; type?: string; ok?: boolean; data?: unknown; error?: string }
 
-export function bridgeRequest<T>(type: string, payload?: unknown): Promise<T | null> {
+export type BridgeResult<T> = { ok: true; data: T } | { ok: false; error: string }
+
+/** A request with the extension's error, for callers that show it. */
+export function bridgeCall<T>(type: string, payload?: unknown): Promise<BridgeResult<T>> {
   return new Promise((resolve) => {
     const id = crypto.randomUUID()
-    const done = (value: T | null) => {
+    const done = (value: BridgeResult<T>) => {
       window.removeEventListener('message', onMessage)
       clearTimeout(timer)
       resolve(value)
     }
     const onMessage = (e: MessageEvent<Reply>) => {
       if (e.source !== window || e.data?.source !== FROM_EXTENSION || e.data.id !== id) return
-      done(e.data.ok ? (e.data.data as T) : null)
+      done(e.data.ok ? { ok: true, data: e.data.data as T } : { ok: false, error: e.data.error || 'The extension said no.' })
     }
-    const timer = setTimeout(() => done(null), TIMEOUT_MS)
+    const timer = setTimeout(() => done({ ok: false, error: 'no_extension' }), TIMEOUT_MS)
     window.addEventListener('message', onMessage)
     window.postMessage({ source: TO_EXTENSION, id, type, payload }, window.location.origin)
   })
+}
+
+export async function bridgeRequest<T>(type: string, payload?: unknown): Promise<T | null> {
+  const res = await bridgeCall<T>(type, payload)
+  return res.ok ? res.data : null
 }
 
 /** Fires when the extension's content script announces itself (page load,

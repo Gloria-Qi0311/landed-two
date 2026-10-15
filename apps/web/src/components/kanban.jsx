@@ -20,6 +20,7 @@ import {
 import { currentRound, formatWhen, roundLabel } from '@landed/schema/pipeline';
 import { DeadlineChip, byDeadline } from './deadline-chip';
 import { CompanyMark, Icon, stageColors } from './primitives';
+import { LeadAssistButton } from './apply-assist';
 import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
 import { companyKey } from '@landed/observation-processor';
@@ -228,6 +229,7 @@ function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }) {
             <Icon name="external" size={11} />
           </a>
         )}
+        <LeadAssistButton lead={lead} />
         {onDismiss && (
           <button type="button" title="Not interested" aria-label="Dismiss lead" onPointerDown={stop}
             onClick={(e) => { stop(e); onDismiss(lead.id); }}

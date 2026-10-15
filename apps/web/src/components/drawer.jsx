@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { CompanyMark, Icon, stageColors } from './primitives';
 import { STAGES, columnOf } from '../data';
 import { PortalCard } from './portal-card';
+import { ApplicationAssist } from './apply-assist';
 import { InterviewRounds } from './interview-rounds';
 import { EditableText } from './editable';
 import { DeadlineChip } from './deadline-chip';
@@ -131,10 +132,14 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onDele
           </div>
         )}
 
-        {/* Candidate portal: your agent looks up the status (read-only, in your Chrome) */}
-        <div style={{ marginBottom: 18 }}>
-          <PortalCard app={app} companyName={company.name} />
-        </div>
+        {/* Not applied yet: open the posting and autofill it. Applied: the
+            candidate portal, where your agent looks up the status (read-only). */}
+        <ApplicationAssist app={app} companyName={company.name} />
+        {app.stage !== 'saved' && (
+          <div style={{ marginBottom: 18 }}>
+            <PortalCard app={app} companyName={company.name} />
+          </div>
+        )}
 
         {/* Details — click any value to edit */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>

@@ -45,6 +45,9 @@
     rejection: 'rejection',
   }
 
+  const LANDED_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const isLandedId = (v) => typeof v === 'string' && LANDED_ID.test(v)
+
   function mapEventToRow(event, userId) {
     if (!event || !userId) return null
     const type = TYPE_FOR_KIND[event.kind] || 'new-event'
@@ -61,6 +64,10 @@
       payload.to = 'applied'
     }
     if (event.applied_at) payload.applied_at = event.applied_at
+    // Set when the tab was opened from Landed with Apply Assist: which
+    // application / lead the submission belongs to, whatever the page calls it.
+    if (isLandedId(event.application_id)) payload.application_id = event.application_id
+    if (isLandedId(event.lead_id)) payload.lead_id = event.lead_id
     return {
       user_id: userId,
       type,

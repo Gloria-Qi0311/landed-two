@@ -175,8 +175,12 @@ final class AssistModel: NSObject, ObservableObject {
 
     var aiLabel: String {
         let ready = sessions.first(where: { $0.ollamaReady })
-        if let ready { return "Local AI · \(ready.ollamaModel ?? "Ollama")" }
-        return sessions.isEmpty ? "Waiting for a browser" : "Rules only · Ollama unavailable"
+        if let ready {
+            let model = ready.ollamaModel ?? "Ollama"
+            // Without Ollama the host asks the user's Claude Code (native-host.ts).
+            return model == "Claude Code" ? "AI · Claude Code" : "Local AI · \(model)"
+        }
+        return sessions.isEmpty ? "Waiting for a browser" : "Rules only · no Ollama or Claude Code"
     }
 
     var latestResult: AssistResult? {

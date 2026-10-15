@@ -26,7 +26,7 @@ function memoryQueue(events) {
   }
 }
 
-function makeHandler(events = []) {
+function makeHandler(events = [], openAndFill) {
   const q = memoryQueue(events)
   const saved = {}
   const onQueueChanged = jest.fn()
@@ -39,6 +39,7 @@ function makeHandler(events = []) {
     withLock: createQueueLock(),
     onQueueChanged,
     version: '2.2',
+    openAndFill,
   })
   return { handle, q, saved, onQueueChanged }
 }
@@ -107,6 +108,30 @@ describe('bridge handler', () => {
       { id: 'r1', name: 'CV', parsed_json: { basic: {} }, is_current: true, created_at: '2026-10-09' },
     ])
     expect(await handle({ type: 'sync-resumes', payload: {} }, FROM_WEB)).toMatchObject({ ok: false })
+  })
+
+  test('assist-open passes only a safe link, a resume and Landed ids', async () => {
+    const open = jest.fn(async (req) => ({ ok: true, data: { tab_id: 7, req } }))
+    const { handle } = makeHandler([], open)
+    const app = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b'
+    const res = await handle({ type: 'assist-open', payload: { url: 'https://jobs.lever.co/acme/1', resume_id: 'r1', application_id: app, lead_id: 'not-an-id' } }, FROM_WEB)
+    expect(res).toMatchObject({ ok: true, data: { tab_id: 7 } })
+    expect(open).toHaveBeenCalledWith({ url: 'https://jobs.lever.co/acme/1', resume_id: 'r1', application_id: app, lead_id: null })
+
+    for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'https://user:pw@x.com/', 42]) {
+      expect(await handle({ type: 'assist-open', payload: { url, resume_id: 'r1' } }, FROM_WEB)).toMatchObject({ ok: false })
+    }
+    expect(await handle({ type: 'assist-open', payload: { url: 'https://x.com/' } }, FROM_WEB)).toMatchObject({ ok: false })
+    expect(await handle({ type: 'assist-open', payload: { url: 'https://x.com/', resume_id: 'r1' } }, { origin: 'https://evil.example' })).toMatchObject({ ok: false })
+    expect(open).toHaveBeenCalledTimes(1)
+  })
+
+  test('a submission from a tab Landed opened keeps its application', async () => {
+    const app = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b'
+    const { handle } = makeHandler([{ ...applied('Acme'), application_id: app, lead_id: 'x' }])
+    const { data } = await handle({ type: 'take-events' }, FROM_WEB)
+    expect(data.rows[0].payload_json.application_id).toBe(app)
+    expect(data.rows[0].payload_json).not.toHaveProperty('lead_id')
   })
 
   test('unknown request types are rejected', async () => {
