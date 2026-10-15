@@ -35,7 +35,7 @@ function makeHandler(events = [], openAndFill) {
     snapshotStore: q.snapshotStore,
     pushMod,
     storage: {},
-    chromeLocal: { async set(obj) { Object.assign(saved, obj) } },
+    chromeLocal: { async set(obj) { Object.assign(saved, obj) }, get(key, cb) { cb({ [key]: saved[key] }) } },
     withLock: createQueueLock(),
     onQueueChanged,
     version: '2.2',
@@ -132,6 +132,23 @@ describe('bridge handler', () => {
     const { data } = await handle({ type: 'take-events' }, FROM_WEB)
     expect(data.rows[0].payload_json.application_id).toBe(app)
     expect(data.rows[0].payload_json).not.toHaveProperty('lead_id')
+  })
+
+  test('files: the page learns which ones the extension has, then sends only what changed', async () => {
+    const { handle, saved } = makeHandler()
+    expect(await handle({ type: 'file-ids' }, FROM_WEB)).toEqual({ ok: true, data: { resume: null, cover_letter: null } })
+    const file = { id: '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b', name: 'Resume.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.4').toString('base64') }
+    expect(await handle({ type: 'sync-file', payload: { kind: 'resume', file } }, FROM_WEB)).toMatchObject({ ok: true, data: { saved: true } })
+    expect((await handle({ type: 'file-ids' }, FROM_WEB)).data).toEqual({ resume: file.id, cover_letter: null })
+    expect(saved['landed:application-files'].resume).toEqual(file)
+
+    for (const bad of [{ ...file, name: 'evil.exe' }, { ...file, data: 'not base64!' }, { ...file, id: 'x' }, { ...file, data: 'A'.repeat(5 * 1024 * 1024) }]) {
+      expect(await handle({ type: 'sync-file', payload: { kind: 'resume', file: bad } }, FROM_WEB)).toMatchObject({ ok: false })
+    }
+    expect(await handle({ type: 'sync-file', payload: { kind: 'passport', file } }, FROM_WEB)).toMatchObject({ ok: false })
+    expect(await handle({ type: 'sync-file', payload: { kind: 'resume', file } }, { origin: 'https://evil.example' })).toMatchObject({ ok: false })
+    await handle({ type: 'sync-file', payload: { kind: 'resume', file: null } }, FROM_WEB)
+    expect((await handle({ type: 'file-ids' }, FROM_WEB)).data.resume).toBeNull()
   })
 
   test('unknown request types are rejected', async () => {

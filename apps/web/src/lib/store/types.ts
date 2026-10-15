@@ -8,6 +8,7 @@
 import type { Resume } from '@landed/schema'
 import type { Conversation } from '@landed/schema/conversation'
 import type { ApplicationAnswers } from '@landed/schema/application-answers'
+import type { ApplicationFile, FileKind } from '@landed/schema/application-files'
 import type { MasterResume, ResumeTarget, TailorNotes } from '@landed/schema/master-resume'
 import type { InterviewRound } from '@landed/schema/pipeline'
 import type { SearchBrief } from '@landed/schema/search-brief'
@@ -176,6 +177,10 @@ export type DbJobSearch = {
 /** A conversation on the Agent page (id = its Claude Code session id). */
 export type DbConversation = Conversation & { user_id: string }
 
+/** A file the extension uploads into forms (metadata; the bytes come from
+ *  getApplicationFileData). One per kind per account. */
+export type DbApplicationFile = ApplicationFile & { user_id: string }
+
 /** The account's answers to the questions forms ask that a resume doesn't
  *  (one row per account). */
 export type DbApplicationAnswers = {
@@ -250,11 +255,13 @@ export type Snapshot = {
   job_searches?: Owned<DbJobSearch>[]
   agent_conversations?: Owned<DbConversation>[]
   application_answers?: Owned<DbApplicationAnswers>[]
+  /** with `data` (base64) */
+  application_files?: (Owned<DbApplicationFile> & { data: string })[]
 }
 
 export const SNAPSHOT_TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
-  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers',
+  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers', 'application_files',
 ] as const
 
 export function snapshotRowCount(s: Snapshot): number {
@@ -332,6 +339,12 @@ export interface DataStore {
   getApplicationAnswers(): Promise<DbApplicationAnswers | null>
   /** Validated (parseApplicationAnswers); the row keeps its first id. */
   saveApplicationAnswers(answers: ApplicationAnswers): Promise<DbApplicationAnswers>
+
+  listApplicationFiles(): Promise<DbApplicationFile[]> // metadata only
+  getApplicationFileData(kind: FileKind): Promise<{ id: string; data: string } | null>
+  /** Replaces this kind's file; validated (parseApplicationFile). */
+  saveApplicationFile(input: { kind: FileKind; name: string; data: string }): Promise<DbApplicationFile>
+  deleteApplicationFile(kind: FileKind): Promise<void>
 
   exportSnapshot(): Promise<Snapshot>
 }

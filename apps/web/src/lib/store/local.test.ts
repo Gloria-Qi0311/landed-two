@@ -233,6 +233,28 @@ describe('application answers', () => {
   })
 })
 
+describe('application files', () => {
+  test('one per kind, validated, bytes on request, replaced with a new id, in snapshots', async () => {
+    const store = fresh()
+    const data = btoa('%PDF-1.4 fake resume')
+    await expect(store.saveApplicationFile({ kind: 'resume', name: 'photo.png', data })).rejects.toThrow(/pdf/)
+    const first = await store.saveApplicationFile({ kind: 'resume', name: 'Resume.pdf', data })
+    expect(first).toMatchObject({ kind: 'resume', mime: 'application/pdf', size: 20 })
+    expect('data' in first).toBe(false)
+    const second = await store.saveApplicationFile({ kind: 'resume', name: 'Resume v2.pdf', data })
+    expect(second.id).not.toBe(first.id)
+    expect((await store.listApplicationFiles()).map((f) => f.name)).toEqual(['Resume v2.pdf'])
+    expect(await store.getApplicationFileData('resume')).toEqual({ id: second.id, data })
+    expect(await store.getApplicationFileData('cover_letter')).toBeNull()
+
+    const copy = fresh()
+    await copy.replaceWith(await store.exportSnapshot())
+    expect((await copy.getApplicationFileData('resume'))?.data).toBe(data)
+    await store.deleteApplicationFile('resume')
+    expect(await store.listApplicationFiles()).toEqual([])
+  })
+})
+
 describe('pipeline: one interview stage with rounds', () => {
   test('legacy phone/onsite become interview (+ the round they stood for); rounds are validated', async () => {
     const store = fresh()

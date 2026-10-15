@@ -16,6 +16,7 @@
 
 (function (global) {
   const ANSWERS_KEY = 'landed:application-answers';
+  const FILES_KEY = 'landed:application-files';
 
   function norm(s) {
     return String(s == null ? '' : s)
@@ -42,7 +43,7 @@
     ['date_of_birth', /(date of birth|birth ?date|day and month of birth|birthday|出生日期|生日)/],
     ['address_line2', /(address line 2|^apt|apartment|^suite|^unit)/, 40],
     ['address_line1', /(^address( line 1)?$|address line 1|^street|^home address|^permanent address$|^地址)/, 40],
-    ['city', /(^city|^town|城市)/, 30],
+    ['city', /(^city|^town|^location \(city\)|城市)/, 30],
     ['state', /(^state|province|^region|州$|^省)/, 30],
     ['postal_code', /(zip|postal|post ?code|邮编|邮政编码)/, 30],
     ['country', /(^country|^nation|^国家)/, 30],
@@ -264,16 +265,25 @@
         }
       }
     };
-    pick('School', 'school', 'university', 'education_school');
-    pick('Degree', 'degree', 'education_degree');
-    pick('Major', 'major', 'education_major');
+    pick('School', 'edu_school', 'school');
+    pick('Degree', 'edu_degree', 'degree');
+    pick('Major', 'edu_major', 'major');
     pick('Current or most recent employer', 'current_company', 'company');
     pick('Current or most recent title', 'current_title', 'title');
     pick('Location', 'location');
     return facts.slice(0, 60);
   }
 
-  const api = { ANSWERS_KEY, norm, classify, answerFor, pickOption, answerFlat, answerFacts };
+  /** Which saved file an upload field wants, from its label. */
+  function fileKind(label) {
+    const n = norm(label);
+    if (!n) return null;
+    if (/(cover ?letter|motivation letter|求职信|自荐信)/.test(n)) return 'cover_letter';
+    if (/(resume|résumé|\bcv\b|curriculum vitae|简历|履历)/.test(n)) return 'resume';
+    return null;
+  }
+
+  const api = { ANSWERS_KEY, FILES_KEY, fileKind, norm, classify, answerFor, pickOption, answerFlat, answerFacts };
   global.LandedChoiceAnswers = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

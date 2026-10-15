@@ -19,6 +19,7 @@ import { inboxRoutes } from './routes/inbox.ts'
 import { searchRoutes } from './routes/searches.ts'
 import { conversationRoutes } from './routes/conversations.ts'
 import { answerRoutes } from './routes/answers.ts'
+import { fileRoutes } from './routes/files.ts'
 import { downloadRoutes } from './routes/downloads.ts'
 import { agentTaskRoutes, mcpRoutes } from './routes/mcp.ts'
 import { oauthAccountRoutes, oauthRoutes } from './routes/oauth.ts'
@@ -33,6 +34,8 @@ const smallBody = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooLarge })
 const uploadBody = bodyLimit({ maxSize: 50 * 1024 * 1024, onError: tooLarge })
 // A resume file sent to the user's computer for parsing (base64, ≤ 8 MB).
 const taskBody = bodyLimit({ maxSize: 12 * 1024 * 1024, onError: tooLarge })
+// A resume or cover letter for the extension to upload (base64, ≤ 3 MB).
+const fileBody = bodyLimit({ maxSize: 5 * 1024 * 1024, onError: tooLarge })
 // One agent observation is small; a large body is a misbehaving agent.
 const agentBody = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge })
 // A run's worth of results at once (up to 60 jobs / 100 email updates).
@@ -64,6 +67,7 @@ export function createApp(
     const limit = c.req.path === '/api/sync/upload' || c.req.path === '/api/cloud/enable'
       ? uploadBody
       : c.req.path === '/api/runtime-jobs' ? taskBody
+      : c.req.path.startsWith('/api/application-files/') ? fileBody
       : c.req.path === '/api/agent/jobs' || c.req.path === '/api/agent/email-updates' ? agentBatchBody
       : c.req.path.startsWith('/api/agent/') ? agentBody : smallBody
     return limit(c, next)
@@ -114,6 +118,7 @@ export function createApp(
   cloud.route('/', searchRoutes(sql))
   cloud.route('/', conversationRoutes(sql))
   cloud.route('/', answerRoutes(sql))
+  cloud.route('/', fileRoutes(sql))
   api.route('/', cloud)
   app.route('/api', api)
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))

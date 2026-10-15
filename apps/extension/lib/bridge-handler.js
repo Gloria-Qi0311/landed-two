@@ -12,6 +12,8 @@
 //   sync-resumes  page hands over its resumes so the side panel can autofill
 //   sync-answers  page hands over the application answers (Extension page) so
 //                 fills can answer choice questions; null clears them
+//   file-ids      which resume / cover letter file (by id) the extension has
+//   sync-file     page hands over one of them (base64, ≤ 3 MB); null removes it
 //   assist-open   "Open & autofill" on a lead or application: open its posting
 //                 in a new tab and fill it with the resume version Landed
 //                 picked; the tab remembers which application/lead it's for,
@@ -73,6 +75,33 @@
     return out
   }
 
+  const FILE_KINDS = ['resume', 'cover_letter']
+  const MAX_FILE_BASE64 = Math.ceil((3 * 1024 * 1024) / 3) * 4
+
+  /** One file as the page sent it: a known kind's id, a .pdf/.doc/.docx
+   *  name, base64 within the size limit. */
+  function sanitizeFile(raw) {
+    if (!raw || typeof raw !== 'object') return null
+    const name = typeof raw.name === 'string' ? raw.name.slice(0, 120) : ''
+    const data = typeof raw.data === 'string' ? raw.data : ''
+    if (typeof raw.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(raw.id)) return null
+    if (!/\.(pdf|docx?)$/i.test(name)) return null
+    if (!data || data.length > MAX_FILE_BASE64 || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) return null
+    const mime = typeof raw.mime === 'string' && raw.mime.length < 120 ? raw.mime : 'application/octet-stream'
+    return { id: raw.id, name, mime, data }
+  }
+
+  function readLocal(chromeLocal, key) {
+    return new Promise((resolve) => {
+      try {
+        const out = chromeLocal.get(key, (value) => resolve(value || {}))
+        if (out && typeof out.then === 'function') out.then((value) => resolve(value || {}), () => resolve({}))
+      } catch {
+        resolve({})
+      }
+    })
+  }
+
   function createBridgeHandler(deps) {
     const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
@@ -123,6 +152,27 @@
             [cfg.LOCAL_ANSWERS_KEY || 'landed:application-answers']: { answers, synced_at: new Date().toISOString() },
           })
           return { ok: true, data: { saved: !!answers } }
+        }
+
+        case 'file-ids': {
+          const key = cfg.LOCAL_FILES_KEY || 'landed:application-files'
+          const stored = (await readLocal(chromeLocal, key))[key] || {}
+          const ids = {}
+          for (const kind of FILE_KINDS) ids[kind] = stored[kind] && stored[kind].id ? stored[kind].id : null
+          return { ok: true, data: ids }
+        }
+
+        case 'sync-file': {
+          const p = msg.payload || {}
+          if (!FILE_KINDS.includes(p.kind)) return { ok: false, error: 'unknown file kind' }
+          const file = p.file === null ? null : sanitizeFile(p.file)
+          if (p.file !== null && !file) return { ok: false, error: 'not a file the extension can upload' }
+          const key = cfg.LOCAL_FILES_KEY || 'landed:application-files'
+          await withLock(async () => {
+            const stored = (await readLocal(chromeLocal, key))[key] || {}
+            await chromeLocal.set({ [key]: { ...stored, [p.kind]: file } })
+          })
+          return { ok: true, data: { kind: p.kind, saved: !!file } }
         }
 
         case 'assist-open': {

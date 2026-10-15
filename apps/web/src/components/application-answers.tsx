@@ -124,7 +124,7 @@ export function ApplicationAnswersPane() {
           <Row label="Legal first name">{text('legal_first_name', 'As on your ID')}</Row>
           <Row label="Legal middle name">{text('legal_middle_name', 'If you have one')}</Row>
           <Row label="Legal last name">{text('legal_last_name', 'As on your ID')}</Row>
-          <Row label="Preferred first name" help="Only if different; forms asking “Has preferred name?” get Yes.">{text('preferred_first_name', 'e.g. Antares')}</Row>
+          <Row label="Preferred first name" help="Only if different; forms asking “Has preferred name?” get Yes.">{text('preferred_first_name', 'e.g. Alex')}</Row>
           <Row label="Preferred last name">{text('preferred_last_name', '')}</Row>
           <Row label="Date of birth" help="Some employers ask for day and month for background checks.">{text('date_of_birth', 'e.g. October 30')}</Row>
         </Section>

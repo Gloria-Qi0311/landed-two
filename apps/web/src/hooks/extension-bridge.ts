@@ -7,15 +7,17 @@
 //   - turns the submissions the extension saw ("thanks for applying"
 //     pages) into applications — lib/inbox.ts → ingestPortalConfirmations
 //   - hands the user's resumes to the extension so the side panel can
-//     autofill without a Cloud account, and the application answers
-//     (Extension page) so fills can answer choice questions
+//     autofill without a Cloud account, the application answers (Extension
+//     page) so fills can answer choice questions, and the files it uploads
+//     (only the ones the extension doesn't have yet)
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { bridgeRequest, onExtensionReady } from '../lib/extension-bridge'
 import { useStore, type PortalEventInput } from '../lib/store'
 import { ingestPortalConfirmations } from '../lib/inbox'
 import { useResumes } from './resumes'
-import { useApplicationAnswers } from './answers'
+import { useApplicationAnswers, useApplicationFiles } from './answers'
+import { FILE_KINDS } from '@landed/schema/application-files'
 
 const PULL_INTERVAL_MS = 60_000
 
@@ -24,6 +26,7 @@ export function useExtensionBridge() {
   const { store, ready } = useStore()
   const { data: resumes } = useResumes()
   const { data: answers } = useApplicationAnswers()
+  const { data: files } = useApplicationFiles()
 
   useEffect(() => {
     if (!ready) return
@@ -97,6 +100,30 @@ export function useExtensionBridge() {
     send()
     return onExtensionReady(send)
   }, [answers])
+
+  useEffect(() => {
+    if (!files) return
+    let cancelled = false
+    const sync = async () => {
+      const have = await bridgeRequest<Record<string, string | null>>('file-ids')
+      if (!have || cancelled) return // no extension here
+      for (const kind of FILE_KINDS) {
+        const meta = files.find((f) => f.kind === kind) ?? null
+        if ((have[kind] ?? null) === (meta?.id ?? null)) continue
+        const content = meta ? await store.getApplicationFileData(kind) : null
+        if (cancelled) return
+        await bridgeRequest('sync-file', {
+          kind, file: meta && content ? { id: meta.id, name: meta.name, mime: meta.mime, data: content.data } : null,
+        }, 15_000)
+      }
+    }
+    void sync().catch((e) => console.warn('[landed] could not hand files to the extension', e))
+    const off = onExtensionReady(() => void sync().catch(() => {}))
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [files, store])
 
   useEffect(() => {
     if (!resumes) return

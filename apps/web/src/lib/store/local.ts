@@ -8,13 +8,14 @@
 import Dexie, { type Table } from 'dexie'
 import { parseConversation } from '@landed/schema/conversation'
 import { parseApplicationAnswers } from '@landed/schema/application-answers'
+import { parseApplicationFile } from '@landed/schema/application-files'
 import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { normalizeStage, orderRounds, parseDeadline, parseInterviews, sortRounds, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import { companyKey, titleKey } from '@landed/observation-processor'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
-  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbApplicationAnswers, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
+  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbApplicationAnswers, type DbApplicationFile, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
   type DbPortalEvent, type DbResume, type DemoImport, type PortalEventInput, type Snapshot,
 } from './types'
@@ -77,6 +78,7 @@ class LandedDB extends Dexie {
   job_searches!: Table<DbJobSearch, string>
   agent_conversations!: Table<DbConversation, string>
   application_answers!: Table<DbApplicationAnswers, string>
+  application_files!: Table<DbApplicationFile & { data: string }, string>
 
   constructor(name: string) {
     super(name)
@@ -152,6 +154,10 @@ class LandedDB extends Dexie {
     // v11: answers to the questions forms ask that a resume doesn't.
     this.version(11).stores({
       application_answers: 'id',
+    })
+    // v12: the resume / cover letter files the extension uploads.
+    this.version(12).stores({
+      application_files: 'id, &kind',
     })
   }
 }
@@ -558,6 +564,28 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
     async getApplicationAnswers() {
       return (await db.application_answers.toArray())[0] ?? null
     },
+    async listApplicationFiles() {
+      return (await db.application_files.toArray()).map(({ data: _, ...meta }) => meta).sort((a, b) => a.kind.localeCompare(b.kind))
+    },
+    async getApplicationFileData(kind) {
+      const row = await db.application_files.where('kind').equals(kind).first()
+      return row ? { id: row.id, data: row.data } : null
+    },
+    async saveApplicationFile(input) {
+      const parsed = parseApplicationFile({ ...input, id: uuid(), created_at: undefined })
+      if (!parsed.ok) throw new LocalStoreError(400, parsed.error)
+      askPersist()
+      const row = { ...parsed.file, user_id: LOCAL_USER }
+      await db.transaction('rw', db.application_files, async () => {
+        await db.application_files.where('kind').equals(row.kind).delete()
+        await db.application_files.add(row)
+      })
+      const { data: _, ...meta } = row
+      return meta
+    },
+    async deleteApplicationFile(kind) {
+      await db.application_files.where('kind').equals(kind).delete()
+    },
     async saveApplicationAnswers(input) {
       const answers = parseApplicationAnswers(input)
       askPersist()
@@ -605,6 +633,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         job_searches: (await db.job_searches.toArray()).map(strip),
         agent_conversations: (await db.agent_conversations.toArray()).map(strip),
         application_answers: (await db.application_answers.toArray()).map(strip),
+        application_files: (await db.application_files.toArray()).map(strip),
       }))
     },
 
@@ -637,6 +666,9 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         // One per account: the first row of a backup, validated.
         await db.application_answers.bulkAdd((own(snapshot.application_answers) as DbApplicationAnswers[]).slice(0, 1)
           .map((r) => ({ ...r, answers: parseApplicationAnswers(r.answers) })))
+        // Files: validated, one per kind.
+        const files = (snapshot.application_files ?? []).map((r) => parseApplicationFile(r)).flatMap((p) => (p.ok ? [p.file] : []))
+        await db.application_files.bulkAdd(files.filter((f, i) => files.findIndex((x) => x.kind === f.kind) === i).map((f) => ({ ...f, user_id: LOCAL_USER })))
       })
     },
     async clearAll() {

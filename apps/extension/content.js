@@ -161,22 +161,62 @@ function tryFillSelect(el, value) {
 
 // ─── 自定义下拉框（combobox / 非原生 select）─────────────────────────────────
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function isShown(el) {
+  if (!el.offsetParent) return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+/** The options a dropdown shows now: its own listbox when it names one,
+ *  else real options on the page, else the looser list-item guesses. */
+function visibleOptions(el) {
+  const owned = ['aria-controls', 'aria-owns']
+    .map((a) => el.getAttribute(a)).filter(Boolean)
+    .flatMap((id) => id.split(/\s+/)).map((id) => document.getElementById(id)).filter(Boolean);
+  for (const list of owned) {
+    const inList = Array.from(list.querySelectorAll('[role="option"], li')).filter(isShown);
+    if (inList.length) return inList;
+  }
+  const real = Array.from(document.querySelectorAll('[role="option"], [id*="-option-"]')).filter(isShown);
+  if (real.length) return real;
+  return Array.from(document.querySelectorAll(
+    '[role="listitem"], [role="menuitem"], li, .option, .item, .dropdown-item, .select-option'
+  )).filter(isShown);
+}
+
 async function openComboboxOptions(el) {
   el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   el.click();
   el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  // A search box opens on ArrowDown even when the page doesn't have focus
+  // (a background tab), where the click's focus never arrives.
+  if (el.tagName === 'INPUT') {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true }));
+  }
+  await sleep(350);
+  return visibleOptions(el);
+}
 
-  await new Promise((r) => setTimeout(r, 350));
+/** Type into a search box the way a person does (React sees an input event). */
+function typeInto(el, text) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  if (setter && setter.set) setter.set.call(el, text);
+  else el.value = text;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
 
-  return /** @type {HTMLElement[]} */ (
-    Array.from(document.querySelectorAll(
-      '[role="option"], [role="listitem"], [role="menuitem"], li, .option, .item, .dropdown-item, .select-option'
-    ))
-  ).filter((opt) => {
-    if (!opt.offsetParent) return false;
-    const rect = opt.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  });
+/** Wait for search results (often loaded from the site's server). */
+async function waitForOptions(el, timeoutMs) {
+  let last = -1;
+  for (let waited = 0; waited < timeoutMs; waited += 150) {
+    await sleep(150);
+    const options = visibleOptions(el);
+    if (options.length && options.length === last) return options;
+    last = options.length;
+  }
+  return visibleOptions(el);
 }
 
 function clickOption(target) {
@@ -185,30 +225,51 @@ function clickOption(target) {
   target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
 }
 
-function closeCombobox() {
+function closeCombobox(el) {
+  if (el) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
   document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  document.body.click();
 }
 
-/** Open a custom dropdown and click the option `choose(texts)` points at. */
-async function chooseInCombobox(el, choose) {
-  const options = await openComboboxOptions(el);
-  const index = options.length ? choose(options.map((opt) => (opt.textContent || '').trim())) : -1;
+/** Choose an option in a custom dropdown: open it and pick from the full
+ *  list; a search box with nothing suitable listed gets `query` typed and
+ *  its results picked from. Nothing suitable: the search text is cleared,
+ *  so no half-typed value looks filled while the field is still empty. */
+async function chooseInCombobox(el, choose, query) {
+  const texts = (options) => options.map((opt) => (opt.textContent || '').replace(/\s+/g, ' ').trim());
+  const searchable = el.tagName === 'INPUT';
+  let options = await openComboboxOptions(el);
+  let index = options.length ? choose(texts(options)) : -1;
+  if (index < 0 && searchable && query) {
+    typeInto(el, String(query).slice(0, 60));
+    options = await waitForOptions(el, 2500);
+    index = options.length ? choose(texts(options)) : -1;
+  }
   if (index >= 0 && options[index]) {
     clickOption(options[index]);
+    await sleep(120);
     markField(el, 'filled');
     return true;
   }
-  closeCombobox();
+  if (searchable && el.value) typeInto(el, '');
+  closeCombobox(el);
   return false;
 }
 
-async function tryFillCombobox(el, value) {
+/** Search-box dropdowns for places ("Location (City)") list "Seattle,
+ *  Washington, United States" for "Seattle, WA": take the first result that
+ *  names the city. */
+function chooseCity(value) {
+  const city = CA.norm(String(value).split(',')[0]);
+  return (texts) => (city ? texts.findIndex((t) => CA.norm(t).startsWith(city)) : -1);
+}
+
+async function tryFillCombobox(el, value, opts) {
   if (!value) return false;
-  return chooseInCombobox(el, (texts) => {
+  const choose = opts && opts.city ? chooseCity(value) : (texts) => {
     const result = VM.pickBestOption(value, texts.map((text, i) => ({ text, value: text, raw: i })));
     return result ? result.candidate.raw : -1;
-  });
+  };
+  return chooseInCombobox(el, choose, value);
 }
 
 function setSelectOption(el, option) {
@@ -218,6 +279,60 @@ function setSelectOption(el, option) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('blur', { bubbles: true }));
   markField(el, 'filled');
+}
+
+// ─── files to upload (Landed → Extension page) ─────────────────────────────
+
+function loadApplicationFiles() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get(CA.FILES_KEY, (res) => {
+        void chrome.runtime.lastError;
+        const stored = res && res[CA.FILES_KEY];
+        resolve(stored && typeof stored === 'object' ? stored : {});
+      });
+    } catch {
+      resolve({});
+    }
+  });
+}
+
+/** Does the input take this file? (`accept` lists types or extensions.) */
+function acceptsFile(input, file) {
+  const accept = String(input.getAttribute('accept') || '').toLowerCase().split(',').map((a) => a.trim()).filter(Boolean);
+  if (accept.length === 0) return true;
+  const ext = '.' + file.name.toLowerCase().split('.').pop();
+  return accept.some((a) => a === ext || a === file.mime || (a.endsWith('/*') && file.mime.startsWith(a.slice(0, -1))));
+}
+
+/** Put a saved file into an upload field the way a drop or pick would. */
+function attachFile(input, file) {
+  try {
+    const binary = atob(file.data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], file.name, { type: file.mime }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return !!input.files && input.files.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** What an upload field is for: its label, else the text around it
+ *  ("Resume/CV  Attach  Dropbox…"), else its name or id. */
+function fileInputLabel(el) {
+  const own = getFieldLabel(el);
+  if (own) return own;
+  let node = el.parentElement;
+  for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
+    const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+    if (text.length >= 2) return text.slice(0, 120);
+  }
+  return el.name || el.id || '';
 }
 
 // ─── application answers (Landed → Extension page) ─────────────────────────
@@ -570,12 +685,19 @@ function isDateField(el) {
 
 // ─── 可见 inputs ─────────────────────────────────────────────────────────────
 
+/** The search box of a custom dropdown (react-select, autocompletes):
+ *  typing into it only filters, it doesn't choose — Phase 3 picks an option. */
+function isComboboxInput(el) {
+  return el.getAttribute('role') === 'combobox' || el.getAttribute('aria-autocomplete') === 'list'
+    || el.getAttribute('aria-autocomplete') === 'both';
+}
+
 function getVisibleInputs() {
   return /** @type {(HTMLInputElement | HTMLTextAreaElement)[]} */ (
     Array.from(document.querySelectorAll(
       'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea'
     ))
-  ).filter(el => el.offsetParent || (el instanceof HTMLInputElement && el.type === 'email'));
+  ).filter(el => (el.offsetParent || (el instanceof HTMLInputElement && el.type === 'email')) && !isComboboxInput(el));
 }
 
 // ─── 批量填 inputs ────────────────────────────────────────────────────────────
@@ -843,10 +965,27 @@ async function handleFill(resumeData, customFields, opts) {
   const answers = await loadApplicationAnswers();
   const aiChoices = [];
 
+  // Upload fields: the saved resume / cover letter files go in; others (and
+  // fields with nothing saved) stay yellow. Hidden inputs behind an
+  // "Attach" button count too.
+  const fileInputs = /** @type {HTMLInputElement[]} */ (Array.from(document.querySelectorAll('input[type="file"]')));
+  const files = fileInputs.length ? await loadApplicationFiles() : {};
+  const answered = new Set(fileInputs);
+  for (const el of fileInputs) {
+    const label = fileInputLabel(el);
+    const kind = CA ? CA.fileKind(label) : null;
+    const file = kind && files[kind];
+    if (file && acceptsFile(el, file) && attachFile(el, file)) {
+      markField(el, 'filled');
+      filled.push('file:' + kind);
+    } else if (el.offsetParent || label) {
+      addManual(manual, el, label || '文件上传', '文件上传', null);
+    }
+  }
+
   // Phase 0: text fields the answers cover (legal names, address, date of
   // birth, signature, today's date…) — before the resume rules, which would
   // put a preferred name into "Legal first name".
-  const answered = new Set();
   if (answers) {
     for (const el of getVisibleInputs()) {
       if (el instanceof HTMLInputElement && el.type === 'file') continue;
@@ -917,7 +1056,8 @@ async function handleFill(resumeData, customFields, opts) {
     const label = getFieldLabel(el) || '下拉选择';
     const kind = answers ? CA.classify(label) : null;
     const answer = kind && CA.answerFor(kind, answers);
-    if (answer && await chooseInCombobox(el, (texts) => CA.pickOption(answer, texts))) {
+    const choose = answer && (kind === 'city' && answer.type === 'text' ? chooseCity(answer.value) : (texts) => CA.pickOption(answer, texts));
+    if (answer && await chooseInCombobox(el, choose, answer.type === 'text' ? answer.value : '')) {
       filled.push('answer:' + kind);
       continue;
     }
@@ -929,7 +1069,7 @@ async function handleFill(resumeData, customFields, opts) {
     const key = match && match.key;
     if (key && flat[key]) {
       const value = CL.maybeTranslate(key, flat[key], label);
-      const ok = await tryFillCombobox(el, value);
+      const ok = await tryFillCombobox(el, value, { city: key === 'location' || /city|城市/i.test(label) });
       if (ok) filled.push(key);
       else addManual(manual, el, label, '自定义下拉框', value);
     } else {

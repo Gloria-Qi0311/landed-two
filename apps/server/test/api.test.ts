@@ -691,7 +691,7 @@ describe('sync: local device <-> Landed Cloud', () => {
     assert.deepEqual(up.body, {
       companies: 2, companies_merged: 0, applications: 2, portal_connections: 1,
       portal_events: 2, resumes: 1, ai_runs: 1, agent_observations: 0, job_leads: 0, status_suggestions: 0,
-      job_searches: 0, agent_conversations: 0, application_answers: 0,
+      job_searches: 0, agent_conversations: 0, application_answers: 0, application_files: 0,
     })
 
     const exp = await call('GET', '/api/export', { token: erin })
@@ -812,7 +812,7 @@ describe('local-first: Cloud sync is opt-in per account', () => {
     const off = await call('POST', '/api/cloud/disable', { token: mo, body: { password: 'mo-password-1' } })
     assert.equal(off.status, 200)
     const [{ id }] = await sql`select id from users where email = 'mo@example.com'`
-    for (const table of ['companies', 'applications', 'resumes', 'portal_events', 'portal_connections', 'ai_runs', 'ai_provider_keys', 'job_searches', 'agent_conversations', 'application_answers']) {
+    for (const table of ['companies', 'applications', 'resumes', 'portal_events', 'portal_connections', 'ai_runs', 'ai_provider_keys', 'job_searches', 'agent_conversations', 'application_answers', 'application_files']) {
       const [{ n }] = await sql`select count(*)::int as n from ${sql(table)} where user_id = ${id}`
       assert.equal(n, 0, table)
     }
@@ -1415,6 +1415,38 @@ describe('agent chat history (Cloud)', () => {
     assert.equal((await call('GET', '/api/application-answers', { token: owner })).body.answers.country, 'United States')
     const local = await signup('answers-local@example.com', undefined, { cloud: false })
     assert.equal((await call('GET', '/api/application-answers', { token: local })).status, 409, 'sync-off accounts keep them in the browser')
+  })
+
+  test('application files: one per kind, validated, bytes on request, in snapshots', async () => {
+    const owner = await signup('files@example.com')
+    const other = await signup('files-other@example.com')
+    const pdf = Buffer.from('%PDF-1.4 fake resume').toString('base64')
+    const put = (token: string, kind: string, body: Record<string, unknown>) => call('PUT', `/api/application-files/${kind}`, { token, body })
+    const first = await put(owner, 'resume', { id: crypto.randomUUID(), name: 'Alex Chen Resume.pdf', data: pdf })
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.equal(first.body.mime, 'application/pdf')
+    assert.equal(first.body.size, 20)
+    assert.equal(first.body.data, undefined, 'metadata only')
+    const second = await put(owner, 'resume', { id: crypto.randomUUID(), name: 'Resume v2.pdf', data: pdf })
+    assert.notEqual(second.body.id, first.body.id, 'a replacement gets a new id')
+    assert.equal((await put(owner, 'resume', { id: crypto.randomUUID(), name: 'photo.png', data: pdf })).status, 400)
+    assert.equal((await put(owner, 'resume', { id: crypto.randomUUID(), name: 'r.pdf', data: 'not base64!' })).status, 400)
+    assert.equal((await put(owner, 'passport', { id: crypto.randomUUID(), name: 'r.pdf', data: pdf })).status, 400)
+    const big = Buffer.alloc(3 * 1024 * 1024 + 1).toString('base64')
+    assert.equal((await put(owner, 'cover_letter', { id: crypto.randomUUID(), name: 'big.pdf', data: big })).status, 400)
+
+    const list = (await call('GET', '/api/application-files', { token: owner })).body
+    assert.deepEqual(list.map((f: any) => [f.kind, f.name]), [['resume', 'Resume v2.pdf']])
+    assert.equal((await call('GET', '/api/application-files/resume/data', { token: owner })).body.data, pdf)
+    assert.equal((await call('GET', '/api/application-files/resume/data', { token: other })).status, 404, "never another account's")
+
+    const snap = (await call('GET', '/api/export', { token: owner })).body
+    assert.equal(snap.application_files[0].data, pdf)
+    const fresh = await signup('files-fresh@example.com')
+    const device = { ...snap, application_files: snap.application_files.map((f: any) => ({ ...f, id: crypto.randomUUID() })) }
+    assert.equal((await call('POST', '/api/sync/upload', { token: fresh, body: device })).body.application_files, 1)
+    assert.equal((await call('DELETE', '/api/application-files/resume', { token: owner })).status, 204)
+    assert.deepEqual((await call('GET', '/api/application-files', { token: owner })).body, [])
   })
 
   test('chat tasks carry only recent, valid history', async () => {

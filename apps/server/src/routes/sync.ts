@@ -27,6 +27,8 @@ import { CONVERSATION_COLUMNS } from './conversations.ts'
 import { parseConversation } from '@landed/schema/conversation'
 import { parseApplicationAnswers } from '@landed/schema/application-answers'
 import { ANSWER_COLUMNS } from './answers.ts'
+import { FILE_COLUMNS } from './files.ts'
+import { parseApplicationFile } from '@landed/schema/application-files'
 
 // Loosely-typed JSON row (request bodies, jsonb values) for the sql() helpers.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,7 +39,7 @@ export const BACKUP_VERSION = 1
 
 const TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
-  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers',
+  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers', 'application_files',
 ] as const
 const MAX_ROWS_PER_TABLE = 20_000
 const CHUNK = 500
@@ -67,6 +69,7 @@ const COLUMNS = {
   job_searches: SEARCH_COLUMNS,
   agent_conversations: CONVERSATION_COLUMNS,
   application_answers: ANSWER_COLUMNS,
+  application_files: FILE_COLUMNS,
 } as const
 
 // NOT NULL columns get their DB default when a snapshot row omits them, so
@@ -267,6 +270,13 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
   counts.application_answers = await insertRows('application_answers', list('application_answers').slice(0, 1)
     .filter((r) => typeof r.id === 'string')
     .map((r) => normalize('application_answers', r, { answers: parseApplicationAnswers(r.answers), updated_at: r.updated_at ?? base.created_at })), true)
+
+  // files for the extension — one per kind; the account's own copy wins
+  counts.application_files = await insertRows('application_files', list('application_files')
+    .map((r) => parseApplicationFile(r))
+    .flatMap((p) => (p.ok ? [p.file] : []))
+    .filter((f, i, all) => all.findIndex((x) => x.kind === f.kind) === i)
+    .map((f) => normalize('application_files', f, {})), true)
 
   const onboarded = snap.profile?.onboarded_at
   if (typeof onboarded === 'string') {

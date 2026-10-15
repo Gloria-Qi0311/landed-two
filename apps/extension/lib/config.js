@@ -27,8 +27,10 @@
   const LOCAL_RESUMES_KEY = 'landed:local-resumes';
   // Application answers from the Landed page (lib/choice-answers.js reads them).
   const LOCAL_ANSWERS_KEY = 'landed:application-answers';
+  // Resume / cover letter files from the Landed page, by kind.
+  const LOCAL_FILES_KEY = 'landed:application-files';
 
-  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY };
+  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY, LOCAL_FILES_KEY };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.LandedConfig;
   }

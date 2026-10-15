@@ -17,7 +17,8 @@
     "./automation": "./src/automation.ts",
     "./cloud-agent": "./src/cloud-agent.ts",
     "./reported-application": "./src/reported-application.ts",
-    "./application-answers": "./src/application-answers.ts"
+    "./application-answers": "./src/application-answers.ts",
+    "./application-files": "./src/application-files.ts"
   },
   "scripts": {
     "build": "echo 'no build \u2014 consumed as source via workspace alias'",

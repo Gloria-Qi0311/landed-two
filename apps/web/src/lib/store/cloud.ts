@@ -2,7 +2,7 @@
 // server (apps/server). Active for accounts with Landed Cloud sync on.
 import { api } from '../api'
 import type {
-  DataStore, DbAgentObservation, DbApplication, DbApplicationAnswers, DbConversation, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
+  DataStore, DbAgentObservation, DbApplication, DbApplicationAnswers, DbApplicationFile, DbConversation, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
 } from './types'
 
 export function createCloudStore(): DataStore {
@@ -67,6 +67,18 @@ export function createCloudStore(): DataStore {
     getApplicationAnswers: () => api.get<DbApplicationAnswers | null>('/application-answers'),
     // The server keeps the account's first id; a fresh one is only used once.
     saveApplicationAnswers: (answers) => api.put<DbApplicationAnswers>('/application-answers', { id: crypto.randomUUID(), answers }),
+
+    listApplicationFiles: () => api.get<DbApplicationFile[]>('/application-files'),
+    getApplicationFileData: async (kind) => {
+      try {
+        return await api.get<{ id: string; data: string }>(`/application-files/${kind}/data`)
+      } catch (e) {
+        if ((e as { status?: number }).status === 404) return null
+        throw e
+      }
+    },
+    saveApplicationFile: (input) => api.put<DbApplicationFile>(`/application-files/${input.kind}`, { id: crypto.randomUUID(), name: input.name, data: input.data }),
+    deleteApplicationFile: async (kind) => { await api.del(`/application-files/${kind}`) },
 
     exportSnapshot: () => api.get<Snapshot>('/export'),
   }
