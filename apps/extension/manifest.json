@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Landed",
-  "version": "2.6",
+  "version": "2.7",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAugov9J8j9dTxKsRLtwWQwry+VwcuMI4MRLospi135Ikg6K8zEk2ZV5v27I4V23G/oibLGRPsUIXBcbkKFu7UtGveTxU6SVtZHD1sav7LgwddPOYlFsvWaty6WLaTEFpWpcSmPbKT4Pv0y4MMoI+Rclnfuv4/x9rnCgxEdgq2cEziHcHIfoJiP9PXTLkB9l3mqiJ2VjF4y5KwLG8ei70dHWq+M27qAABNZXDG+42mt8+1cxRf2xx9FcI0JbhSSKYg+c019lRH6upFomOaVIAjjNFQcPphg1djApGcbsFC0rxceTSFuPx0oEs38xQBwJToU4AUGJ9eRkgWjkOuToEYqwIDAQAB",
   "description": "Landed: job-hunt operations — auto-fill applications + portal sync. (Renamed from ApplyMint after merge in Sprint 3.)",
   "permissions": ["activeTab", "tabs", "storage", "scripting", "sidePanel", "alarms", "nativeMessaging"],

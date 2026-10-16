@@ -20,7 +20,11 @@
     { keys: ['email', 'e-mail', '邮箱', '电子邮件', 'mail'], resumeKey: 'email' },
     { keys: ['phone', 'mobile', 'tel', '电话', '手机', 'contact'], resumeKey: 'phone' },
     { keys: ['wechat', '微信'], resumeKey: 'wechat' },
-    { keys: ['location', 'city', 'address', '城市', '地址', '所在地', 'residence', '期望城市', '工作城市'], resumeKey: 'location' },
+    // A resume location is safe for a location/city field, but it is not a
+    // street address.  The latter comes from the user's saved application
+    // answers; putting "Seattle, WA" into Address line 1 is worse than
+    // leaving the field for review.
+    { keys: ['location', 'city', '城市', '所在地', 'residence', '期望城市', '工作城市'], resumeKey: 'location' },
     { keys: ['linkedin'], resumeKey: 'linkedin' },
     { keys: ['github'], resumeKey: 'github' },
     { keys: ['portfolio', 'website', '个人网站'], resumeKey: 'portfolio' },
@@ -57,6 +61,9 @@
   // it's often a generic auto-generated string.
   const SOURCE_CONFIDENCE = {
     label: 0.95,
+    // Workday exposes stable, meaningful identifiers even when the visible
+    // label lives several React wrappers away from the actual input.
+    'data-automation-id': 0.9,
     'aria-label': 0.85,
     placeholder: 0.75,
     name: 0.65,
@@ -129,12 +136,22 @@
     if (ariaLabel) return ariaLabel.trim();
     const ph = el.getAttribute && el.getAttribute('placeholder');
     if (ph && ph.length < 40) return ph;
-    return el.name || el.id || '';
+    if (el.name) return el.name;
+    if (el.id) return el.id;
+    const automationId = el.getAttribute && el.getAttribute('data-automation-id');
+    if (!automationId) return '';
+    return String(automationId)
+      .replace(/[_\-.]+/g, ' ')
+      .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+      .replace(/([A-Za-z])(\d)/g, '$1 $2')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   function collectSources(el) {
     return [
       { name: 'label', value: getStrictLabel(el) },
+      { name: 'data-automation-id', value: (el.getAttribute && el.getAttribute('data-automation-id')) || '' },
       { name: 'aria-label', value: (el.getAttribute && el.getAttribute('aria-label')) || '' },
       { name: 'placeholder', value: (el.getAttribute && el.getAttribute('placeholder')) || '' },
       { name: 'name', value: el.name || '' },

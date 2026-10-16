@@ -198,27 +198,69 @@ function isShown(el) {
   return rect.width > 0 && rect.height > 0;
 }
 
-/** The options a dropdown shows now: its own listbox when it names one,
- *  else real options on the page, else the looser list-item guesses. */
-function visibleOptions(el) {
-  const owned = ['aria-controls', 'aria-owns']
+// Options rendered for one combobox are often portalled to <body>. Remember
+// the options that existed before opening each control so we never borrow an
+// option list from another open Workday widget.
+const comboboxBaselines = new WeakMap();
+const comboboxScopes = new WeakMap();
+
+function ownedOptionRoots(el) {
+  return ['aria-controls', 'aria-owns']
     .map((a) => el.getAttribute(a)).filter(Boolean)
-    .flatMap((id) => id.split(/\s+/)).map((id) => document.getElementById(id)).filter(Boolean);
+    .flatMap((id) => id.split(/\s+/))
+    .map((id) => document.getElementById(id)).filter(Boolean);
+}
+
+function optionsIn(root) {
+  return Array.from(root.querySelectorAll('[role="option"], [id*="-option-"]')).filter(isShown);
+}
+
+function allVisibleOptions() {
+  return deepAll('[role="option"], [id*="-option-"]').filter(isShown);
+}
+
+/** The options belonging to this dropdown. There is intentionally no global
+ *  `li` / menu-item fallback: on Workday that includes navigation, Settings,
+ *  and options belonging to a different question. */
+function visibleOptions(el) {
+  const owned = ownedOptionRoots(el);
   for (const list of owned) {
-    const inList = Array.from(list.querySelectorAll('[role="option"], li')).filter(isShown);
+    const inList = optionsIn(list);
     if (inList.length) return inList;
   }
-  const real = deepAll('[role="option"], [id*="-option-"]').filter(isShown);
-  if (real.length) return real;
-  return deepAll(
-    '[role="listitem"], [role="menuitem"], li, .option, .item, .dropdown-item, .select-option'
-  ).filter(isShown);
+
+  const remembered = comboboxScopes.get(el);
+  if (remembered && isShown(remembered)) {
+    const inList = optionsIn(remembered);
+    if (inList.length) return inList;
+  }
+
+  const baseline = comboboxBaselines.get(el) || new Set();
+  const newlyVisible = allVisibleOptions().filter((option) => !baseline.has(option));
+  if (newlyVisible.length) {
+    const roots = [...new Set(newlyVisible.map((option) => option.closest('[role="listbox"]')).filter(Boolean))];
+    if (roots.length === 1) comboboxScopes.set(el, roots[0]);
+    return newlyVisible;
+  }
+
+  // A listbox may already exist in the DOM and merely become visible. Only
+  // accept it when this control says it is expanded and exactly one listbox
+  // is visible, otherwise abstain instead of selecting from the wrong field.
+  if (el.getAttribute('aria-expanded') === 'true') {
+    const lists = deepAll('[role="listbox"]').filter(isShown);
+    if (lists.length === 1) {
+      comboboxScopes.set(el, lists[0]);
+      return optionsIn(lists[0]);
+    }
+  }
+  return [];
 }
 
 async function openComboboxOptions(el) {
+  comboboxBaselines.set(el, new Set(allVisibleOptions()));
   el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  el.click();
   el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  el.click();
   // A search box opens on ArrowDown even when the page doesn't have focus
   // (a background tab), where the click's focus never arrives.
   if (el.tagName === 'INPUT') {
@@ -321,6 +363,48 @@ async function tryFillCombobox(el, value, opts) {
     return result ? result.candidate.raw : -1;
   };
   return chooseInCombobox(el, choose, value);
+}
+
+function automationId(el) {
+  return String(el && el.getAttribute && el.getAttribute('data-automation-id') || '').toLowerCase();
+}
+
+/** Workday buttons use aria-haspopup="true" for both dropdowns and global
+ *  chrome such as Settings. Only treat the former as form controls. */
+function isCustomComboboxTrigger(el) {
+  if (!el || el.tagName.toLowerCase() === 'select') return false;
+  if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.getAttribute('aria-hidden') === 'true') return false;
+  if (el.getAttribute('role') === 'combobox' || el.getAttribute('aria-haspopup') === 'listbox') return true;
+  const aid = automationId(el);
+  if (!aid || /(setting|navigation|navmenu|profile|language|help|account)/.test(aid)) return false;
+  return /(dropdown|select|prompt|picker|country|region|source|location)/.test(aid)
+    && ['BUTTON', 'INPUT', 'DIV'].includes(el.tagName);
+}
+
+/** Stable Workday automation ids are more reliable than wrapper text. These
+ *  mappings are deliberately limited to facts the user explicitly saved. */
+function answerKindForElement(el, label) {
+  if (!CA) return null;
+  const aid = automationId(el).replace(/[^a-z0-9]/g, '');
+  const rules = [
+    ['preferredfirstname', 'preferred_first_name'],
+    ['preferredlastname', 'preferred_last_name'],
+    ['middlename', 'legal_middle_name'],
+    ['firstname', 'legal_first_name'],
+    ['lastname', 'legal_last_name'],
+    ['dateofbirth', 'date_of_birth'],
+    ['addressline1', 'address_line1'],
+    ['addressline2', 'address_line2'],
+    ['postalcode', 'postal_code'],
+    ['countrydropdown', 'country'],
+    ['countryregion', 'country'],
+    ['city', 'city'],
+    ['state', 'state'],
+    ['province', 'state'],
+    ['source', 'heard_from'],
+  ];
+  const direct = rules.find(([needle]) => aid.includes(needle));
+  return direct ? direct[1] : CA.classify(label || '');
 }
 
 function setSelectOption(el, option) {
@@ -1071,7 +1155,7 @@ async function handleFill(resumeData, customFields, opts) {
   if (answers) {
     for (const el of getVisibleInputs()) {
       if (el instanceof HTMLInputElement && el.type === 'file') continue;
-      const kind = CA.classify(getFieldLabel(el) || '');
+      const kind = answerKindForElement(el, getFieldLabel(el) || '');
       const isDate = el instanceof HTMLInputElement && el.type === 'date';
       const answer = kind && CA.answerFor(kind, answers, { dateInput: isDate });
       if (!answer) continue;
@@ -1095,7 +1179,7 @@ async function handleFill(resumeData, customFields, opts) {
     if (isYearSelect(el) || isMonthSelect(el)) continue;
 
     const options = Array.from(el.options);
-    const kind = answers ? CA.classify(label) : null;
+    const kind = answers ? answerKindForElement(el, label) : null;
     const answer = kind && CA.answerFor(kind, answers);
     if (answer) {
       const index = CA.pickOption(answer, options.map((o) => o.text));
@@ -1129,13 +1213,13 @@ async function handleFill(resumeData, customFields, opts) {
 
   // Phase 3：combobox / 自定义下拉
   const comboboxes = /** @type {HTMLElement[]} */ (
-    deepAll('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"]')
-  ).filter(el => isRendered(el) && el.tagName.toLowerCase() !== 'select');
+    deepAll('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"], [data-automation-id]')
+  ).filter(el => isRendered(el) && isCustomComboboxTrigger(el));
 
   let peeked = 0;
   for (const el of comboboxes) {
     const label = getFieldLabel(el) || '下拉选择';
-    const kind = answers ? CA.classify(label) : null;
+    const kind = answers ? answerKindForElement(el, label) : null;
     const answer = kind && CA.answerFor(kind, answers);
     const choose = answer && (kind === 'city' && answer.type === 'text' ? chooseCity(answer.value, answers.state) : (texts) => CA.pickOption(answer, texts));
     if (answer && await chooseInCombobox(el, choose, answer.type === 'text' ? answer.value : '')) {

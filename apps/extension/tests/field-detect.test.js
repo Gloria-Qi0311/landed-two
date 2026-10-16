@@ -79,6 +79,11 @@ describe("getFieldLabel", () => {
     expect(FD.getFieldLabel(document.querySelector("input"))).toBe("just_a_name");
   });
 
+  test("humanizes Workday data-automation-id when it is the only label", () => {
+    document.body.innerHTML = `<input data-automation-id="legalNameSection_firstName" />`;
+    expect(FD.getFieldLabel(document.querySelector("input"))).toBe("legal Name Section first Name");
+  });
+
   test("ignores sibling containers that themselves contain inputs", () => {
     document.body.innerHTML = `
       <div>
@@ -124,6 +129,18 @@ describe("matchResumeKey — basic mapping", () => {
 
   test("returns null when nothing matches", () => {
     const el = makeInput(`<input placeholder="random gibberish" />`);
+    expect(FD.matchResumeKey(el)).toBeNull();
+  });
+
+  test("matches Workday fields via data-automation-id", () => {
+    const el = makeInput(`<input data-automation-id="legalNameSection_firstName" />`);
+    const r = FD.matchResumeKey(el);
+    expect(r.key).toBe("firstName");
+    expect(r.source).toBe("data-automation-id");
+  });
+
+  test("does not put a resume city into a street-address field", () => {
+    const el = makeInput(`<input aria-label="Address Line 1" />`);
     expect(FD.matchResumeKey(el)).toBeNull();
   });
 });

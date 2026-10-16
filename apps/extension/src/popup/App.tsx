@@ -298,6 +298,26 @@ const pickFor = (tab: BrowserTab, resumes: DbResume[]): Pick | null =>
 const WHY: Record<Pick['why'], string> = { tailored: 'tailored for this job', current: 'current', master: 'master', newest: 'newest' }
 
 type BrowserTab = { id: number; title: string; url: string; active: boolean }
+
+/** Keep the picker focused on actual applications. If an unknown ATS has no
+ *  recognizable URL we still show the active page as a fallback below. */
+function isLikelyApplicationTab(tab: BrowserTab): boolean {
+  try {
+    const url = new URL(tab.url)
+    const host = url.hostname.toLowerCase()
+    const path = `${url.pathname}${url.search}`.toLowerCase()
+    const knownAts = [
+      'myworkdayjobs.com', 'myworkdaysite.com', 'greenhouse.io', 'lever.co',
+      'ashbyhq.com', 'icims.com', 'smartrecruiters.com', 'jobvite.com',
+      'successfactors.com', 'bamboohr.com', 'workable.com', 'ultipro.com',
+    ].some((domain) => host === domain || host.endsWith(`.${domain}`))
+    if (knownAts) return true
+    if (host.endsWith('linkedin.com')) return path.startsWith('/jobs') || path.includes('/jobs/')
+    return /\b(apply|application|candidate|career|careers|job|jobs)\b/i.test(`${path.replace(/[^a-z]+/g, ' ')} ${tab.title}`)
+  } catch {
+    return false
+  }
+}
 type FillResult = {
   tabId: number
   title: string
@@ -357,7 +377,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
 
   const refreshTabs = async () => {
     try {
-      const found = (await chrome.tabs.query({ currentWindow: true }))
+      const webTabs = (await chrome.tabs.query({ currentWindow: true }))
         .filter((tab) => Number.isInteger(tab.id) && /^https?:\/\//.test(tab.url || ''))
         .map((tab) => ({
           id: Number(tab.id),
@@ -365,6 +385,8 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
           url: String(tab.url),
           active: !!tab.active,
         }))
+      const likely = webTabs.filter(isLikelyApplicationTab)
+      const found = likely.length > 0 ? likely : webTabs.filter((tab) => tab.active)
       setTabs(found)
       setSelectedTabs((current) => {
         const valid = current.filter((id) => found.some((tab) => tab.id === id))
