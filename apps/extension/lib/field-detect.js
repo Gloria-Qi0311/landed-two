@@ -49,7 +49,11 @@
   const NAME_CONTEXT_BLOCKLIST_LATIN = [
     'company', 'employer', 'organization', 'org', 'school', 'university',
     'college', 'institution', 'project', 'username', 'user', 'team', 'group',
-    'job', 'position', 'role', 'product', 'brand', 'title',
+    'job', 'position', 'role', 'product', 'brand', 'title', 'middle', 'preferred',
+  ];
+
+  const PHONE_CONTEXT_BLOCKLIST_LATIN = [
+    'extension', 'ext', 'country phone code', 'country code', 'device type',
   ];
 
   const NAME_CONTEXT_BLOCKLIST_CJK = [
@@ -205,6 +209,11 @@
           const blocked = NAME_CONTEXT_BLOCKLIST_LATIN.some((w) => signalsLatinJoined.includes(w));
           const blockedCJK = NAME_CONTEXT_BLOCKLIST_CJK.some((w) => signalsCJK.includes(w));
           if (blocked || blockedCJK) continue;
+        }
+
+        if (rule.resumeKey === 'phone') {
+          const blocked = PHONE_CONTEXT_BLOCKLIST_LATIN.some((w) => signalsLatinJoined.includes(w));
+          if (blocked) continue;
         }
 
         const sourceName = findWinningSource(key, sources) || 'unknown';

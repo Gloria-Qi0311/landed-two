@@ -143,6 +143,17 @@ describe("matchResumeKey — basic mapping", () => {
     const el = makeInput(`<input aria-label="Address Line 1" />`);
     expect(FD.matchResumeKey(el)).toBeNull();
   });
+
+  test("does not put the full name into middle or preferred name", () => {
+    expect(FD.matchResumeKey(makeInput(`<label for="m">Middle Name</label><input id="m" />`))).toBeNull();
+    expect(FD.matchResumeKey(makeInput(`<label for="p">Preferred Name</label><input id="p" />`))).toBeNull();
+  });
+
+  test("does not put the phone number into extension, country code, or device type", () => {
+    for (const label of ['Phone Extension', 'Country Phone Code', 'Phone Device Type']) {
+      expect(FD.matchResumeKey(makeInput(`<input aria-label="${label}" />`))).toBeNull();
+    }
+  });
 });
 
 describe("matchResumeKey — name context blocking", () => {

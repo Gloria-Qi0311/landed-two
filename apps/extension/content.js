@@ -159,10 +159,9 @@ const MULTI_ENTRY_SECTIONS = [
 
 // ─── input / textarea 填值 ───────────────────────────────────────────────────
 
-function fillField(el, value) {
-  if (!value) return;
+function setTextFieldValue(el, value) {
   const tag = el.tagName.toLowerCase();
-  if (tag !== 'input' && tag !== 'textarea') return;
+  if (tag !== 'input' && tag !== 'textarea') return false;
   const proto = tag === 'textarea' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, 'value');
   if (setter && setter.set) setter.set.call(el, value);
@@ -170,7 +169,17 @@ function fillField(el, value) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
   el.dispatchEvent(new Event('blur', { bubbles: true }));
+  return true;
+}
+
+function fillField(el, value) {
+  if (!value || !setTextFieldValue(el, value)) return;
   markField(el, 'filled');
+}
+
+function clearField(el) {
+  if (!setTextFieldValue(el, '')) return;
+  el.removeAttribute('data-landed-status');
 }
 
 // ─── 原生 <select> 填值 ──────────────────────────────────────────────────────
@@ -369,6 +378,15 @@ function automationId(el) {
   return String(el && el.getAttribute && el.getAttribute('data-automation-id') || '').toLowerCase();
 }
 
+function isWorkdayPage() {
+  try {
+    const parser = window.LandedPortalParsers && window.LandedPortalParsers.workday;
+    return parser ? parser.isWorkdayUrl(location.href) : /(^|\.)myworkday(jobs|site)\.com$/i.test(location.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Workday buttons use aria-haspopup="true" for both dropdowns and global
  *  chrome such as Settings. Only treat the former as form controls. */
 function isCustomComboboxTrigger(el) {
@@ -396,6 +414,7 @@ function answerKindForElement(el, label) {
     ['addressline1', 'address_line1'],
     ['addressline2', 'address_line2'],
     ['postalcode', 'postal_code'],
+    ['countryphonecode', 'country'],
     ['countrydropdown', 'country'],
     ['countryregion', 'country'],
     ['city', 'city'],
@@ -405,6 +424,157 @@ function answerKindForElement(el, label) {
   ];
   const direct = rules.find(([needle]) => aid.includes(needle));
   return direct ? direct[1] : CA.classify(label || '');
+}
+
+function comparable(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ').trim();
+}
+
+/** Reject obvious profile corruption instead of faithfully spreading it to
+ *  every application. These are contradictions, not guesses: a full name is
+ *  not a middle name, and a city by itself is not a street address. */
+function suspiciousApplicationAnswer(kind, value, answers, flat) {
+  const v = comparable(value);
+  if (!v) return true;
+  const fullNames = [
+    flat && flat.name,
+    flat && [flat.firstName, flat.lastName].filter(Boolean).join(' '),
+    answers && [answers.legal_first_name, answers.legal_last_name].filter(Boolean).join(' '),
+  ].map(comparable).filter(Boolean);
+  if (kind === 'legal_middle_name' && fullNames.includes(v)) return true;
+  if (kind === 'address_line1' || kind === 'address_line2') {
+    const notStreet = [
+      answers && answers.city,
+      answers && answers.state,
+      answers && answers.country,
+      flat && flat.location,
+      flat && String(flat.location || '').split(',')[0],
+    ].map(comparable).filter(Boolean);
+    if (notStreet.includes(v)) return true;
+    if (kind === 'address_line2' && comparable(answers && answers.address_line1) === v) return true;
+  }
+  return false;
+}
+
+function referralFromUrl() {
+  try {
+    const raw = new URL(location.href).searchParams.get('utm_source');
+    if (!raw) return null;
+    const n = raw.toLowerCase();
+    if (n.includes('linkedin')) return 'LinkedIn';
+    if (n.includes('indeed')) return 'Indeed';
+    if (n.includes('google')) return 'Google';
+    return raw.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 100);
+  } catch {
+    return null;
+  }
+}
+
+function applicationAnswerForElement(kind, answers, el, flat, ctx) {
+  let answer = kind && answers ? CA.answerFor(kind, answers, ctx) : null;
+  if (!answer && kind === 'heard_from') {
+    const source = referralFromUrl();
+    if (source) answer = { type: 'text', value: source };
+  }
+  if (answer && answer.type === 'text' && suspiciousApplicationAnswer(kind, answer.value, answers, flat)) return null;
+  return answer;
+}
+
+function workdayOptionalBlank(el, label) {
+  if (!isWorkdayPage()) return false;
+  const kind = answerKindForElement(el, label);
+  return kind === 'legal_middle_name' || kind === 'address_line2' || /phone\s*(extension|ext\b)/i.test(label || '');
+}
+
+function hasSeparatePhoneCountryCode() {
+  return deepAll('[data-automation-id], input, button').some((el) => {
+    const text = `${automationId(el)} ${getFieldLabel(el)}`;
+    return /country\s*phone\s*code|countryphonecode/i.test(text);
+  });
+}
+
+function nationalPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+}
+
+function resumeValueForElement(el, key, value, label) {
+  if (!value) return null;
+  if (key === 'name' && /\b(middle|preferred)\b/i.test(label || '')) return null;
+  if (key === 'phone') {
+    const context = `${label || ''} ${automationId(el)}`;
+    if (/extension|\bext\b|country\s*phone\s*code|countryphonecode|device\s*type/i.test(context)) return null;
+    if (isWorkdayPage() && /phone\s*number|phonenumber/i.test(context) && hasSeparatePhoneCountryCode()) {
+      return nationalPhone(value);
+    }
+  }
+  if (key === 'location' && isWorkdayPage() && answerKindForElement(el, label) === 'city') {
+    return String(value).split(',')[0].trim();
+  }
+  return value;
+}
+
+function existingComboboxTexts(el, label) {
+  const values = [];
+  if ('value' in el && typeof el.value === 'string' && el.value.trim()) values.push(el.value.trim());
+  const own = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+  if (own) values.push(own);
+  let parent = el.parentElement;
+  for (let depth = 0; parent && depth < 3; depth++, parent = parent.parentElement) {
+    if (parent.tagName === 'FORM' || parent.tagName === 'BODY') break;
+    const controls = parent.querySelectorAll('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"]');
+    if (controls.length > 1) break;
+    for (const selected of parent.querySelectorAll('[aria-selected="true"], [role="list"], [data-automation-id*="selected"]')) {
+      const text = String(selected.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text) values.push(text);
+    }
+  }
+  const labelNorm = comparable(label);
+  return [...new Set(values)].filter((text) => {
+    let n = comparable(text);
+    if (labelNorm && n.startsWith(labelNorm)) n = n.slice(labelNorm.length).trim();
+    n = n.replace(/\brequired\b/g, '').trim();
+    return !!n && !/^(search|select one|please select|choose)$/.test(n);
+  });
+}
+
+/** Undo the deterministic bad values produced by older Landed builds. This
+ *  only clears a field when its value exactly matches another, incompatible
+ *  profile fact, so real user-entered data is preserved. */
+function repairKnownBadWorkdayValues(flat, answers) {
+  if (!isWorkdayPage()) return;
+  // Include Workday text inputs that declare role="combobox". The ordinary
+  // text-field pass intentionally excludes those, but City often uses one and
+  // is still needed here to identify old city-as-street corruption.
+  const fields = deepAll('input:not([type=hidden]):not([type=submit]):not([type=button]), textarea')
+    .filter(isRendered);
+  const byKind = (kind) => fields.find((el) => answerKindForElement(el, getFieldLabel(el)) === kind);
+  const middle = byKind('legal_middle_name');
+  if (middle && middle.value && suspiciousApplicationAnswer('legal_middle_name', middle.value, answers, flat)) clearField(middle);
+
+  const city = byKind('city');
+  const line1 = byKind('address_line1');
+  const line2 = byKind('address_line2');
+  const cityValue = comparable(city && city.value);
+  if (line2 && line2.value && (
+    suspiciousApplicationAnswer('address_line2', line2.value, answers, flat)
+    || (cityValue && comparable(line2.value) === cityValue)
+    || comparable(line2.value) === comparable(line1 && line1.value)
+  )) clearField(line2);
+  if (line1 && line1.value && (
+    suspiciousApplicationAnswer('address_line1', line1.value, answers, flat)
+    || (cityValue && comparable(line1.value) === cityValue)
+  )) clearField(line1);
+
+  const resumePhone = nationalPhone(flat && flat.phone);
+  for (const el of fields) {
+    const label = getFieldLabel(el);
+    if (/phone\s*(extension|ext\b)/i.test(label) && nationalPhone(el.value) === resumePhone) clearField(el);
+    if (/phone\s*number/i.test(label) && hasSeparatePhoneCountryCode()) {
+      const fixed = nationalPhone(el.value || (flat && flat.phone));
+      if (fixed && fixed !== el.value) fillField(el, fixed);
+    }
+  }
 }
 
 function setSelectOption(el, option) {
@@ -857,12 +1027,16 @@ function fillInputBatch(inputs, flat, filled, manual, skipSet) {
       addManual(manual, el, label || '日期字段', '日期', null);
       continue;
     }
+    if (workdayOptionalBlank(el, label)) continue;
     const match = matchResumeKey(el);
     const key = match && match.key;
     if (key && flat[key]) {
-      const value = CL.maybeTranslate(key, flat[key], getFieldLabel(el));
-      fillField(el, value);
-      filled.push(key);
+      const raw = CL.maybeTranslate(key, flat[key], getFieldLabel(el));
+      const value = resumeValueForElement(el, key, raw, label);
+      if (value) {
+        fillField(el, value);
+        filled.push(key);
+      }
     } else {
       if (label && String(label).trim().length > 0) {
         const n = normalize(label);
@@ -1129,6 +1303,7 @@ async function handleFill(resumeData, customFields, opts) {
   // don't answer may go to the local model below.
   const answers = await loadApplicationAnswers();
   const aiChoices = [];
+  repairKnownBadWorkdayValues(flat, answers);
 
   // Upload fields: the saved resume / cover letter files go in; others (and
   // fields with nothing saved) stay yellow. Hidden inputs behind an
@@ -1157,8 +1332,17 @@ async function handleFill(resumeData, customFields, opts) {
       if (el instanceof HTMLInputElement && el.type === 'file') continue;
       const kind = answerKindForElement(el, getFieldLabel(el) || '');
       const isDate = el instanceof HTMLInputElement && el.type === 'date';
-      const answer = kind && CA.answerFor(kind, answers, { dateInput: isDate });
-      if (!answer) continue;
+      const answer = applicationAnswerForElement(kind, answers, el, flat, { dateInput: isDate });
+      if (!answer) {
+        // These structured Workday fields must never fall through to broad
+        // resume rules. Optional blanks stay blank; required blanks are
+        // surfaced for review.
+        if (isWorkdayPage() && ['legal_middle_name', 'address_line1', 'address_line2', 'postal_code'].includes(kind)) {
+          answered.add(el);
+          if (kind === 'address_line1' || kind === 'postal_code') addManual(manual, el, getFieldLabel(el), '需要申请资料', null);
+        }
+        continue;
+      }
       const value = answer.type === 'text' ? answer.value : answer.type === 'yesno' ? (answer.value === 'yes' ? 'Yes' : 'No') : null;
       if (!value || (isDate && !/^\d{4}-\d{2}-\d{2}$/.test(value))) continue;
       fillField(el, value);
@@ -1179,8 +1363,8 @@ async function handleFill(resumeData, customFields, opts) {
     if (isYearSelect(el) || isMonthSelect(el)) continue;
 
     const options = Array.from(el.options);
-    const kind = answers ? answerKindForElement(el, label) : null;
-    const answer = kind && CA.answerFor(kind, answers);
+    const kind = answerKindForElement(el, label);
+    const answer = applicationAnswerForElement(kind, answers, el, flat);
     if (answer) {
       const index = CA.pickOption(answer, options.map((o) => o.text));
       if (index >= 0) {
@@ -1219,11 +1403,21 @@ async function handleFill(resumeData, customFields, opts) {
   let peeked = 0;
   for (const el of comboboxes) {
     const label = getFieldLabel(el) || '下拉选择';
-    const kind = answers ? answerKindForElement(el, label) : null;
-    const answer = kind && CA.answerFor(kind, answers);
+    const kind = answerKindForElement(el, label);
+    const answer = applicationAnswerForElement(kind, answers, el, flat);
     const choose = answer && (kind === 'city' && answer.type === 'text' ? chooseCity(answer.value, answers.state) : (texts) => CA.pickOption(answer, texts));
+    const existing = existingComboboxTexts(el, label);
+    if (answer && existing.length && choose(existing) >= 0) {
+      markField(el, 'filled');
+      filled.push('answer:' + kind);
+      continue;
+    }
     if (answer && await chooseInCombobox(el, choose, answer.type === 'text' ? answer.value : '')) {
       filled.push('answer:' + kind);
+      continue;
+    }
+    if (!answer && existing.length) {
+      markField(el, 'filled');
       continue;
     }
     if (isSensitiveLabel(label)) {
@@ -1233,7 +1427,9 @@ async function handleFill(resumeData, customFields, opts) {
     const match = matchResumeKey(el);
     const key = match && match.key;
     if (key && flat[key]) {
-      const value = CL.maybeTranslate(key, flat[key], label);
+      const raw = CL.maybeTranslate(key, flat[key], label);
+      const value = resumeValueForElement(el, key, raw, label);
+      if (!value) continue;
       const ok = await tryFillCombobox(el, value, { city: key === 'location' || /city|城市/i.test(label), state: answers && answers.state });
       if (ok) {
         filled.push(key);
