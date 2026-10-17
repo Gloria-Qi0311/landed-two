@@ -22,6 +22,7 @@ import {
   useImportDemoData,
 } from './hooks/queries';
 import { Sidebar, PageHeader } from './components/shell';
+import { ExportApplicationsButton } from './components/export-button';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
 import { EmptyDeviceNotice, OfflineNotice, RestoreBackupDialog, TurnOffCloudDialog, TurnOnCloudDialog } from './components/cloud';
 import { RecoveryCodesDialog } from './components/recovery-codes';
@@ -386,6 +387,7 @@ function ApplicationsPage({
         }
         actions={
           <>
+            <ExportApplicationsButton />
             <button className="btn-primary" onClick={onOpenAddModal}>
               <Icon name="plus" size={13} stroke={2} /> Add
             </button>
