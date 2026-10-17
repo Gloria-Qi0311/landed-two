@@ -6,6 +6,19 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { parseChatHistory } from '@landed/schema/conversation'
 import { createLocalStore } from './store/local'
 
+// The app runs in a browser; Node has sessionStorage only from v25 (CI runs 24).
+if (typeof globalThis.sessionStorage === 'undefined') {
+  const data = new Map<string, string>()
+  globalThis.sessionStorage = {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => void data.set(key, String(value)),
+    removeItem: (key: string) => void data.delete(key),
+    clear: () => data.clear(),
+    key: (i: number) => [...data.keys()][i] ?? null,
+    get length() { return data.size },
+  } as Storage
+}
+
 const calls: { input: Record<string, unknown> }[] = []
 vi.mock('../hooks/runtimes', () => ({
   runOnComputer: async (_rt: string, _agent: string, _kind: string, input: Record<string, unknown>, onEvent: (e: unknown) => void) => {
@@ -20,7 +33,19 @@ const { useAgentChat, renameConversation, deleteConversation } = await import('.
 
 let n = 0
 const fresh = () => createLocalStore(`landed-chat-${++n}`)
-const flush = () => new Promise((r) => setTimeout(r, 20))
+/** Saves are fire-and-forget: wait (up to 3 s) until the store shows them.
+ *  A fixed short sleep failed whenever the machine was busy. */
+async function until(check: () => Promise<boolean> | boolean, ms = 3000) {
+  const end = Date.now() + ms
+  while (!(await check())) {
+    if (Date.now() > end) throw new Error('timed out waiting for the chat to be saved')
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
+const savedTurns = async (store: ReturnType<typeof fresh>, n: number, count = 1) => {
+  const list = await store.listConversations()
+  return list.length === count && list[0].turns.length === n
+}
 
 beforeEach(() => {
   calls.length = 0
@@ -32,7 +57,7 @@ describe('agent chat history', () => {
     const store = fresh()
     useAgentChat.getState().bind('u1', { store, onSaved: () => {} })
     await useAgentChat.getState().send('rt', 'claude', 'AI PM roles in the US for new grads')
-    await flush()
+    await until(() => savedTurns(store, 2))
     const [conv] = await store.listConversations()
     expect(conv.title).toBe('AI PM roles in the US for new grads')
     expect(conv.turns).toEqual([
@@ -42,7 +67,7 @@ describe('agent chat history', () => {
     expect(calls[0].input).toMatchObject({ conversation_id: conv.id, history: [] })
 
     await useAgentChat.getState().send('rt', 'claude', 'I need H-1B sponsorship', conv)
-    await flush()
+    await until(() => savedTurns(store, 4))
     expect(calls[1].input.conversation_id).toBe(conv.id)
     expect((calls[1].input.history as unknown[]).length).toBe(2)
     expect((await store.listConversations())[0].turns).toHaveLength(4)
@@ -52,10 +77,10 @@ describe('agent chat history', () => {
     const store = fresh()
     useAgentChat.getState().bind('u2', { store, onSaved: () => {} })
     await useAgentChat.getState().send('rt', 'claude', 'first')
-    await flush()
+    await until(() => savedTurns(store, 2))
     useAgentChat.getState().newChat()
     await useAgentChat.getState().send('rt', 'claude', 'second')
-    await flush()
+    await until(() => savedTurns(store, 2, 2))
     const list = await store.listConversations()
     expect(list.map((c) => c.title)).toEqual(['second', 'first'])
 
@@ -76,7 +101,7 @@ describe('agent chat history', () => {
     }))
     let saved = false
     useAgentChat.getState().bind('u3', { store, onSaved: () => { saved = true } })
-    await flush()
+    await until(async () => saved && (await store.listConversations()).length === 1)
     const [conv] = await store.listConversations()
     expect(conv).toMatchObject({ id: '11111111-2222-4333-8444-555555555555', title: 'hello', turns: [{ role: 'user', text: 'hello' }, { role: 'agent', text: 'hi!' }] })
     expect(saved).toBe(true)
