@@ -7,6 +7,9 @@ import { join } from 'node:path'
 import { afterEach, test } from 'node:test'
 import { checkForUpdate, isNewer, parseManifest, signatureValid, signedText, type Manifest } from '../src/updater.ts'
 
+// Packing a release uses macOS's ditto, as build-mac.mjs does.
+const macOnly = { skip: process.platform !== 'darwin' ? 'needs macOS (ditto)' : false }
+
 const roots: string[] = []
 afterEach(() => { for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true }) })
 const tmp = () => {
@@ -50,7 +53,7 @@ function installedApp() {
   return { dir, target }
 }
 
-test('build ids order by time; manifests are validated', () => {
+test('build ids order by time; manifests are validated', macOnly, () => {
   assert.equal(isNewer('20261015T090000Z-bbbbbbb', '20261015T080000Z-aaaaaaa'), true)
   assert.equal(isNewer('20261015T080000Z-ccccccc', '20261015T080000Z-aaaaaaa'), false, 'same time, other commit: no downgrade loop')
   assert.equal(isNewer('20261014T235959Z-ddddddd', '20261015T080000Z-aaaaaaa'), false)
@@ -61,7 +64,7 @@ test('build ids order by time; manifests are validated', () => {
   assert.equal(signatureValid({ ...manifest, size: manifest.size + 1 }, publicKey), false)
 })
 
-test('a newer signed build replaces the app and relaunches it', async () => {
+test('a newer signed build replaces the app and relaunches it', macOnly, async () => {
   const { dir, target } = installedApp()
   const steps: string[] = []
   const result = await checkForUpdate('https://landed.example/', { build: '20261015T080000Z-aaaaaaa', publicKey, dir }, {
@@ -76,7 +79,7 @@ test('a newer signed build replaces the app and relaunches it', async () => {
   assert.equal(existsSync(join(dir, 'updates', '20261015T090000Z-bbbbbbb')), false, 'work files cleaned up')
 })
 
-test('not signed with this install\'s key, tampered, or not newer: nothing is installed', async () => {
+test('not signed with this install\'s key, tampered, or not newer: nothing is installed', macOnly, async () => {
   const { dir, target } = installedApp()
   const installed = { build: '20261015T080000Z-aaaaaaa', publicKey, dir }
   const never = { quitApp: () => assert.fail('quit'), relaunch: () => assert.fail('relaunch'), register: () => assert.fail('register'), notify: () => {} }

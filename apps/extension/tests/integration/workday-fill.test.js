@@ -168,22 +168,22 @@ test('repairs the exact corrupt values seen on a real U.S. Bank Workday form', a
     ...resume,
     basic: {
       ...resume.basic,
-      name: 'Chenjie Yuan', firstName: 'Chenjie', lastName: 'Yuan',
-      location: 'Seattle', phone: '+1 206-605-2162',
+      name: 'Alex Chen', firstName: 'Alex', lastName: 'Chen',
+      location: 'Seattle', phone: '+1 206-555-0100',
     },
   }
   stored['landed:application-answers'] = { answers: {
     ...answers,
-    legal_first_name: 'Chenjie', legal_middle_name: 'Chenjie Yuan', legal_last_name: 'Yuan',
+    legal_first_name: 'Alex', legal_middle_name: 'Alex Chen', legal_last_name: 'Chen',
     address_line1: 'Seattle', address_line2: 'Seattle', city: 'Seattle',
     state: null, postal_code: null, heard_from: null, previously_employed: null,
   } }
   document.body.innerHTML = `
     <button id="settings" aria-haspopup="true" data-automation-id="globalNavigationSettings">Settings</button>
     <form>
-      <label for="first">First Name</label><input id="first" value="Chenjie" data-automation-id="legalNameSection_firstName">
-      <label for="middle">Middle Name</label><input id="middle" value="Chenjie Yuan" data-automation-id="legalNameSection_middleName">
-      <label for="last">Last Name</label><input id="last" value="Yuan" data-automation-id="legalNameSection_lastName">
+      <label for="first">First Name</label><input id="first" value="Alex" data-automation-id="legalNameSection_firstName">
+      <label for="middle">Middle Name</label><input id="middle" value="Alex Chen" data-automation-id="legalNameSection_middleName">
+      <label for="last">Last Name</label><input id="last" value="Chen" data-automation-id="legalNameSection_lastName">
       <label for="street">Address Line 1</label><input id="street" value="Seattle" data-automation-id="addressSection_addressLine1">
       <label for="line2">Address Line 2</label><input id="line2" value="Seattle" data-automation-id="addressSection_addressLine2">
       <label for="city">City</label><input id="city" value="Seattle" data-automation-id="addressSection_city">
@@ -197,8 +197,8 @@ test('repairs the exact corrupt values seen on a real U.S. Bank Workday form', a
         <input id="country-code" role="combobox" data-automation-id="countryPhoneCode">
         <div role="list">United States of America (+1)</div>
       </div>
-      <label for="phone">Phone Number</label><input id="phone" value="+1 206-605-2162" data-automation-id="phone-number">
-      <label for="extension">Phone Extension</label><input id="extension" value="+1 206-605-2162" data-automation-id="phone-extension">
+      <label for="phone">Phone Number</label><input id="phone" value="+1 206-555-0100" data-automation-id="phone-number">
+      <label for="extension">Phone Extension</label><input id="extension" value="+1 206-555-0100" data-automation-id="phone-extension">
       <button id="submit" type="submit">Save and Continue</button>
     </form>`
 
@@ -218,7 +218,7 @@ test('repairs the exact corrupt values seen on a real U.S. Bank Workday form', a
   expect(document.getElementById('street').value).toBe('')
   expect(document.getElementById('line2').value).toBe('')
   expect(document.getElementById('city').value).toBe('Seattle')
-  expect(document.getElementById('phone').value).toBe('2066052162')
+  expect(document.getElementById('phone').value).toBe('2065550100')
   expect(document.getElementById('extension').value).toBe('')
   expect(document.getElementById('source').dataset.selected).toBe('LinkedIn')
   expect(countryClicks).toBe(0)

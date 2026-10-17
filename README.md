@@ -1,3 +1,5 @@
+> **Developing Landed?** Start with [CONTRIBUTING.md](CONTRIBUTING.md) (setup, workflow, releases) and [CLAUDE.md](CLAUDE.md) (product rules and conventions). The design handoff below is the original brief and is partly out of date.
+
 # Handoff: Landed — Job Hunt Operations Tool
 
 > **Running it:** `pnpm install && pnpm dev` (needs a local Postgres). Landed is **local-first**: everyone signs in, but each account's data lives in the browser unless the account turns on **Landed Cloud sync** (`apps/server`, Hono + Postgres) to sync across devices. **Apply Assist** lives in the Landed for Mac menu bar: choose open application pages and a resume there, then let lightweight browser bridges fill them with deterministic rules plus optional local Ollama matching. It never submits an application. See [`apps/server/README.md`](apps/server/README.md) for setup, configuration, and deployment, and `CLAUDE.md` for the data-layer rules. The design handoff below predates both changes: read "Supabase" as `apps/server`.
