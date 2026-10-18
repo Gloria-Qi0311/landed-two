@@ -111,7 +111,9 @@ extension background.js → fillTab: the page plus every frame that reported a f
    ▼
 content scripts (lib/fill/*): rules → saved answers → files → dropdowns/radios
    ├─ unknown labels  → native host → Ollama, else Claude Code (labels and key names only)
-   └─ unanswered choices → native host → Ollama only (prompts carry the user's answers)
+   ├─ unanswered choices → native host → Ollama only (prompts carry the user's answers)
+   └─ review → native host → the user's own agent checks the filled form
+      (sensitive questions left out; picks a fact or an option, never writes text)
    ▼
 fields outlined green (filled) or yellow (needs you) → the user submits
    ▼
@@ -137,7 +139,7 @@ Details are in [pipeline.md](pipeline.md).
 | Server | Store data for a sync-off account (except the briefing); write runtime tasks to the database; forward free-form commands to a daemon |
 | Agents | Edit the pipeline directly; use write tools on the mailbox; click, type or run scripts in Chrome during portal checks |
 | Daemon | Pair without the native confirm dialog; run an agent with the user's own settings, hooks or MCP servers (except the mail or Chrome tools a task needs); install an update not signed with its release key |
-| Extension | Click Submit; bypass a CAPTCHA; tick a consent box unless the user turned that on; send answer values to a remote model |
+| Extension | Click Submit; bypass a CAPTCHA; tick a consent box unless the user turned that on; send answer values anywhere but the user's own agent; send sensitive answers to any model |
 
 ## Common changes, and every place they touch
 

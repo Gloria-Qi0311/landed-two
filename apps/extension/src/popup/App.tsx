@@ -327,6 +327,24 @@ type FillResult = {
   error?: string
   /** upload fields with no saved file ("resume", "cover_letter") */
   missing?: string[]
+  /** the user's own agent checking the filled page (lib/fill/review.js) */
+  agentReview?: AgentReview | null
+}
+
+type AgentReview = { checked: number; fixed: number; flagged: number; left_out: number; model: string | null; error: string | null }
+
+/** One line on the agent review of every page just filled. */
+function reviewLine(results: FillResult[]): string {
+  const reviews = results.map((r) => r.agentReview).filter((r): r is AgentReview => !!r)
+  const ran = reviews.filter((r) => !r.error && r.checked > 0)
+  if (ran.length === 0) {
+    return reviews.some((r) => r.error) ? ' No agent review: Landed for Mac found neither Ollama nor Claude Code.' : ''
+  }
+  const fixed = ran.reduce((sum, r) => sum + r.fixed, 0)
+  const flagged = ran.reduce((sum, r) => sum + r.flagged, 0)
+  const model = ran.map((r) => r.model).find(Boolean) || 'your agent'
+  if (fixed + flagged === 0) return ` ${model} checked the answers and found nothing to change.`
+  return ` ${model} checked the answers: ${fixed} changed, ${flagged} to look at — they're yellow, hover for why.`
 }
 
 // Current resume first, then newest first.
@@ -450,6 +468,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
               filled: Number(response.filled) || 0,
               review: Number(response.review) || 0,
               missing: Array.isArray(response.missing_files) ? response.missing_files : [],
+              agentReview: response.agent_review && typeof response.agent_review === 'object' ? response.agent_review : null,
             })
           }
         })
@@ -460,6 +479,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       const failed = results.filter((result) => result.kind === 'error').length
       const noResumeFile = results.some((result) => result.missing?.includes('resume'))
       setFillNotice(`${filled} fields filled · ${review} need review${failed ? ` · ${failed} page${failed === 1 ? '' : 's'} unavailable` : ''}. You submit each page.`
+        + reviewLine(results)
         + (noResumeFile ? ' No resume file to attach yet: upload your resume on Landed → My Resume, or add it on the Extension page.' : ''))
     } catch (e) {
       setFillNotice(toErr(e))

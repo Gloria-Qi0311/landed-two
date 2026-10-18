@@ -28,6 +28,7 @@ holds the message listener and `handleFill`.
 | `inputs.js` | Text inputs in batches |
 | `dates.js` | Date pickers, multi-entry sections (experience, education) |
 | `ai.js` | Asking the local model for unknown labels and unanswered choices |
+| `review.js` | Where each value came from; the fill report; the agent review after a fill |
 | `frames.js` | A sub-frame showing a form reports itself to the service worker |
 | `portal.js` | Status detection on candidate portal pages |
 
@@ -74,6 +75,7 @@ Deterministic DOM rules run first. Fields are outlined green (filled) or yellow
 3. **Files**: the resume file and cover letter go into upload fields.
 4. **Unknown labels** go to `apps/daemon/src/native-host.ts` → `match_fields`.
 5. **Unanswered choices** go to `native-host.ts` → `choose_options`.
+6. **Review**: the user's own agent checks the filled form → `review_fill` (below).
 
 ### Forms in iframes and web components
 
@@ -97,10 +99,50 @@ the field's own root, and the outline styles are injected there too.
 - **`choose_options`** is **local Ollama only**: these prompts carry the user's
   answers as facts, so there is no Claude fallback. The model returns an option
   index (≥ 0.85), and the extension clicks that existing option.
+- **`review_fill`** (below) sends filled values to the user's own agent, with
+  sensitive questions left out.
 - Page labels are untrusted prompt text.
 
 Browser extensions are the only code that touches the DOM, and they **never
 click Submit / Apply / Finish**.
+
+### Review after filling
+
+Product decision (2026-10-18, #95): after a full fill, the user's own agent checks
+the answers, the way it already parses and tailors their resume. The user's
+Claude Code goes first, with the same sandbox as `match_fields` (`claudeArgs`),
+else local Ollama (`qwen3.5:9b` when installed). In testing, 8 fields with 4
+planted errors: Claude Code (haiku) caught 4, qwen3.5:9b 3, qwen3.5:4b 2. Without
+either, the fill finishes without a review.
+
+Token use: a one-line system prompt replaces Claude Code's own (about 6k tokens)
+and thinking is capped at 1024 tokens (`MAX_THINKING_TOKENS`; with none, haiku
+missed the error that takes an inference). A page costs about 2k tokens in and
+1.5–2k out. `match_fields` gets the same short system prompt and no thinking:
+about 1.5k tokens a call.
+
+1. **Where each value came from.** Each fill phase tags what it filled
+   (`data-landed-source`): `answers` (saved application answers), `resume`
+   (a resume rule), `entries` (experience and education rows), `saved` (custom
+   fields, learned mappings), `model` (the local model), `page` (there before
+   Landed), `file`.
+2. **The fill report** (`fillReport` in `lib/fill/review.js`): every field Landed
+   touched, with its question, the value now in it, its source and, for selects
+   and radio groups, the options. Experience and education rows, files and
+   checkboxes are left out. So is every sensitive question (`neverSent`:
+   voluntary EEO, date of birth, ID and passport numbers, salary, consent and
+   terms); the summary only counts them.
+3. **Facts** (`reviewFacts`): saved answers as `answers.<kind>` and resume values
+   as `resume.<key>`, sensitive ones and long descriptions left out.
+4. **The reviewer** (`review_fill` in `native-host.ts`) answers each field with ok,
+   fix or doubt. A fix names a fact key, and the host supplies that fact's value,
+   or an option index; anything else, or confidence below 0.85, becomes a doubt
+   (≥ 0.6) or nothing. The reviewer never writes text.
+5. **Applying.** A fix replaces values from a resume rule or the local model and
+   fills empty fields. Values from the user's saved answers, saved fields or the
+   page itself are only flagged. Changed and flagged fields turn yellow with the
+   reason (`data-landed-note`, also the field's tooltip) and join the review list.
+   The popup says what the agent changed and how many to look at.
 
 ## Application answers and the Extension page
 

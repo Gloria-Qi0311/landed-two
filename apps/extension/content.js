@@ -12,6 +12,7 @@
 //   inputs    text fields from the resume
 //   dates     date pickers and multi-entry sections
 //   ai        local-model fallbacks (key or option picks, never invented values)
+//   review    the user's own agent checks the filled form (picks, never writes)
 //   frames    forms in iframes report to the service worker
 //   portal    portal confirmation pages → events
 //
@@ -20,7 +21,7 @@
 // answers in lib/choice-answers.js. Type-checked via JSDoc + checkJs
 // (tsconfig.json).
 
-const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillField, fillInputBatch, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runLLMFallback, setSelectOption, tryFillCombobox, tryFillSelect } = window.LandedFill;
+const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillField, fillInputBatch, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, tagFilled, tryFillCombobox, tryFillSelect } = window.LandedFill;
 const { normalize, getFieldLabel, matchResumeKey } = window.ResumeFillerFieldDetect;
 const CL = window.ResumeFillerCrossLingual;
 const CA = window.LandedChoiceAnswers;
@@ -81,6 +82,8 @@ async function handleFill(resumeData, customFields, opts) {
     if (kind && !file) missingFiles.add(kind);
     if (isRendered(el) || label) addManual(manual, el, label || '文件上传', '文件上传', null);
   }
+  // Where each value came from, for the review at the end (lib/fill/review.js).
+  tagFilled('file');
 
   // Phase 0: text fields the answers cover (legal names, address, date of
   // birth, signature, today's date…) — before the resume rules, which would
@@ -108,9 +111,11 @@ async function handleFill(resumeData, customFields, opts) {
       answered.add(el);
     }
   }
+  tagFilled('answers');
 
   // Phase 1：填所有可见 input / textarea
   fillInputBatch(getVisibleInputs(), flat, filled, manual, answered);
+  tagFilled('resume');
 
   // Phase 2：原生 <select> 匹配填值
   for (const el of /** @type {HTMLSelectElement[]} */ (deepAll('select'))) {
@@ -127,6 +132,7 @@ async function handleFill(resumeData, customFields, opts) {
       const index = CA.pickOption(answer, options.map((o) => o.text));
       if (index >= 0) {
         setSelectOption(el, options[index]);
+        setSource(el, 'answers');
         filled.push('answer:' + kind);
         continue;
       }
@@ -167,15 +173,18 @@ async function handleFill(resumeData, customFields, opts) {
     const existing = existingComboboxTexts(el, label);
     if (answer && existing.length && choose(existing) >= 0) {
       markField(el, 'filled');
+      setSource(el, 'answers');
       filled.push('answer:' + kind);
       continue;
     }
     if (answer && await chooseInCombobox(el, choose, answer.type === 'text' ? answer.value : '')) {
+      setSource(el, 'answers');
       filled.push('answer:' + kind);
       continue;
     }
     if (!answer && existing.length) {
       markField(el, 'filled');
+      setSource(el, 'page');
       continue;
     }
     if (isSensitiveLabel(label)) {
@@ -208,6 +217,8 @@ async function handleFill(resumeData, customFields, opts) {
     }
   }
 
+  tagFilled('resume');
+
   // Phase 4：富文本 / contenteditable
   for (const el of deepAll('[contenteditable="true"], [role="textbox"]')) {
     const label = getFieldLabel(el) || '富文本编辑器';
@@ -221,6 +232,7 @@ async function handleFill(resumeData, customFields, opts) {
     ? window.normalizeResume(resumeData)
     : null;
   if (resume) await fillAllSectionDates(resume, filled);
+  tagFilled('entries');
 
   // Phase 6: radio buttons and checkboxes. Answered only from the user's
   // saved application answers (never guessed); consent boxes only when they
@@ -269,6 +281,8 @@ async function handleFill(resumeData, customFields, opts) {
     }
   }
 
+  tagFilled('answers');
+
   // Phase 7：user-learned custom fields and label→resumeKey mappings.
   // customFields: { section: { label: literalValue } } — value is fixed.
   // labelMappings: { label: resumeKey } — value comes from the current
@@ -316,6 +330,8 @@ async function handleFill(resumeData, customFields, opts) {
     }
   }
 
+  tagFilled('saved');
+
   // Explicit custom answers and learned mappings run after the generic scan.
   // If one resolved a field, do not keep its earlier review entry or send it
   // to either model fallback.
@@ -349,5 +365,11 @@ async function handleFill(resumeData, customFields, opts) {
     }
   }
 
-  return { filled, manual, missing_files: Array.from(missingFiles) };
+  tagFilled('model');
+
+  // Phase 9: the user's own agent reviews the filled form (local Ollama, else
+  // their Claude Code). Changed fields turn yellow; sensitive ones aren't sent.
+  const review = opts.aiTakeover ? await runFillReview(manual, answers, flat) : null;
+
+  return { filled, manual, missing_files: Array.from(missingFiles), review };
 }

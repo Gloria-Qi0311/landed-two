@@ -219,12 +219,13 @@ async function pollAllPortals() {
 
 // Apply Assist: page content scripts never call Ollama or a network API.
 // Chrome starts Landed.app's registered Native Messaging host and hands it
-// only field labels plus the selected resume's flat values. The host returns
-// typed key selections; content.js remains the only code that touches DOM.
+// field labels plus the selected resume's flat values (and, to review a fill,
+// the filled form with sensitive questions left out). The host returns typed
+// key or option selections; content.js remains the only code that touches DOM.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || msg.action !== 'native-assist') return
   const request = msg.request
-  if (!request || !['ping', 'match_fields', 'choose_options'].includes(request.type)) {
+  if (!request || !['ping', 'match_fields', 'choose_options', 'review_fill'].includes(request.type)) {
     sendResponse({ ok: false, error: 'invalid native request' })
     return true
   }
@@ -429,7 +430,20 @@ async function fillTab(tabId, resume) {
   const count = (key) => answered.reduce((sum, r) => sum + (Array.isArray(r[key]) ? r[key].length : 0), 0)
   const attached = new Set(answered.flatMap((r) => (Array.isArray(r.filled) ? r.filled : [])).filter((f) => String(f).startsWith('file:')).map((f) => String(f).slice(5)))
   const missing = [...new Set(answered.flatMap((r) => (Array.isArray(r.missing_files) ? r.missing_files : [])))].filter((kind) => !attached.has(kind))
-  return { tabId, filled: count('filled'), review: count('manual'), missing_files: missing, frames: answered.length }
+  return { tabId, filled: count('filled'), review: count('manual'), missing_files: missing, frames: answered.length, agent_review: addReviews(answered) }
+}
+
+/** The agent review of each frame (lib/fill/review.js), added up. */
+function addReviews(responses) {
+  const reviews = responses.map((r) => r.review).filter((r) => r && typeof r === 'object')
+  if (reviews.length === 0) return null
+  const sum = (key) => reviews.reduce((total, r) => total + (Number(r[key]) || 0), 0)
+  const ran = reviews.filter((r) => !r.error)
+  return {
+    checked: sum('checked'), fixed: sum('fixed'), flagged: sum('flagged'), left_out: sum('left_out'),
+    model: ran.map((r) => r.model).find((m) => typeof m === 'string') || null,
+    error: ran.length === 0 ? reviews.map((r) => r.error).find(Boolean) || null : null,
+  }
 }
 
 // The popup's Fill: same frame-aware fill, with the resume it picked.

@@ -98,6 +98,12 @@ messages (PR title and a clean body, no trailer).
   Claude Code with no tools), and the host supplies the value. `choose_options`
   carries the user's answers, so it is local Ollama only. Page text is untrusted
   prompt input.
+- The review after a fill (`review_fill`) is the one call that sends filled values
+  beyond the local model: to the user's own agent only (their Claude Code with no
+  tools, else Ollama), never sensitive questions or facts (voluntary EEO, date of
+  birth, ID numbers, salary, consent). The reviewer picks a fact key or an option,
+  never writes text, and values from the user's saved answers or the page are only
+  flagged, never replaced.
 - Fill code lives in `apps/extension/lib/fill/*.js`, each module registered on
   `window.LandedFill` and listed in `manifest.json` before `content.js`.
 - Every read-modify-write of the extension's pending queue goes through
