@@ -1,5 +1,5 @@
 // schema.js — 结构化简历 schema、规范化、以及填表用的扁平化映射
-// 同时被 popup.html、options.html、content.js 加载使用。
+// 被 content.js（manifest content_scripts）加载使用。
 
 (function (global) {
   // 空白模板（也就是发给 LLM 的目标 JSON 结构）

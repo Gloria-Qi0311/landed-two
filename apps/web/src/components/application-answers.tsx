@@ -10,9 +10,9 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { answeredCount, EMPTY_ANSWERS, type ApplicationAnswers, type YesNo } from '@landed/schema/application-answers'
 import { Icon } from './primitives'
 import { useApplicationAnswers, useSaveApplicationAnswers } from '../hooks/answers'
+import { muted, card as baseCard } from './ui'
 
-const muted: CSSProperties = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }
-const card: CSSProperties = { background: 'var(--surface)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }
+const card: CSSProperties = { ...baseCard, gap: 12 }
 const rowStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(220px, 1.3fr)', gap: 12, alignItems: 'center', padding: '8px 0', borderTop: '1px solid var(--border-subtle)' }
 const input: CSSProperties = { width: '100%', fontSize: 12.5 }
 

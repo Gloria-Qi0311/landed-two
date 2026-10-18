@@ -1,9 +1,7 @@
 // Snapshot store — service-worker / content-script edition.
 //
-// Hand-mirrors packages/extension-core/src/snapshot-store.js because the
-// MV3 service worker can't `import` from workspace packages without
-// switching to module-type SW (out of scope for #34). The ESM version is
-// the canonical source; vitest coverage lives alongside it.
+// A classic script (the MV3 service worker loads it with importScripts).
+// Tests: tests/snapshot-store.test.js.
 //
 // Loaded via `importScripts('lib/snapshot-store.js')` from background.js;
 // registers on globalThis (= self in SW context) as

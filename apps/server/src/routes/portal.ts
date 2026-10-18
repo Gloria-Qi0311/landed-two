@@ -26,7 +26,7 @@ type ConnectionInput = {
 }
 
 // Single atomic upsert on the (user_id, company_id, provider) constraint —
-// never SELECT-then-UPDATE-or-INSERT (see CLAUDE.md).
+// never SELECT-then-UPDATE-or-INSERT (see docs/data-and-sync.md).
 async function upsertConnection(sql: Sql, userId: string, input: ConnectionInput) {
   const [row] = await sql`
     insert into portal_connections

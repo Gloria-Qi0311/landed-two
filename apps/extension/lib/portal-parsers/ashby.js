@@ -1,6 +1,5 @@
-// Ashby portal parser — content-script edition. Mirrors
-// packages/extension-core/src/portal-parsers/ashby.js (canonical ESM
-// source). Registers `window.LandedPortalParsers.ashby`.
+// Ashby portal parser — content-script edition. Registers
+// `window.LandedPortalParsers.ashby`. Tests: tests/portal-parsers/ashby.test.js.
 (function () {
   'use strict'
 

@@ -9,9 +9,8 @@ import { Icon, stageColors } from './primitives'
 import { STAGE_LABELS } from '../data'
 import { dismissDuplicates, duplicateGroups, isDupQuestion, mergeApplications, pickPrimary } from '../lib/duplicates'
 import { useStore, type DbApplication } from '../lib/store'
+import { muted, danger } from './ui'
 
-const muted = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 } as const
-const danger = 'oklch(0.45 0.15 30)'
 const card = {
   borderRadius: 12, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '12px 14px',
   display: 'flex', flexDirection: 'column', gap: 8,

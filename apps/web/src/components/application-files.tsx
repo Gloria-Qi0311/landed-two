@@ -3,15 +3,13 @@
 // letter" upload fields when it fills a form (apps/extension/content.js).
 // Stored like the rest of the data (this browser, or Landed Cloud with sync
 // on); the extension keeps a copy in its own storage.
-import { useRef, useState, type CSSProperties } from 'react'
+import { useRef, useState } from 'react'
 import { MAX_FILE_BYTES, type FileKind } from '@landed/schema/application-files'
 import { Icon } from './primitives'
 import { formatRelative } from '../lib/time'
 import { useApplicationFiles, useDeleteApplicationFile, useSaveApplicationFile } from '../hooks/answers'
+import { muted, danger, card } from './ui'
 
-const muted: CSSProperties = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }
-const danger = 'oklch(0.45 0.15 30)'
-const card: CSSProperties = { background: 'var(--surface)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }
 
 const SLOTS: { kind: FileKind; title: string; help: string }[] = [
   { kind: 'resume', title: 'Resume / CV', help: 'Goes into “Resume”, “CV” and “Attach resume” upload fields. The newest file you add on My Resume lands here too.' },

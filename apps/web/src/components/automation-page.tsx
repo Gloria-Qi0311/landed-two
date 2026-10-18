@@ -27,9 +27,8 @@ import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
 import { useActiveSearch, useEditBrief } from '../hooks/search'
 import { useAgentConnections } from '../hooks/agents'
 import { useRuntimes } from '../hooks/runtimes'
+import { mutedLarge as muted, danger } from './ui'
 
-const muted = { fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 } as const
-const danger = 'oklch(0.45 0.15 30)'
 const card = { background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12 } as const
 const select = { fontSize: 12.5 } as const
 

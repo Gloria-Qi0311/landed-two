@@ -1,9 +1,11 @@
 # Working on Landed
 
 How to run Landed on your own machine, how changes get in, and how they ship.
-The product rules every change follows — local-first data, what agents may
-do, the Apply Assist safety rules, visual style — are in [CLAUDE.md](CLAUDE.md).
-Read it once; Claude Code reads it on every session.
+The rules every change follows (local-first data, what agents may do, the
+Apply Assist safety rules, visual style) are in [CLAUDE.md](CLAUDE.md). Claude
+Code reads it on every session. How the parts fit together is in
+[docs/architecture.md](docs/architecture.md), and each area has its own doc in
+[docs/](docs/): read the one for the area you're changing first.
 
 ## What's where
 
@@ -15,6 +17,7 @@ Read it once; Claude Code reads it on every session.
 | `apps/extension` | Browser extension: Apply Assist autofill, portal status detection. Chrome/Edge/Brave, and Safari through Landed for Mac. |
 | `packages/schema` | Shapes and validators shared by web, server, daemon. |
 | `packages/observation-processor` | The only place matching / auto-apply rules live. |
+| `docs/` | Architecture and one doc per area; `docs/history/` keeps early notes and the first prototype. |
 
 ## Set up
 
@@ -66,10 +69,12 @@ pnpm typecheck && pnpm lint && pnpm test
 - Open a pull request into `main`. CI (`.github/workflows/ci.yml`) runs typecheck, lint and every
   test; the other person reviews; then **squash-merge**.
 - Commit messages describe what changed and why. Don't add `Co-Authored-By` trailers (see CLAUDE.md).
-- A new product rule or convention goes into CLAUDE.md in the same PR.
+- A new product rule or convention goes into CLAUDE.md (one line) and the area doc in `docs/`, in the same PR.
 - Two people (or two Claude Code sessions) shouldn't work on the same branch at once. If you share
   files, pull first and keep the PR small.
-- Database changes are new files in `apps/server/migrations/` — never edit an applied migration.
+- Database changes are new files in `apps/server/migrations/` — never edit an applied migration. A new
+  migration or browser database version (Dexie) takes the next number after the highest one in `main`;
+  put that number in the PR title so two PRs don't take the same one.
 
 ## Releasing
 

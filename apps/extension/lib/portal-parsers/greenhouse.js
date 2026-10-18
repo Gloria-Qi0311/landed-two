@@ -1,10 +1,6 @@
 // Greenhouse portal parser — content-script edition.
 //
-// Hand-mirrors packages/extension-core/src/portal-parsers/greenhouse.js
-// because content scripts can't `import` from workspace packages. The ESM
-// version is the canonical source: tests live alongside it, behaviour
-// changes happen there first, then this file gets updated in sync. We
-// flag drift via the matching test suite the SW path exercises.
+// Tests: tests/portal-parsers/greenhouse.test.js.
 //
 // Loaded into the page via manifest.json content_scripts as a classic
 // (non-module) script and registers on globalThis (= window in the page

@@ -43,6 +43,9 @@ function toAppShape(row: DbApplication) {
   }
 }
 
+/** An application as the board, cards and drawer show it. */
+export type BoardApp = ReturnType<typeof toAppShape>
+
 function toCompanyShape(row: DbCompany) {
   return {
     id: row.id,
@@ -55,6 +58,9 @@ function toCompanyShape(row: DbCompany) {
     portalOk: true, // legacy field — derived from portal_connections in #20
   }
 }
+
+/** A company as the board shows it. */
+export type BoardCompany = ReturnType<typeof toCompanyShape>
 
 // ─── reads ─────────────────────────────────────────────────────────────────
 

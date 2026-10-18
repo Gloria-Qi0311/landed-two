@@ -4,7 +4,7 @@
 // user checks, finishes and submits. The "thanks for applying" page then
 // moves this application to Applied (lib/apply-assist.ts). Hidden without
 // the Landed extension in this browser.
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Icon } from './primitives'
 import { bridgeCall, onExtensionReady } from '../lib/extension-bridge'
@@ -13,9 +13,8 @@ import { useResumes } from '../hooks/resumes'
 import { useRecordApplyClick } from '../hooks/inbox'
 import type { ClickTarget } from '../lib/inbox'
 import type { DbJobLead } from '../lib/store'
+import { muted, danger } from './ui'
 
-const muted: CSSProperties = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }
-const danger = 'oklch(0.45 0.15 30)'
 
 /** The extension's version, or null when it isn't installed here. */
 export function useExtension() {

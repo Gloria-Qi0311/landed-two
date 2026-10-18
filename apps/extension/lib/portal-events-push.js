@@ -1,9 +1,8 @@
 // portal-events-push — service-worker / content-script edition.
 //
-// Hand-mirrors packages/extension-core/src/portal-events-push.js. The
-// ESM version is canonical (vitest lives alongside it). Loaded via
-// `importScripts('lib/portal-events-push.js')` from background.js;
-// registers on globalThis as `LandedPortalEventsPush`.
+// Loaded via `importScripts('lib/portal-events-push.js')` from
+// background.js; registers on globalThis as `LandedPortalEventsPush`.
+// Tests: tests/portal-events-push.test.js.
 (function () {
   'use strict'
 

@@ -29,13 +29,9 @@ window.Element.prototype.getBoundingClientRect = function () {
   return { width: 100, height: 20, top: 0, left: 0, right: 100, bottom: 20, x: 0, y: 0 }
 }
 
-require('../../schema.js')
-require('../../lib/field-detect.js')
-require('../../lib/value-match.js')
-require('../../lib/cross-lingual.js')
-require('../../lib/choice-answers.js')
-window.LandedPortalParsers = { workday: { isWorkdayUrl: () => true } }
-require('../../content.js')
+require('../helpers/content-scripts').loadContentScripts({
+  before: () => { window.LandedPortalParsers = { workday: { isWorkdayUrl: () => true } } },
+})
 
 const resume = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'fixtures', 'sample-resume.json'), 'utf8'))
 const fill = (resumeData = resume) => new Promise((resolve) => listeners[0]({ action: 'fill', resume: resumeData }, null, resolve))

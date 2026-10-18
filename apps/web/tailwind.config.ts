@@ -9,9 +9,9 @@ import type { Config } from 'tailwindcss'
  * `bg-bg` / `text-fg-muted` / `border-border` etc. automatically respect
  * the active theme. The values below are pointers, not literals.
  *
- * Stage colors mirror the per-stage palette in components/primitives.jsx
+ * Stage colors mirror the per-stage palette in components/primitives.tsx
  * (8 stages × {bg, fg, dot, ring}). Keeping a single source of truth in
- * primitives.jsx (the canonical JS object the components import) and
+ * primitives.tsx (the canonical JS object the components import) and
  * surfacing them here as utilities for any future Tailwind-styled UI.
  */
 export default {
@@ -64,7 +64,7 @@ export default {
         display: 'var(--font-display)',
         mono: 'var(--font-mono)',
       },
-      // Prototype's documented type scale (design-system.html)
+      // Prototype's documented type scale (docs/history/prototype/design-system.html)
       fontSize: {
         'eyebrow': ['10.5px', { lineHeight: '1.4', letterSpacing: '0.06em' }],
         'micro':   ['11px',   { lineHeight: '1.4' }],

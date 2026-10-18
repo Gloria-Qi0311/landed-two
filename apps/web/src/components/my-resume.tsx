@@ -13,9 +13,8 @@ import { useResumeGroups, useUpdateResume } from '../hooks/resumes'
 import { agentFor, useRuntimes, type TaskKind } from '../hooks/runtimes'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { useJobLeads } from '../hooks/inbox'
+import { mutedLarge as muted, danger } from './ui'
 
-const muted = { fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 } as const
-const danger = 'oklch(0.45 0.15 30)'
 const card = { background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', borderRadius: 12, padding: 18 } as const
 const KIND_LABEL = { experience: 'Experience', internship: 'Internships', project: 'Projects' } as const
 

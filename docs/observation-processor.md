@@ -1,6 +1,6 @@
 # Observation 处理程序设计（v0.1，已实现）
 
-> 状态：已实现。规则在 `packages/observation-processor`（纯函数 + 测试），浏览器里的运行和用户操作在 `apps/web/src/lib/inbox.ts`。
+> 状态：已实现。规则在 `packages/observation-processor`（纯函数 + 测试），浏览器里的运行和用户操作在 `apps/web/src/lib/inbox/`。
 >
 > **验收后的产品调整（2026-10-10）**：
 > 1. 待投递清单不再是单独页面，改为 Applications 看板最左边的 **Leads** 列。拖进某个阶段列就加入投递，点 ✕ 就是忽略。
@@ -154,7 +154,7 @@
 
 ## 8. 数据模型新增
 
-本地（Dexie 新版本）和云端（新 migration）同时增加，并加进备份格式（`SNAPSHOT_TABLES`）。规则见 `CLAUDE.md`。
+本地（Dexie 新版本）和云端（新 migration）同时增加，并加进备份格式（`SNAPSHOT_TABLES`）。规则见 `docs/data-and-sync.md`。
 
 **`job_leads`**（待投递清单）
 - `id`、`fingerprint`：ATS 职位键，没有的话用"公司 + 职位名 + 地点"的哈希。云端对 `(user_id, fingerprint)` 加唯一约束，配合 upsert。

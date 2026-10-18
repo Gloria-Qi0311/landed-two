@@ -4,7 +4,6 @@
 // (components/application-files.tsx), the consent switch and the
 // application answers (components/application-answers.tsx). The extension
 // gets them over the page bridge (hooks/extension-bridge.ts).
-import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from './primitives'
 import { PageHeader } from './shell'
@@ -12,9 +11,8 @@ import { ApplicationAnswersPane } from './application-answers'
 import { ApplicationFilesCard } from './application-files'
 import { useExtension } from './apply-assist'
 import { useCurrentResume } from '../hooks/resumes'
+import { muted, card } from './ui'
 
-const muted: CSSProperties = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.55 }
-const card: CSSProperties = { background: 'var(--surface)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }
 
 function StatusCard() {
   const ext = useExtension()

@@ -55,18 +55,8 @@ function patchVisibility() {
 }
 
 // Load libs in manifest order, then content.js. Done once per test file.
-require("../../schema.js");
-require("../../lib/field-detect.js");
-require("../../lib/value-match.js");
-// cross-lingual is optional — only require if present (it lives behind
-// a separate PR / branch and may not be on the current main).
-try {
-  require("../../lib/cross-lingual.js");
-} catch {
-  // no-op: integration framework works with or without cross-lingual.
-}
 patchVisibility();
-require("../../content.js");
+require("../helpers/content-scripts").loadContentScripts();
 
 const sampleResume = JSON.parse(fs.readFileSync(SAMPLE_RESUME_PATH, "utf8"));
 

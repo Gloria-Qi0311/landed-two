@@ -2,7 +2,7 @@
 // brief) and how its last run went. Mounted behind requireCloud — sync-off
 // accounts keep these in their browser. Runs happen on the user's computer
 // (routes/runtime.ts, task kind `job_search`); results become job leads in
-// the browser (apps/web/src/lib/inbox.ts → ingestFoundJobs).
+// the browser (apps/web/src/lib/inbox/leads.ts → ingestFoundJobs).
 import { parseBrief } from '@landed/schema/search-brief'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'

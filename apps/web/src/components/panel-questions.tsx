@@ -8,7 +8,7 @@
 //   - "These look like the same application": merge, or keep both
 //     (components/duplicates.tsx).
 // Each closes itself when an email, a portal check or a manual move answers
-// it (settleQuestions in lib/inbox.ts).
+// it (settleQuestions in lib/inbox/questions.ts).
 import { useMemo, type ReactNode } from 'react'
 import { Icon } from './primitives'
 import { formatRelative } from '../lib/time'
@@ -20,6 +20,7 @@ import { useApplications, useCompanies } from '../hooks/queries'
 import { browserAgent, portalTarget } from '../hooks/portal'
 import { useRuntimes } from '../hooks/runtimes'
 import { DuplicatesReview, useDuplicates } from './duplicates'
+import { muted, danger } from './ui'
 
 type AppShape = {
   id: string; companyId: string; role: string; stage: string; location: string
@@ -27,8 +28,6 @@ type AppShape = {
 }
 type CompanyShape = { id: string; name: string }
 
-const muted = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 } as const
-const danger = 'oklch(0.45 0.15 30)'
 const DAY = 86_400_000
 
 export function usePanelQuestions() {

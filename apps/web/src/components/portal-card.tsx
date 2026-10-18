@@ -4,18 +4,16 @@
 // for quiet applications and Automation runs on a schedule). What it finds
 // goes through the processor in ask-first mode. Replaces a mock-up that
 // showed made-up sync states.
-import type { CSSProperties } from 'react'
 import { Icon } from './primitives'
 import { formatRelative } from '../lib/time'
 import { usePortalCheck } from '../lib/portal-check'
 import { browserAgent, portalTarget } from '../hooks/portal'
 import { useRuntimes } from '../hooks/runtimes'
 import { useSuggestions } from '../hooks/inbox'
+import { muted, danger } from './ui'
 
 type App = { id: string; role: string; stage: string; portal_application_url: string | null }
 
-const muted: CSSProperties = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }
-const danger = 'oklch(0.45 0.15 30)'
 
 const host = (url: string) => {
   try {

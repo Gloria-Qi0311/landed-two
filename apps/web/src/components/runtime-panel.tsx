@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react'
 import { Icon } from './primitives'
 import { formatRelative } from '../lib/time'
 import { usePairRuntime, useRemoveRuntime, useRuntimes, type Runtime } from '../hooks/runtimes'
+import { mutedLarge as muted } from './ui'
 
-const muted = { fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.55 } as const
 
 /** Pair a new computer: creates the key, then polls until the daemon connects. */
 export function usePairing() {

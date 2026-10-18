@@ -1,7 +1,7 @@
 // "Open & autofill" on a lead or a saved application: the extension opens
 // the posting and fills the form with the resume Landed picks here, and the
 // "thanks for applying" page lands on this application (extension:
-// background.js → openAndFill; Landed: lib/inbox.ts →
+// background.js → openAndFill; Landed: lib/inbox/confirmations.ts →
 // ingestPortalConfirmations). The extension never submits.
 import { canonicalUrl, companyKey, titleSimilarity } from '@landed/observation-processor'
 import type { DbResume } from './store/types'

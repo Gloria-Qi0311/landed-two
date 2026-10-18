@@ -11,12 +11,11 @@
 //       popup/index.html        ← bundled
 //       assets/popup-<hash>.js
 //       manifest.json           ← copied from root by closeBundle hook
-//       background.js / content.js / schema.js / i18n.js  ← copied
+//       background.js / content.js / schema.js  ← copied
 //       lib/*.js / icons/* / assets/*                     ← copied
 //
 // Once built, "Load Unpacked" the dist/ directory in chrome://extensions
-// (NOT apps/extension/ — that points at the old vanilla popup.html which
-// will be retired in a follow-up once all popup features are ported).
+// (the popup and options pages only exist there, built from src/).
 //
 // Static-file copy is a tiny inline plugin instead of vite-plugin-static-copy
 // to keep the dep tree small. cpSync(..., { recursive: true }) is Node ≥ 16.7
@@ -37,7 +36,7 @@ function copyMv3Static() {
       const root = __dirname
       const dist = resolve(__dirname, 'dist')
       // Single files
-      for (const f of ['manifest.json', 'background.js', 'content.js', 'schema.js', 'i18n.js']) {
+      for (const f of ['manifest.json', 'background.js', 'content.js', 'schema.js']) {
         cpSync(resolve(root, f), resolve(dist, f))
       }
       // Directories

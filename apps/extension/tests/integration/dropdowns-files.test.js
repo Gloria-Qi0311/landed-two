@@ -51,12 +51,7 @@ window.Element.prototype.getBoundingClientRect = function () {
   return { width: 100, height: 20, top: 0, left: 0, right: 100, bottom: 20, x: 0, y: 0 }
 }
 
-require('../../schema.js')
-require('../../lib/field-detect.js')
-require('../../lib/value-match.js')
-try { require('../../lib/cross-lingual.js') } catch { /* optional */ }
-require('../../lib/choice-answers.js')
-require('../../content.js')
+require('../helpers/content-scripts').loadContentScripts()
 
 const resume = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'fixtures', 'sample-resume.json'), 'utf8'))
 const fill = () => new Promise((resolve) => onMessageListeners[0]({ action: 'fill', resume, aiTakeover: true }, null, resolve))

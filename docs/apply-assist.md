@@ -1,0 +1,219 @@
+# Extension, Apply Assist and Landed for Mac
+
+Apply Assist fills job application forms in the user's browser. **It stays local
+and never submits**: the user checks the form and clicks Submit themselves.
+
+## Code layout (`apps/extension`)
+
+| Piece | Files | Runs in |
+|---|---|---|
+| Service worker | `background.js` | The extension. Tab registry, `fillTab`, portal polling, pending-event queue, native messaging |
+| Content scripts | `manifest.json` → `content_scripts[0]`, in this order: `schema.js`, `lib/*` helpers, `lib/portal-parsers/*`, `lib/choice-answers.js`, `lib/fill/*.js`, `content.js` | Every frame of every page (`all_frames`, `match_about_blank`) |
+| Page bridge | `lib/web-bridge.js` (content script on Landed origins), `lib/bridge-handler.js` | Landed web tabs only |
+| Popup and options | `src/popup/App.tsx`, `src/options/App.tsx` (React, built by Vite) | The extension |
+
+Content scripts are classic scripts that share the page's `window`. The fill code
+is split by kind of field. Each `lib/fill/*.js` file is an IIFE that takes what it
+needs from `window.LandedFill` and adds its own functions to it. `content.js` only
+holds the message listener and `handleFill`.
+
+| Module | What it does |
+|---|---|
+| `core.js` | Field ids, `deepAll` / `isRendered` (open shadow roots), outlining, sensitive labels, `fillField`, visible inputs |
+| `selects.js` | Native `<select>` |
+| `values.js` | Turning resume and answer values into what a field wants |
+| `combobox.js` | Search-box dropdowns (react-select, place autocompletes), `chooseCity` |
+| `files.js` | Resume and cover letter uploads |
+| `choices.js` | Radio and checkbox groups, saved answers |
+| `inputs.js` | Text inputs in batches |
+| `dates.js` | Date pickers, multi-entry sections (experience, education) |
+| `ai.js` | Asking the local model for unknown labels and unanswered choices |
+| `frames.js` | A sub-frame showing a form reports itself to the service worker |
+| `portal.js` | Status detection on candidate portal pages |
+
+A new module goes in `manifest.json` before `content.js`. Tests load the content
+scripts in manifest order through `tests/helpers/content-scripts.js`, so whole-page
+fill tests run the same code as the browser.
+
+## Control surfaces
+
+- **Landed for Mac menu bar app** (`apps/daemon/macos/LandedMenuBar.swift`): the
+  primary control surface. It lists pages reported by every connected browser
+  profile, lets the user choose up to five pages, and writes per-session commands
+  under `~/.landed/apply-assist`.
+- **Extension popup**: one Fill button for the current tab (`fill-tab`).
+- **Open & autofill from Landed** (below).
+
+The resume is **automatic by default** (`resume_id: "auto"`). Each page gets the
+version tailored for its job: the application Landed opened it for, the target's
+link, or company + most of the role in the page title; else the current resume;
+else the master (`apps/extension/lib/resume-pick.js`, the same rule as
+`pickResumeFor` on the web). The page bridge sends each version's
+`{role, company, job_url, application_id}` with the resumes. The user can still
+choose one.
+
+The extension is a lightweight DOM bridge. It publishes only tab metadata and
+resume names, keeps resume contents in browser storage, receives menu commands,
+and fills selected pages in parallel. Chromium uses the registered
+`dev.landed.assist` Native Messaging host. Safari uses the embedded Web Extension
+handler plus the loopback-only server in `apps/daemon/src/safari-bridge.ts`, and
+the menu app wakes it with `SFSafariApplication`. Landed.app embeds Safari support
+and registers the native host for Chrome, Chromium, Brave and Edge during
+`setup`; each browser profile still needs one explicit enable step. Future
+Firefox support should reuse the local session protocol instead of moving the UI
+back into a browser.
+
+## How a page is filled
+
+Deterministic DOM rules run first. Fields are outlined green (filled) or yellow
+(needs review).
+
+1. **Saved answers** for text fields first (legal names before the resume rules),
+   then native selects, custom dropdowns and radio groups.
+2. **Resume rules** for the rest.
+3. **Files**: the resume file and cover letter go into upload fields.
+4. **Unknown labels** go to `apps/daemon/src/native-host.ts` → `match_fields`.
+5. **Unanswered choices** go to `native-host.ts` → `choose_options`.
+
+### Forms in iframes and web components
+
+Content scripts run in every frame (`all_frames`). A sub-frame showing a form (3+
+fields, not a chat box or newsletter signup, re-checked as dialogs open) reports
+`frame-form` to the service worker. The service worker keeps the tab's form frames
+in session storage and fills the page plus those frames, adding the results up
+(`fillTab` in `background.js`; the popup's Fill goes through it with
+`fill-tab`). Queries reach into open shadow roots (`deepAll`), labels resolve in
+the field's own root, and the outline styles are injected there too.
+
+### Models: labels and key names only
+
+- **`match_fields`** uses the user's Ollama, or without it the user's Claude Code
+  (`claude -p`, `--tools ''`, `--strict-mcp-config`, `--setting-sources ''`, no
+  session saved, `haiku`; `claudeMatchArgs`). The model sees field labels and
+  resume key names only, may select an existing key, and the host supplies its
+  original value. Unknown keys and confidence below 0.8 are rejected. Saved text
+  answers join the local call as extra key names (never values; not sent to the
+  remote fallback).
+- **`choose_options`** is **local Ollama only**: these prompts carry the user's
+  answers as facts, so there is no Claude fallback. The model returns an option
+  index (≥ 0.85), and the extension clicks that existing option.
+- Page labels are untrusted prompt text.
+
+Browser extensions are the only code that touches the DOM, and they **never
+click Submit / Apply / Finish**.
+
+## Application answers and the Extension page
+
+`/extension` (sidebar under My Resume; product decision after acceptance review:
+extension content is managed there, not inside My Resume) holds what forms ask
+that a resume doesn't: legal and preferred names, date of birth, permanent
+address, work authorization, sponsorship, start date, relocation and travel,
+preferred locations, "worked here before", how you heard, talent network,
+voluntary EEO, LinkedIn / GitHub / website links, "18 or older", "onsite N days a
+week", plus free "other questions" (`packages/schema/src/application-answers.ts`,
+`parseApplicationAnswers`).
+
+One row per account in the data store (`application_answers`, Dexie v11,
+migration 0019, in snapshots, deleted server-side when Cloud is turned off). The
+page bridge hands them to the extension (`sync-answers` →
+`landed:application-answers` in `chrome.storage.local`).
+
+`apps/extension/lib/choice-answers.js`:
+
+- `classify` says which question a label asks;
+- `answerFor` turns the saved answer into yes/no, text, decline or agree;
+- `pickOption` finds the option that says it (a tie is no answer).
+
+For choice questions, the question is the legend, group label or surrounding
+text, and each option is its own label.
+
+**Never guessed:**
+
+- no saved answer → yellow;
+- EEO left blank → "I don't wish to answer";
+- consent (privacy policy, data processing, "I confirm…") is ticked only when the
+  user turns on `agree_to_terms` ("Tick consent boxes for me"). It's the user's own
+  switch: an agent's read never sets it;
+- Submit is never clicked.
+
+The agent can read a form the user already filled (screenshot or text) and answer
+with a ```` ```landed-answers ```` block (`extractAnswers`). The chat card saves
+it with `mergeAnswers` (what it read replaces, the rest stays, consent untouched),
+only when the user clicks.
+
+### Files to upload
+
+Same page: the user's own resume file and an optional cover letter, one per kind.
+The newest PDF or Word file uploaded on My Resume becomes the resume file
+(`keepResumeFile` in `lib/resume-tasks.ts`). Limits: .pdf/.doc/.docx ≤ 3 MB
+(`packages/schema/src/application-files.ts`; `application_files`, Dexie v12,
+migration 0020, stored as base64 text so snapshots carry them; the list is
+metadata, bytes one file at a time).
+
+The bridge asks the extension which file ids it has (`file-ids`) and sends only
+missing or changed ones (`sync-file`). `lib/fill/files.js` puts them into upload
+fields by label (`fileKind` in `choice-answers.js`: resume/CV vs cover letter,
+`accept` respected) with a `DataTransfer`. Upload fields are identified by what
+names them, then their id/name (Greenhouse: `resume`, `cover_letter`), then the
+surrounding text closest first. A field with no saved file is reported
+(`missing_files`) and the popup says where to add it.
+
+### Search-box dropdowns
+
+react-select on Greenhouse and place autocompletes (`role=combobox` /
+`aria-autocomplete`) are **never filled as text**. That left typed text that
+looked chosen while the form still said "required". `chooseInCombobox`
+(`lib/fill/combobox.js`):
+
+1. opens the list (ArrowDown too, for background tabs), else types the value and
+   waits for results;
+2. clicks a real option (react-select ≤ 5.6 options have no role, only
+   `…-option-N` ids);
+3. clears its search text when nothing fits, and blurs it so no menu stays open.
+
+A dropdown with no rule answer has its options read (≤ 12 per page; searched
+lists show none) and goes to the local model like radio groups. Place
+autocompletes take the result whose place name *is* the city ("Seattle Hill" is
+another place), in the saved state when there are several.
+
+## Open & autofill from Landed, and submissions → Applied
+
+A lead card (sparkle icon) and a saved application's drawer
+(`components/apply-assist.tsx`) ask the extension over the page bridge
+(`assist-open`: http(s) link, resume id, Landed ids only) to open the posting and
+fill it with the resume `pickResumeFor` chooses (`lib/apply-assist.ts`: the
+version tailored for this application or posting, then a close role at the same
+company, then the master, then the current one).
+
+The extension remembers the tab's application or lead (`chrome.storage.session`),
+fills again on the next page if the form wasn't on the first, and stamps the ids
+on that tab's portal events. Confirmation events (`raw_kind` applied /
+already_applied) become applications in the browser (`ingestPortalConfirmations`
+in `lib/inbox/confirmations.ts`, run by `hooks/extension-bridge.ts` on load, on
+focus and on every new event, one tab at a time via Web Locks): the stamped
+application or lead, else screenshot matching. A forward move is undoable, and
+each submission is handled once (`portal-applied:` ledger suggestion, so deleting
+the application doesn't bring it back). Events older than 30 days are ignored.
+
+## Landed for Mac updates itself
+
+`apps/daemon/src/updater.ts` (product decision: no reinstall per release).
+
+- `build-mac.mjs` stamps every build with a time-sortable id
+  (`20261015T085012Z-<commit>`, also CFBundleVersion) in `Resources/build.json`,
+  embeds the public half of an Ed25519 **release key** (`Resources/update-key.pem`)
+  and writes `Landed-mac.json` `{version, build, sha256, size, signature}`. It
+  signs only on the release machine, whose private key lives in
+  `~/.landed-release` (never in the repo; losing it means users reinstall once).
+- `setup` copies `build.json` and the key next to the installed daemon.
+- The service checks `GET /api/downloads/landed-mac.json` on its paired server 2
+  minutes after start and every 6 hours. A newer build is installed **only if the
+  signature verifies with the key this install came with** and the zip's size and
+  SHA-256 match. The server just hosts, so a compromised server can't push code.
+- Install: unpack (`ditto`), confirm the app's own build id, quit the menu app,
+  swap `Landed.app` in place (the running copy, else Spotlight's, else
+  /Applications), `lsregister`, `open -g … --updated`. The app's launch runs
+  `setup`, which installs the new daemon, extension and native host and restarts
+  the service; `--updated` keeps the menu closed.
+- Unsigned builds (the mini's own, running from source) never update.
+  `deploy.sh` uploads the zip first, then the manifest.

@@ -3,13 +3,13 @@
 // the chat as a card. Saving merges them into the Extension page's
 // application answers: what it read replaces, the rest stays, and the
 // consent switch is left alone. The agent never saves anything itself.
-import { useState, type CSSProperties } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EMPTY_ANSWERS, mergeAnswers, type ApplicationAnswers } from '@landed/schema/application-answers'
 import { Icon } from './primitives'
 import { useApplicationAnswers, useSaveApplicationAnswers } from '../hooks/answers'
+import { muted } from './ui'
 
-const muted: CSSProperties = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }
 
 const LABELS: Partial<Record<keyof ApplicationAnswers, string>> = {
   legal_first_name: 'Legal first name', legal_middle_name: 'Legal middle name', legal_last_name: 'Legal last name',

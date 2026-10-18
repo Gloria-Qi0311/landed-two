@@ -6,14 +6,12 @@
 // tree small + makes the contract visible.
 //
 // The window.ResumeFiller* globals are set by lib/*.js (IIFE wrappers
-// loaded by the MV3 manifest before content.js). Their proper types live
-// in packages/extension-core/src/*.js — until those gain JSDoc / .d.ts
-// generation (Sprint 3 follow-up), the cross-module shape stays `any`
-// here so type-checking content.js doesn't require typing the whole
-// extension surface in one PR.
+// loaded by the MV3 manifest before content.js). Their cross-module shape
+// stays `any` here so type-checking content.js doesn't require typing the
+// whole extension surface at once.
 
 declare global {
-  // ── chrome.* — just the slice content.js + popup.js + options.js use ──
+  // ── chrome.* — just the slice content.js uses ──
   namespace chrome {
     namespace runtime {
       interface MessageSender {
@@ -86,14 +84,14 @@ declare global {
   }
 
   // ── window.ResumeFiller* — set by lib/*.js IIFEs ──
-  // Typed as `any` for now; real types land when packages/extension-core
-  // ships JSDoc + .d.ts generation. checkJs on content.js then gets the
-  // benefit transitively.
+  // Typed as `any` for now.
   interface Window {
     ResumeFillerFieldDetect: any
     ResumeFillerValueMatch: any
     ResumeFillerCrossLingual: any
     LandedChoiceAnswers: any
+    /** the autofill content script's shared helpers (lib/fill/*.js) */
+    LandedFill: any
     LandedResumePick: any
     ResumeFillerLabelClassifier: any
     ResumeFillerLLMMatch: any
@@ -103,7 +101,7 @@ declare global {
     // Set by lib/portal-parsers/*.js IIFEs. Each per-portal value exposes
     // { isXyzUrl, parseSubmitConfirmation, parseAppliedBadge, parseXyzPage }.
     LandedPortalParsers: any
-    // Set by schema.js IIFE; consumed by content.js + options.js.
+    // Set by schema.js IIFE; consumed by content.js.
     normalizeResume: (input: any) => any
     flattenResumeForFill: (resume: any) => any
   }

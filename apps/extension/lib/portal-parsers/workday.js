@@ -1,6 +1,5 @@
-// Workday portal parser — content-script edition. Hand-mirrors
-// packages/extension-core/src/portal-parsers/workday.js (canonical ESM
-// source has the tests). Registers `window.LandedPortalParsers.workday`.
+// Workday portal parser — content-script edition. Registers
+// `window.LandedPortalParsers.workday`. Tests: tests/portal-parsers/workday.test.js.
 (function () {
   'use strict'
 

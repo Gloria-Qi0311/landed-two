@@ -2,7 +2,7 @@
 // (```landed-applications, packages/schema/src/reported-application.ts):
 // one row each — new, already a lead, or already in Applications (maybe at
 // an earlier stage) — and the user adds them with a click. The agent never
-// adds anything itself (lib/inbox.ts → addReportedApplication).
+// adds anything itself (lib/inbox/reported.ts → addReportedApplication).
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ReportedApplication } from '@landed/schema/reported-application'
@@ -10,8 +10,8 @@ import { Icon, stageColors } from './primitives'
 import { STAGE_LABELS } from '../data'
 import { addReportedApplication, matchReported, type ReportedMatch } from '../lib/inbox'
 import { useStore } from '../lib/store'
+import { muted } from './ui'
 
-const muted = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 } as const
 const label = (stage: string) => (STAGE_LABELS as Record<string, string>)[stage] ?? (stage === 'saved' ? 'Lead' : stage)
 
 function StagePill({ stage }: { stage: string }) {

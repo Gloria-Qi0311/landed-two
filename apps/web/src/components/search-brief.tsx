@@ -10,6 +10,7 @@ import { useJobSearch, type SearchRun } from '../lib/job-search'
 import type { DbJobSearch } from '../lib/store'
 import { useRuntimes } from '../hooks/runtimes'
 import { needsDaemonUpdate, searchTargets, useActiveSearch, useStartSearch } from '../hooks/search'
+import { muted, danger } from './ui'
 
 const BRIEF_KEYS: (keyof SearchBrief)[] = [
   'summary', 'roles', 'seniority', 'locations', 'remote', 'needs_sponsorship', 'salary_min', 'industries',
@@ -18,8 +19,6 @@ const BRIEF_KEYS: (keyof SearchBrief)[] = [
 /** Field by field: the server's jsonb doesn't keep key order. */
 const sameBrief = (a: SearchBrief, b: SearchBrief) => BRIEF_KEYS.every((k) => JSON.stringify(a[k]) === JSON.stringify(b[k]))
 
-const muted = { fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 } as const
-const danger = 'oklch(0.45 0.15 30)'
 
 function where(b: SearchBrief) {
   const places = b.locations.length ? b.locations.join(', ') : 'Anywhere'

@@ -1,6 +1,6 @@
 // Lever portal parser — content-script edition.
 //
-// Hand-mirrors packages/extension-core/src/portal-parsers/lever.js.
+// Tests: tests/portal-parsers/lever.test.js.
 // Loaded into the page via manifest content_scripts as a classic
 // (non-module) script; registers on `window.LandedPortalParsers.lever`.
 (function () {

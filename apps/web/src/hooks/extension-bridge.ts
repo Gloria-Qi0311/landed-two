@@ -5,7 +5,7 @@
 //     them to the active store — in local mode this is how portal sync
 //     reaches the user's data at all
 //   - turns the submissions the extension saw ("thanks for applying"
-//     pages) into applications — lib/inbox.ts → ingestPortalConfirmations
+//     pages) into applications — lib/inbox/confirmations.ts → ingestPortalConfirmations
 //   - hands the user's resumes to the extension so the side panel can
 //     autofill without a Cloud account, the application answers (Extension
 //     page) so fills can answer choice questions, and the files it uploads

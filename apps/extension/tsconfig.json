@@ -31,6 +31,6 @@
       "@lib/*": ["./lib/*"]
     }
   },
-  "include": ["content.js", "globals.d.ts", "src/**/*"],
-  "exclude": ["node_modules", "dist", "tests", "lib", "scripts"]
+  "include": ["content.js", "lib/fill/*.js", "globals.d.ts", "src/**/*"],
+  "exclude": ["node_modules", "dist", "tests", "lib/*.js", "lib/portal-parsers", "scripts"]
 }
