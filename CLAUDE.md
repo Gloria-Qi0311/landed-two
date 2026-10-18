@@ -63,6 +63,8 @@ messages (PR title and a clean body, no trailer).
   queue fields go through `readLeadQueueFields` on every write path.
 - A public list's postings go through `ingestFoundJobs` with one stable
   observation id per posting, so refreshing never adds a source twice.
+- Which companies an account follows (for their job boards) is worked out in the
+  browser and never sent to the server.
 
 ## Agents report; Landed decides
 

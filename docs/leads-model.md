@@ -132,10 +132,40 @@ costs a 304.
   `closed_at` once the list marks the posting closed or drops it. A list that
   couldn't be fetched closes nothing. Leads are only closed, never reopened.
   Closed leads leave the Leads column; the data stays.
-- **When**: part of Find new jobs. While Landed is open and that automation is on,
+- **When**: part of Find new jobs, together with the company boards below. While Landed is open and that automation is on,
   30 seconds after the search last changed (each criteria edit is a new search;
   checking after the first would pull every posting for the roles alone) and every
   6 hours. The Leads column's refresh button checks now.
+
+### Company job boards (#91)
+
+Greenhouse, Lever and Ashby publish each company's open postings without a
+login (`packages/supply/src/ats.ts`, `apps/web/src/lib/boards.ts`):
+
+| ATS | List | What it gives |
+|---|---|---|
+| Greenhouse | `boards-api.greenhouse.io/v1/boards/{board}/jobs` | company, first-published date, apply-by date; the description per job (`…/jobs/{id}`), fetched only for postings kept, since the list with content is MBs |
+| Lever | `api.lever.co/v0/postings/{company}?mode=json` | created time (ms), every location, plain-text description and lists |
+| Ashby | `api.ashbyhq.com/posting-api/job-board/{org}` | published time, main and secondary places, remote flag, plain-text description; unlisted postings (`isListed: false`) are open but never new leads |
+
+- **Which companies** (`followedBoards`, at most 25): the "Look at first"
+  companies of the active search (a name's board is found by trying its slugs,
+  `scaleai`, `scale-ai`, `scale`, on each ATS, once per session), then companies
+  applied to, then leads the user approved (status `saved`). Leads that are only
+  candidates don't count: following every candidate's company would pull their
+  whole boards into the candidates. "Skip" removes a company; the Find new jobs
+  card lists them, and × moves one to Skip. The list is worked out in the browser
+  and never sent anywhere.
+- **What fits**: listed, the brief's roles and places (as for the lists), and its
+  level (`levelMatches`: an internship search wants intern / co-op titles, a
+  new-grad search skips senior, staff, lead and manager titles; a board has every
+  level, the lists only one). No age limit. Newest first, at most 15 per board.
+- **Ingest**: `ingestFoundJobs` with `ats:<ats>:<board>:<id>` per posting and the
+  posting's full text as the lead's description (for the hard filters).
+- **Closed**: after a board is fetched, a lead whose posting was on that board
+  and isn't any more gets `closed_at`, including a lead an agent found there (its
+  link names the board and the ATS key the posting). A board that fails closes
+  nothing.
 
 ## Left for later PRs
 

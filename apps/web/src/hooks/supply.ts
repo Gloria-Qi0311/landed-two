@@ -1,8 +1,10 @@
-// Public job lists → Leads (lib/supply.ts). Part of "Find new jobs": while
-// that automation is on and there's an active search, the open app checks
-// the lists on start and every few hours. The Leads column can check now.
+// Public job lists and followed companies' boards → Leads (lib/supply.ts,
+// lib/boards.ts). Part of "Find new jobs": while that automation is on and
+// there's an active search, the open app checks them on start and every few
+// hours. The Leads column can check now.
 import { useCallback, useEffect } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { followedBoards, resolveBoards, type FollowedBoard } from '../lib/boards'
 import { useStore } from '../lib/store'
 import { useSupply } from '../lib/supply'
 import { useAutomations } from './automation'
@@ -20,7 +22,9 @@ export function useSupplyRefresh() {
   const brief = search?.brief ?? null
   const run = useCallback(() => {
     if (!ready || !brief) return
-    void refresh(store, brief, () => qc.invalidateQueries({ queryKey: ['job_leads'] }))
+    void refresh(store, brief, () => {
+      for (const key of ['job_leads', 'followed_boards']) qc.invalidateQueries({ queryKey: [key] })
+    })
   }, [ready, brief, refresh, store, qc])
   return { refresh: brief && ready ? run : null, running, last, error }
 }
@@ -45,4 +49,22 @@ export function useAutoSupply() {
     }, SETTLE_MS)
     return () => clearTimeout(timer)
   }, [on, searchId]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** The company boards a check looks at (Automation → Find new jobs). */
+export function useFollowedBoards() {
+  const { store, ready } = useStore()
+  const search = useActiveSearch()
+  const brief = search?.brief ?? null
+  return useQuery({
+    queryKey: ['followed_boards', store.kind, search?.id ?? null],
+    enabled: ready && !!brief,
+    staleTime: 60_000,
+    queryFn: async (): Promise<FollowedBoard[]> => {
+      const [applications, companies, leads, resolved] = await Promise.all([
+        store.listApplications(), store.listCompanies(), store.listJobLeads(), resolveBoards(brief!.include_companies),
+      ])
+      return followedBoards({ applications, companies, leads, brief: brief!, resolved })
+    },
+  })
 }

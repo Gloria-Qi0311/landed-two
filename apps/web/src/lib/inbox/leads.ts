@@ -15,13 +15,14 @@ export type IngestResult = { found: number; added: number; merged: number; alrea
  * agents. Idempotent: observation ids derive from the run (`<job id>:<n>`),
  * so ingesting the same run twice changes nothing. A source whose jobs have
  * their own ids (a public list) passes `observationIds`, one per job, so
- * seeing the same posting on the next refresh changes nothing either.
+ * seeing the same posting on the next refresh changes nothing either, and
+ * may pass each posting's full text (`descriptions`) for the hard filters.
  */
 export async function ingestFoundJobs(
   store: DataStore,
   jobs: FoundJob[],
   source: { run_id: string; runtime_id: string; agent: string },
-  opts: { observationIds?: string[]; connectionId?: string } = {},
+  opts: { observationIds?: string[]; connectionId?: string; descriptions?: (string | null)[] } = {},
 ): Promise<IngestResult> {
   const [leads, apps, companies] = await Promise.all([store.listJobLeads(), store.listApplications(), store.listCompanies()])
   let ctx: Context = {
@@ -41,7 +42,7 @@ export async function ingestFoundJobs(
       observed_at: observedAt,
       provider: source.agent,
       payload_json: { payload: {
-        company: job.company, title: job.title, job_url: job.job_url, location: job.location, description: describe(job), deadline: job.deadline,
+        company: job.company, title: job.title, job_url: job.job_url, location: job.location, description: opts.descriptions?.[i] ?? describe(job), deadline: job.deadline,
       } },
     }, ctx, { now: observedAt, newId: () => crypto.randomUUID() })
     const applied: Effect[] = []

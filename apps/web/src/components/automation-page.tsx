@@ -25,6 +25,8 @@ import { computerCan, designate, requestRunNow, syncTargets, useAutomationSync, 
 import { taskContext, useAutomations, useSetAutomations } from '../hooks/automation'
 import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
 import { useActiveSearch, useEditBrief } from '../hooks/search'
+import { useFollowedBoards } from '../hooks/supply'
+import { ATS_LABELS } from '@landed/supply'
 import { useAgentConnections } from '../hooks/agents'
 import { useRuntimes } from '../hooks/runtimes'
 import { mutedLarge as muted, danger } from './ui'
@@ -285,8 +287,44 @@ function SearchCard({ designated, targets, cloudLine }: CardProps) {
       <Row label="Job lists">
         While Landed is open, it also checks the SimplifyJobs new-grad and internship lists every few hours: open postings from the last 30 days that fit these criteria.
       </Row>
+      {search && <Row label="Companies"><FollowedCompanies brief={search.brief} /></Row>}
       {cloudLine && <Row label="Also">{cloudLine}</Row>}
     </AutomationCard>
+  )
+}
+
+/** The companies whose own job boards are checked too (lib/boards.ts), each
+ *  removable: × moves it to Skip. Worked out in this browser, never sent anywhere. */
+function FollowedCompanies({ brief }: { brief: SearchBrief }) {
+  const boards = useFollowedBoards()
+  const edit = useEditBrief()
+  const list = boards.data ?? []
+  const skip = (company: string) => {
+    const next = parseBrief({ ...brief, exclude_companies: [...brief.exclude_companies, company] })
+    if (next) edit.mutate(next)
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span>
+        {list.length > 0
+          ? 'Their own job boards are checked too, for postings that fit these criteria:'
+          : 'None yet. Companies you apply to, approve from Leads or list under "Look at first" have their job boards (Greenhouse, Lever, Ashby) checked too.'}
+      </span>
+      {list.length > 0 && (
+        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {list.map((b) => (
+            <span key={`${b.ats}:${b.board}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 4px 1px 8px', borderRadius: 999, background: 'var(--surface-2)', fontSize: 12 }}
+              title={b.from === 'search' ? 'From "Look at first"' : b.from === 'application' ? 'You applied here' : 'You approved a lead here'}>
+              {b.company} <span style={{ color: 'var(--fg-muted)' }}>· {ATS_LABELS[b.ats]}</span>
+              <button type="button" className="btn-ghost" aria-label={`Stop checking ${b.company}`} title="Move to Skip"
+                disabled={edit.isPending} onClick={() => skip(b.company)} style={{ padding: 1, display: 'flex' }}>
+                <Icon name="x" size={10} />
+              </button>
+            </span>
+          ))}
+        </span>
+      )}
+    </div>
   )
 }
 

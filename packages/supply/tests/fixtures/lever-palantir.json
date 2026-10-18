@@ -1,0 +1,118 @@
+[
+ {
+  "id": "10dfc8bc-99ad-4ca2-ab76-853cb90a92c2",
+  "text": "Backend Software Engineer - Application Development",
+  "hostedUrl": "https://jobs.lever.co/palantir/10dfc8bc-99ad-4ca2-ab76-853cb90a92c2",
+  "applyUrl": "https://jobs.lever.co/palantir/10dfc8bc-99ad-4ca2-ab76-853cb90a92c2/apply",
+  "createdAt": 1710188707256,
+  "categories": {
+   "commitment": "Full-time",
+   "location": "London, United Kingdom",
+   "team": "Dev",
+   "allLocations": [
+    "London, United Kingdom"
+   ]
+  },
+  "country": "GB",
+  "workplaceType": "hybrid",
+  "descriptionPlain": "A World-Changing Company\n\u00a0\nPalantir builds the world\u2019s leading software for data-driven decisions and operations. By bringing the right data to the people who need it, our platforms empower our partners to develop lifesaving drugs, forecast supply chain disruptions, locate missing children, and more.\n\n\nThe Role\n\u00a0\nBackend Software Engineers at Palantir build software at scale to transform how organisations use data. Our Software Engineers are involved throughout the product lifecycle, from idea generation, design, prototyping, and production delivery. You will collaborate closely with technical and non-technical teammates to understand our customers' problems and build products that solve them. We encourage movement across teams to share context, skills, and experience, so you'll learn abou",
+  "additionalPlain": "Life at Palantir\n\u00a0\nWe want every Palantirian to achieve their best outcomes, that\u2019s why we celebrate individuals\u2019 strengths, skills, and interests, from your first interview to your longterm growth, rather than rely on traditional career ladders. Paying attention to the needs of our community enables us to optimize our opportunities to grow and helps ensure many pathways to success at Palantir. Promoting health and well-being across all areas of Palantirians\u2019 lives is just one of the ways we\u2019re investing in our community. Learn more at Life at Palantir and note that our offerings may vary by region.\n\u00a0\nIn keeping consistent with Palantir\u2019s values and culture, we believe employees are \u201cbetter together\u201d and in-person work affords the opportunity for more creative outcomes. Therefore, we encou",
+  "lists": [
+   {
+    "text": "Core Responsiblities",
+    "content": "\n<li>Architecting, developing, and maintaining high-performance, scalable backend services that underpin our our operational data and AI systems</li>\n<li>Maintaining high coding standards through the development of guidelines, active participation in code reviews, and fostering a culture of continuous improvement and knowledge sharing among your team</li>\n<li>Building robust APIs for use by front-"
+   },
+   {
+    "text": "Technologies We Use",
+    "content": "\n<li>Different backend languages, including Java, Rust, Python and Go</li>\n<li>Distributed systems technologies such as Kafka, Cassandra, Elasticsearch and Spark</li>\n<li>Docker and Kubernetes for containerisation and orchestration</li>\n<li>Industry-standard build tooling, including Gradle and GitHub</li>\n"
+   }
+  ]
+ },
+ {
+  "id": "ab7e3425-81d5-4705-a7b5-cd60c8a45cdb",
+  "text": "Backend Software Engineer - Application Development",
+  "hostedUrl": "https://jobs.lever.co/palantir/ab7e3425-81d5-4705-a7b5-cd60c8a45cdb",
+  "applyUrl": "https://jobs.lever.co/palantir/ab7e3425-81d5-4705-a7b5-cd60c8a45cdb/apply",
+  "createdAt": 1710191082166,
+  "categories": {
+   "commitment": "Full-time",
+   "location": "New York, NY",
+   "team": "Dev",
+   "allLocations": [
+    "New York, NY"
+   ]
+  },
+  "country": "US",
+  "workplaceType": "hybrid",
+  "descriptionPlain": "A World-Changing Company\n\u00a0\nPalantir builds the world\u2019s leading software for data-driven decisions and operations. By bringing the right data to the people who need it, our platforms empower our partners to develop lifesaving drugs, forecast supply chain disruptions, locate missing children, and more.\n\n\nThe Role\n\u00a0\nBackend Software Engineers at Palantir build software at scale to transform how organisations use data. Our Software Engineers are involved throughout the product lifecycle, from idea generation, design, prototyping, and production delivery. You will collaborate closely with technical and non-technical teammates to understand our customers' problems and build products that solve them. We encourage movement across teams to share context, skills, and experience, so you'll learn abou",
+  "additionalPlain": "Salary\n\u00a0\nThe estimated salary range for this position is estimated to be $135,000 - $200,000/year. Total compensation for this position may also include Restricted Stock units, sign-on bonus and other potential future incentives. Further note that total compensation for this position will be determined by each individual\u2019s relevant qualifications, work experience, skills, and other factors. This estimate excludes the value of any potential sign-on bonus; the value of any benefits offered; and the potential future value of any long-term incentives.\n\n\nOur benefits aim to promote health and wellbeing across all areas of Palantirians\u2019 lives. We work to continuously improve our offerings and listen to our community as we design and update them. The list below details our available benefits and ",
+  "lists": [
+   {
+    "text": "Core Responsiblities",
+    "content": "\n<li>Architecting, developing, and maintaining high-performance, scalable backend services that underpin our our operational data and AI systems</li>\n<li>Maintaining high coding standards through the development of guidelines, active participation in code reviews, and fostering a culture of continuous improvement and knowledge sharing among your team</li>\n<li>Building robust APIs for use by front-"
+   },
+   {
+    "text": "Technologies We Use",
+    "content": "\n<li>Different backend languages, including Java, Rust, Python and Go</li>\n<li>Distributed systems technologies such as Kafka, Cassandra, Elasticsearch and Spark</li>\n<li>Docker and Kubernetes for containerization and orchestration</li>\n<li>Industry-standard build tooling, including Gradle and GitHub</li>\n"
+   }
+  ]
+ },
+ {
+  "id": "1345438c-ebfc-4fa5-b545-30c1414f317c",
+  "text": "Backend Software Engineer - Defense",
+  "hostedUrl": "https://jobs.lever.co/palantir/1345438c-ebfc-4fa5-b545-30c1414f317c",
+  "applyUrl": "https://jobs.lever.co/palantir/1345438c-ebfc-4fa5-b545-30c1414f317c/apply",
+  "createdAt": 1740435531334,
+  "categories": {
+   "commitment": "Full-time",
+   "location": "Washington, D.C.",
+   "team": "Dev",
+   "allLocations": [
+    "Washington, D.C."
+   ]
+  },
+  "country": "US",
+  "workplaceType": "onsite",
+  "descriptionPlain": "A World-Changing Company\n\u00a0\nPalantir builds the world\u2019s leading software for data-driven decisions and operations. By bringing the right data to the people who need it, our platforms empower our partners to develop lifesaving drugs, forecast supply chain disruptions, locate missing children, and more.\n\n\nThe Role\n\u00a0\nPalantir's defense product vertical builds mission-critical products for the modern warfighter. We provide a complete ecosystem where customers can securely integrate and visualize their data, and build sophisticated, full-fledged programs such as common operating pictures, alert-triaging inboxes, and resource allocation planning tools driven by rich-ML models. Our customers use our defense offering to perform rich analyses that drive core operations within their organizations - t",
+  "additionalPlain": "Salary\n\u00a0\nThe estimated salary range for this position is estimated to be $135,000 - $200,000/year. Total compensation for this position may also include Restricted Stock units, sign-on bonus and other potential future incentives. Further note that total compensation for this position will be determined by each individual\u2019s relevant qualifications, work experience, skills, and other factors. This estimate excludes the value of any potential sign-on bonus; the value of any benefits offered; and the potential future value of any long-term incentives.\n\n\nOur benefits aim to promote health and wellbeing across all areas of Palantirians\u2019 lives. We work to continuously improve our offerings and listen to our community as we design and update them. The list below details our available benefits and ",
+  "lists": [
+   {
+    "text": "Some examples of product work you could work on are:",
+    "content": "\n<li>Build for high-scale, collaborative, geospatial workflows (<a rel=\"noopener noreferrer\" href=\"https://palantir.highspot.com/items/646ccc59a8597170f9609759?lfrm=shp.2\" class=\"postings-link\">Gaia</a>)</li>\n<li>Design sophisticated frameworks to enable complex workflows across applications in a single workspace</li>\n<li>Develop the next generation of real-time collaborative tooling and data-anal"
+   },
+   {
+    "text": "Core Responsibilities",
+    "content": "\n<li>Architecting, developing, and maintaining high-performance, scalable backend services that underpin our our operational data and AI systems</li>\n<li>Maintaining high coding standards through the development of guidelines, active participation in code reviews, and fostering a culture of continuous improvement and knowledge sharing among your team</li>\n<li>Building robust APIs for use by front-"
+   }
+  ]
+ },
+ {
+  "id": "6ed76ce8-4156-4b60-b120-403538bd66cd",
+  "text": "Administrative Business Partner",
+  "hostedUrl": "https://jobs.lever.co/palantir/6ed76ce8-4156-4b60-b120-403538bd66cd",
+  "applyUrl": "https://jobs.lever.co/palantir/6ed76ce8-4156-4b60-b120-403538bd66cd/apply",
+  "createdAt": 1786469891368,
+  "categories": {
+   "commitment": "Full-time",
+   "location": "Singapore, Singapore",
+   "team": "Administrative",
+   "allLocations": [
+    "Singapore, Singapore"
+   ]
+  },
+  "country": "SG",
+  "workplaceType": "hybrid",
+  "descriptionPlain": "A World-Changing Company\n\u00a0\nPalantir builds the world\u2019s leading software for data-driven decisions and operations. By bringing the right data to the people who need it, our platforms empower our partners to develop lifesaving drugs, forecast supply chain disruptions, locate missing children, and more.\n\n\nThe Role\n\u00a0\nOur team of Administrative Business Partners does more than just support our leaders: we're the backbone of the busiest people at Palantir. We build positive relationships with the people we support and anticipate their needs without being asked. Our passion for helping others makes us an invaluable resource at Palantir!\n\nAs an Administrative Business Partner, you will be handling a variety of professional responsibilities, including calendaring, travel, and expenses. You are very",
+  "additionalPlain": "Palantir is particularly interested in applicants who have a current right to work in Singapore, and we encourage Singapore citizens to apply.\n\n\nLife at Palantir\n\u00a0\nWe want every Palantirian to achieve their best outcomes, that\u2019s why we celebrate individuals\u2019 strengths, skills, and interests, from your first interview to your longterm growth, rather than rely on traditional career ladders. Paying attention to the needs of our community enables us to optimize our opportunities to grow and helps ensure many pathways to success at Palantir. Promoting health and well-being across all areas of Palantirians\u2019 lives is just one of the ways we\u2019re investing in our community. Learn more at Life at Palantir and note that our offerings may vary by region.\n\u00a0\nIn keeping consistent with Palantir\u2019s values a",
+  "lists": [
+   {
+    "text": "Administrative Business Partner (Foundry)",
+    "content": "\n<li>Provide administrative support to a portfolio of individuals/teams across the business.</li>\n<li>Handle sophisticated calendars in a fast-paced environment, and prioritize commitments to enhance time and productivity.</li>\n<li>Book travel arrangements (domestic and international).</li>\n<li>Track and process expense reports.</li>\n<li>Help plan, support, and complete office events and external "
+   },
+   {
+    "text": "What We Value",
+    "content": "\n<li>Ability to adjust quickly, anticipate needs, and implement autonomously, with strong attention to detail.</li>\n<li>Ability to interact with a wide range of teams internally and externally with thoughtfulness and tact.</li>\n<li>High level of integrity, confidentiality, and discretion in both internal and external interactions.</li>\n"
+   }
+  ]
+ }
+]

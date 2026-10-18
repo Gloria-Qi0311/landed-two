@@ -1,5 +1,6 @@
-// Public job lists → Leads (#90; docs/leads-model.md). The browser fetches
-// the SimplifyJobs lists itself (never through the server), keeps what fits
+// Public job sources → Leads (#90, #91; docs/leads-model.md): the
+// SimplifyJobs lists here, followed companies' job boards in ./boards.ts.
+// The browser fetches the SimplifyJobs lists itself (never through the server), keeps what fits
 // the active search (packages/supply) and ingests it like any agent's finds,
 // so a posting an agent also found is one lead with both sources. Then every
 // lead a list made gets its posting date, and closed_at once the list marks
@@ -13,6 +14,7 @@ import {
   listsForBrief, parseSimplifyListings, selectForBrief, simplifyObservationId, simplifySourceOf, SIMPLIFY_LISTS, toFoundJob,
   type SimplifyList, type SimplifyListing,
 } from '@landed/supply'
+import { followedBoards, refreshBoards, resolveBoards } from './boards'
 import { ingestFoundJobs } from './inbox'
 import type { DataStore, DbJobLead } from './store/types'
 
@@ -27,6 +29,32 @@ export type SupplyResult = {
   /** lists that couldn't be fetched or read */
   failed: SimplifyList[]
   at: string
+}
+
+/** A whole check: the lists, then the followed companies' boards. */
+export type SupplyCheck = SupplyResult & {
+  /** company boards checked */
+  boards: number
+  /** "greenhouse:acme" for boards that couldn't be fetched */
+  boards_failed: string[]
+}
+
+export async function refreshSupply(
+  store: DataStore,
+  brief: SearchBrief,
+  opts: { fetchFn?: typeof fetch; now?: Date } = {},
+): Promise<SupplyCheck> {
+  const lists = await refreshSimplify(store, brief, opts)
+  const [applications, companies, leads, resolved] = await Promise.all([
+    store.listApplications(), store.listCompanies(), store.listJobLeads(), resolveBoards(brief.include_companies, opts.fetchFn),
+  ])
+  const boards = followedBoards({ applications, companies, leads, brief, resolved })
+  const b = await refreshBoards(store, brief, boards, opts)
+  return {
+    ...lists,
+    found: lists.found + b.found, added: lists.added + b.added, merged: lists.merged + b.merged, closed: lists.closed + b.closed,
+    boards: b.boards, boards_failed: b.failed,
+  }
 }
 
 /** Lead patches from what the lists now say: posting dates, and closed_at
@@ -86,7 +114,7 @@ export async function refreshSimplify(
 
 type State = {
   running: boolean
-  last: SupplyResult | null
+  last: SupplyCheck | null
   error: string | null
   refresh: (store: DataStore, brief: SearchBrief, onData: () => void) => Promise<void>
 }
@@ -99,7 +127,7 @@ export const useSupply = create<State>((set, get) => ({
     if (get().running) return
     set({ running: true, error: null })
     try {
-      const last = await refreshSimplify(store, brief)
+      const last = await refreshSupply(store, brief)
       set({ last })
       if (last.added + last.merged + last.closed > 0) onData()
     } catch (e) {

@@ -28,7 +28,7 @@ import { CompanyMark, Icon, stageColors } from './primitives';
 import { LeadAssistButton } from './apply-assist';
 import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
-import type { SupplyResult } from '../lib/supply';
+import type { SupplyCheck } from '../lib/supply';
 import { companyKey } from '@landed/observation-processor';
 
 // ────────────────────────────────────────────────────────────────────────
@@ -150,8 +150,10 @@ function byCompany<T>(items: T[], nameOf: (item: T) => string | undefined): Grou
 }
 
 function CompanyGroup({ name, mark, count, children }: { name: string; mark: MarkCompany; count: number; children: ReactNode }) {
+  // flexShrink 0: in a lane that overflows, `overflow: hidden` would let the
+  // group shrink to nothing (cards keep their height; groups vanished).
   return (
-    <div style={{ background: 'var(--surface)', borderRadius: 10, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ background: 'var(--surface)', borderRadius: 10, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 9px' }}>
         <CompanyMark company={mark} size={22} />
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg-muted)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
@@ -296,7 +298,7 @@ function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline, grouped }: 
 
 /** Checking the public job lists now (hooks/supply.ts); refresh is null
  *  without an active search to fit. */
-export type LeadsRefresh = { refresh: (() => void) | null; running: boolean; last: SupplyResult | null; error: string | null };
+export type LeadsRefresh = { refresh: (() => void) | null; running: boolean; last: SupplyCheck | null; error: string | null };
 
 type LeadsColumnProps = {
   leads: DbJobLead[]; saved: BoardApp[]; onDismiss?: (id: string) => void; onOpen?: (lead: DbJobLead) => void;
@@ -304,15 +306,19 @@ type LeadsColumnProps = {
   onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline; refresh?: LeadsRefresh;
 };
 
-/** "Checked 2 lists · 3 new" after a check, or what went wrong. */
+/** "Checked SimplifyJobs and 4 company boards · 3 new" after a check, or what went wrong. */
 function refreshNote(r: LeadsRefresh): string | null {
-  if (r.running) return 'Checking job lists…';
+  if (r.running) return 'Checking job lists and company boards…';
   if (r.error) return "Couldn't check the job lists";
   const last = r.last;
   if (!last) return null;
-  if (last.lists.length === 0) return 'The job lists only carry internships and new-grad roles';
-  if (last.failed.length === last.lists.length) return "Couldn't reach the job lists";
-  return `Checked SimplifyJobs · ${last.added ? `${last.added} new` : 'nothing new'}${last.closed ? ` · ${last.closed} closed` : ''}`;
+  const listsOk = last.lists.length > 0 && last.failed.length < last.lists.length;
+  const boardsOk = last.boards - last.boards_failed.length;
+  const checked = [listsOk && 'SimplifyJobs', boardsOk > 0 && `${boardsOk} company board${boardsOk === 1 ? '' : 's'}`].filter(Boolean).join(' and ');
+  if (!checked) return last.lists.length === 0 && last.boards === 0
+    ? 'Nothing to check: the job lists carry internships and new-grad roles, and no company is followed yet'
+    : "Couldn't reach the job lists or company boards";
+  return `Checked ${checked} · ${last.added ? `${last.added} new` : 'nothing new'}${last.closed ? ` · ${last.closed} closed` : ''}`;
 }
 // A Leads card: an agent-found job, or an application not applied to yet.
 type LeadItem = { lead: DbJobLead; app?: undefined; deadline: string | null } | { app: BoardApp; lead?: undefined; deadline: string | null };
@@ -329,7 +335,7 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>Leads</span>
           <span style={laneCount}>{count}</span>
           {refresh?.refresh && (
-            <button type="button" className="btn-ghost" title="Check the SimplifyJobs lists for new postings that fit your search"
+            <button type="button" className="btn-ghost" title="Check the SimplifyJobs lists and the job boards of companies you follow for new postings that fit your search"
               aria-label="Check job lists now" disabled={refresh.running} onClick={refresh.refresh}
               style={{ padding: 2, display: 'flex', color: 'var(--fg-muted)', opacity: refresh.running ? 0.5 : 1 }}>
               <Icon name="refresh" size={12} />
