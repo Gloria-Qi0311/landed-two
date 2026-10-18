@@ -1,3 +1,4 @@
+import type { LeadFit, LeadScreen } from '@landed/schema/lead-queue'
 import type { InterviewRound } from '@landed/schema/pipeline'
 
 // Shapes the processor reads and writes. Mirrors the job_leads /
@@ -49,6 +50,16 @@ export type JobLead = {
   application_id: string | null
   first_seen_at: string
   last_seen_at: string
+  // The apply queue (docs/leads-model.md, @landed/schema/lead-queue). Written
+  // by the supply track; the processor only keeps what's there.
+  /** when the source says it was posted, "YYYY-MM-DD" */
+  posted_at: string | null
+  /** when the posting disappeared from its source (ISO time); closed leads leave the column */
+  closed_at: string | null
+  /** hard filters: graduation date, sponsorship, citizenship / clearance */
+  screen: LeadScreen | null
+  /** match against the master resume, score 0–1 */
+  fit: LeadFit | null
 }
 
 export type SuggestionKind = 'stage_change' | 'new_application' | 'ambiguous' | 'note'

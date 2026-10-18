@@ -1,0 +1,24 @@
+{
+  "name": "@landed/supply",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The supply track: parsers for public job sources, hard filters, fit score and priority for the apply queue (docs/leads-model.md). Pure functions; run in the browser (or the daemon), never on the server with user data.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  },
+  "dependencies": {
+    "@landed/schema": "workspace:*"
+  }
+}

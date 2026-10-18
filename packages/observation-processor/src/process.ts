@@ -96,6 +96,10 @@ function processJob(o: Observation, ctx: Context, opts: ProcessOptions): Outcome
     application_id: app?.id ?? null,
     first_seen_at: o.observed_at,
     last_seen_at: o.observed_at,
+    posted_at: null,
+    closed_at: null,
+    screen: null,
+    fit: null,
   }
   return {
     status: 'processed',

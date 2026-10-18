@@ -1,8 +1,8 @@
-# Proposal: Leads become the apply queue
+# Leads become the apply queue
 
-**Status: open.** This is the first PR of the supply track. It defines the fields
-both tracks build on, and nothing else. The supply track writes it, the execution
-track reviews it, and the owner merges it.
+**Status: decided** (the first supply-track PR, migration 0021 and Dexie v13). It
+defines the fields both tracks build on, and nothing else. The open question at
+the end is settled under "Where public postings are fetched".
 
 ## Today
 
@@ -53,8 +53,18 @@ fields have values.
 | `screen` | `{ pass: boolean, reasons: string[] } \| null` | supply | Hard filters: graduation date, sponsorship (only when the posting says it doesn't sponsor), citizenship or clearance |
 | `fit` | `{ score: number, reasons: string[] } \| null` | supply | Match against the master resume, score 0–1 |
 
+Every write path validates them the same way with `readLeadQueueFields`
+(`packages/schema/src/lead-queue.ts`): the local store, the server's lead routes,
+and snapshot upload or restore (where an unreadable value becomes null, so older
+backups read as-is). `reasons` are short sentences for people, at most 10 of 300
+characters. The observation processor creates leads with all four null and keeps
+whatever is there when it merges.
+
 Priority is computed when shown and isn't stored: `fit.score` combined with how
-close the deadline is (or, without a deadline, how new the posting is).
+close the deadline is (or, without a deadline, how new the posting is). The first
+version is `priority(lead, now)` in `packages/supply`: fit × (0.5 + 0.5 × urgency),
+unscored leads count as 0.5, and closed, screened-out and past-deadline leads are
+`UNRANKED` (below everything). #93 tunes it.
 
 The PR touches every place a new column needs (see
 [architecture.md](architecture.md#common-changes-and-every-place-they-touch)):
@@ -71,11 +81,27 @@ The PR touches every place a new column needs (see
 - **Screening and scoring use the user's resume and answers, so they run in the
   browser** (or on the user's computer). They never run on the server: that
   would put a sync-off account's resume there.
-- **Fetching public postings** isn't user data, so a shared server-side cache is
+- **Fetching public postings** isn't user data, so a shared server-side cache was
   allowed. But which companies one account asks for says what that person is
-  interested in. Either fetch from the browser or the daemon, or keep the cache
-  keyed by job board only, with no account attached to the request. Decide this in
-  the PR.
+  interested in. Decided below.
+
+## Where public postings are fetched: the browser
+
+The browser fetches public postings itself, straight from each source; requests
+never go through the Landed server.
+
+- All four sources allow it. Checked 2026-10-18 with an `Origin` header: the
+  Greenhouse job board API, the Lever postings API, the Ashby posting API and
+  `raw.githubusercontent.com` (the SimplifyJobs lists) all answer with
+  `Access-Control-Allow-Origin: *`, and the web app sets no CSP that would block it.
+- The server never learns which companies an account follows, so the
+  local-first rule holds without a cache keyed carefully by board.
+- It works for every account, with or without a paired computer.
+- The cost: it only refreshes while Landed is open (like the agent relay pull).
+  The parsers in `packages/supply` are pure, so the daemon can run the same fetch
+  on the Automation schedule later (Landed closed). That is a follow-up, not part
+  of this decision. A server-side cache stays out unless a source stops allowing
+  browser requests.
 
 ## Left for later PRs
 

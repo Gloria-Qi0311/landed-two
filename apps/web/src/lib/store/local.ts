@@ -10,6 +10,7 @@ import { parseConversation } from '@landed/schema/conversation'
 import { parseApplicationAnswers } from '@landed/schema/application-answers'
 import { parseApplicationFile } from '@landed/schema/application-files'
 import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
+import { leadQueueDefaults, readLeadQueueFields } from '@landed/schema/lead-queue'
 import { normalizeStage, orderRounds, parseDeadline, parseInterviews, sortRounds, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import { companyKey, titleKey } from '@landed/observation-processor'
@@ -159,7 +160,22 @@ class LandedDB extends Dexie {
     this.version(12).stores({
       application_files: 'id, &kind',
     })
+    // v13: the apply queue's fields on leads (docs/leads-model.md): posted
+    // and closed dates, hard-filter result, fit score. Empty until the
+    // supply track fills them.
+    this.version(13).stores({}).upgrade(async (tx) => {
+      await tx.table('job_leads').toCollection().modify((l: DbJobLead) => {
+        Object.assign(l, leadQueueDefaults(l as unknown as Record<string, unknown>))
+      })
+    })
   }
+}
+
+/** The queue fields in a lead write, validated like the server (400). */
+function leadQueueOf(input: Record<string, unknown>) {
+  const read = readLeadQueueFields(input)
+  if (!read.ok) throw new LocalStoreError(400, read.error.message)
+  return read.fields
 }
 
 /** master_json / target_json validated like the server does (null clears). */
@@ -468,7 +484,8 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       return (await db.job_leads.toArray()).sort(byDesc('last_seen_at'))
     },
     async saveJobLead(lead) {
-      const row = { ...lead, user_id: LOCAL_USER }
+      const queue = leadQueueOf(lead)
+      const row = { ...lead, ...leadQueueDefaults({}), ...queue, user_id: LOCAL_USER }
       return db.transaction('rw', db.job_leads, async () => {
         const clash = await db.job_leads.where('fingerprint').equals(row.fingerprint).first()
         if (clash && clash.id !== row.id) throw new LocalStoreError(409, 'a lead with this fingerprint already exists')
@@ -480,7 +497,11 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       return db.transaction('rw', db.job_leads, async () => {
         const row = await db.job_leads.get(id)
         if (!row) throw new LocalStoreError(404, 'lead not found')
-        const next = { ...row, ...patch, ...(patch.deadline !== undefined ? { deadline: deadlineOf(patch.deadline) ?? null } : {}) }
+        const next = {
+          ...row, ...patch,
+          ...(patch.deadline !== undefined ? { deadline: deadlineOf(patch.deadline) ?? null } : {}),
+          ...leadQueueOf(patch),
+        }
         await db.job_leads.put(next)
         return next
       })
@@ -659,7 +680,8 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         await db.portal_events.bulkAdd(own(snapshot.portal_events) as DbPortalEvent[])
         await db.ai_runs.bulkAdd(own(snapshot.ai_runs) as DbAiRun[])
         await db.agent_observations.bulkAdd(own(snapshot.agent_observations) as DbAgentObservation[])
-        await db.job_leads.bulkAdd(own(snapshot.job_leads) as DbJobLead[])
+        // Backups from before the queue fields: present, and null when unreadable.
+        await db.job_leads.bulkAdd((own(snapshot.job_leads) as DbJobLead[]).map((l) => ({ ...l, ...leadQueueDefaults(l) })))
         await db.status_suggestions.bulkAdd(own(snapshot.status_suggestions) as DbSuggestion[])
         await db.job_searches.bulkAdd(own(snapshot.job_searches) as DbJobSearch[])
         await db.agent_conversations.bulkAdd(own(snapshot.agent_conversations) as DbConversation[])

@@ -873,6 +873,33 @@ describe('observation processing storage (Cloud)', () => {
     assert.equal((await call('GET', '/api/job-leads', { token: owner })).body.length, 1)
   })
 
+  test('leads: apply-queue fields (0021), validated like the local store', async () => {
+    const owner = await signup('proc-lead-queue@example.com')
+    const id = crypto.randomUUID()
+    const put = await call('PUT', `/api/job-leads/${id}`, { token: owner, body: lead({ fingerprint: 'greenhouse:222' }) })
+    assert.deepEqual([put.body.posted_at, put.body.closed_at, put.body.screen, put.body.fit], [null, null, null, null], 'empty until written')
+
+    const patched = await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: {
+      posted_at: '2026-10-15T09:00:00-07:00', closed_at: '2026-10-18T00:00:00Z',
+      screen: { pass: false, reasons: ['  Says it does not sponsor visas '] }, fit: { score: 0.8, reasons: ['Title matches the search'] },
+    } })
+    assert.equal(patched.status, 200, JSON.stringify(patched.body))
+    assert.equal(patched.body.posted_at, '2026-10-15')
+    assert.equal(new Date(patched.body.closed_at).toISOString(), '2026-10-18T00:00:00.000Z')
+    assert.deepEqual(patched.body.screen, { pass: false, reasons: ['Says it does not sponsor visas'] })
+    assert.deepEqual(patched.body.fit, { score: 0.8, reasons: ['Title matches the search'] })
+
+    // The processor's full-record upsert keeps them, and validates them too.
+    const merged = await call('PUT', `/api/job-leads/${id}`, { token: owner, body: { ...lead({ fingerprint: 'greenhouse:222' }), ...patched.body } })
+    assert.deepEqual(merged.body.fit, patched.body.fit)
+    assert.equal((await call('PUT', `/api/job-leads/${id}`, { token: owner, body: lead({ fingerprint: 'greenhouse:222', fit: { score: 3 } }) })).status, 400)
+
+    for (const bad of [{ fit: { score: 1.5, reasons: [] } }, { screen: { pass: 'maybe' } }, { posted_at: 'last week' }, { closed_at: 'soon' }]) {
+      assert.equal((await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: bad })).status, 400, JSON.stringify(bad))
+    }
+    assert.equal((await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: { fit: null } })).body.fit, null, 'null clears')
+  })
+
   test('suggestions: upsert, resolve, one per dedupe key', async () => {
     const owner = await signup('proc-sugg@example.com')
     const id = crypto.randomUUID()
@@ -930,7 +957,7 @@ describe('observation processing storage (Cloud)', () => {
       ...EMPTY_SNAPSHOT,
       companies: [{ id: companyId, name: 'Acme' }],
       applications: [{ id: appId, company_id: companyId, role: 'PM', stage: 'applied' }],
-      job_leads: [{ id: crypto.randomUUID(), ...lead({ status: 'already_applied', application_id: appId }) }, { id: crypto.randomUUID(), ...lead({ fingerprint: 'job:x', application_id: crypto.randomUUID() }) }],
+      job_leads: [{ id: crypto.randomUUID(), ...lead({ status: 'already_applied', application_id: appId }) }, { id: crypto.randomUUID(), ...lead({ fingerprint: 'job:x', application_id: crypto.randomUUID(), fit: { score: 0.6, reasons: ['Skills overlap'] }, screen: { pass: 'unsure' } }) }],
       status_suggestions: [{ id: crypto.randomUUID(), ...suggestion({ application_id: appId }) }],
     }
     const up = await call('POST', '/api/sync/upload', { token: owner, body: snap })
@@ -939,6 +966,10 @@ describe('observation processing storage (Cloud)', () => {
     assert.equal(up.body.status_suggestions, 1)
     const leads = (await call('GET', '/api/job-leads', { token: owner })).body
     assert.deepEqual(leads.map((l: any) => l.application_id).sort(), [appId, null].sort(), 'dangling app refs become null')
+    const scored = leads.find((l: any) => l.fingerprint === 'job:x')
+    assert.deepEqual([scored.fit, scored.screen], [{ score: 0.6, reasons: ['Skills overlap'] }, null], 'queue fields travel; unreadable ones become null')
+    const plain = leads.find((l: any) => l.fingerprint !== 'job:x')
+    assert.deepEqual([plain.posted_at, plain.closed_at, plain.screen, plain.fit], [null, null, null, null], 'snapshots from before 0021 read as-is')
     assert.equal((await call('POST', '/api/sync/upload', { token: owner, body: snap })).body.job_leads, 0, 'idempotent')
 
     const exp = await call('GET', '/api/export', { token: owner })

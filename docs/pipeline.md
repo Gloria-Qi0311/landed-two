@@ -14,7 +14,7 @@ web, server and the processor's callers. Board columns and filters go through
   one card in a column shows a plain card.
 - **`saved` is shown as a lead.** The Leads column holds both agent-found jobs
   (`job_leads`) and applications not applied to yet (stage `saved`). There is no
-  Saved column. ([leads-model.md](leads-model.md) proposes one model for both.)
+  Saved column. ([leads-model.md](leads-model.md): how the two become the apply queue.)
 - **`ghosted` is a kind of closed.** It shows in the Rejected column with a tag.
 - **Deadlines**: job leads and applications carry `deadline` ("YYYY-MM-DD",
   normalized by `parseDeadline`). Searches and agents fill it in, and the user can

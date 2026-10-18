@@ -255,6 +255,54 @@ describe('application files', () => {
   })
 })
 
+describe('job leads: apply-queue fields (docs/leads-model.md)', () => {
+  const lead = (over: Record<string, unknown> = {}) => ({
+    id: crypto.randomUUID(), fingerprint: `url:jobs.example.com/${crypto.randomUUID()}`, ats_key: null, canonical_url: 'jobs.example.com/1',
+    company_key: 'northwind', title_key: 'software engineer', company_name: 'Northwind Robotics', title: 'Software Engineer',
+    job_url: 'https://jobs.example.com/1', location: 'Seattle, WA', description: null, deadline: null, sources: [], status: 'new',
+    application_id: null, first_seen_at: '2026-10-17T12:00:00.000Z', last_seen_at: '2026-10-17T12:00:00.000Z', ...over,
+  }) as never
+
+  test('a new lead has every field, empty until the supply track fills it', async () => {
+    const store = fresh()
+    const saved = await store.saveJobLead(lead())
+    expect(saved).toMatchObject({ posted_at: null, closed_at: null, screen: null, fit: null })
+  })
+
+  test('the supply track writes them; values are cleaned like the server cleans them', async () => {
+    const store = fresh()
+    const { id } = await store.saveJobLead(lead())
+    const next = await store.updateJobLead(id, {
+      posted_at: '2026-10-15T09:00:00-07:00', closed_at: '2026-10-18T00:00:00Z',
+      screen: { pass: false, reasons: ['  Says it does not sponsor visas '] }, fit: { score: 0.8, reasons: ['Title matches the search'] },
+    })
+    expect(next).toMatchObject({
+      posted_at: '2026-10-15', closed_at: '2026-10-18T00:00:00.000Z',
+      screen: { pass: false, reasons: ['Says it does not sponsor visas'] }, fit: { score: 0.8, reasons: ['Title matches the search'] },
+    })
+    expect((await store.updateJobLead(id, { fit: null })).fit).toBeNull()
+  })
+
+  test('rejects values the server would reject, and changes nothing', async () => {
+    const store = fresh()
+    const { id } = await store.saveJobLead(lead())
+    await expect(store.updateJobLead(id, { fit: { score: 1.5, reasons: [] } })).rejects.toMatchObject({ status: 400 })
+    await expect(store.updateJobLead(id, { posted_at: 'last week' })).rejects.toThrow(/posted_at/)
+    await expect(store.saveJobLead(lead({ screen: { pass: 'maybe' } }))).rejects.toThrow(/screen/)
+    expect((await store.listJobLeads()).map((l) => l.fit)).toEqual([null])
+  })
+
+  test('a backup from before the fields restores with them empty', async () => {
+    const a = fresh()
+    await a.saveJobLead(lead())
+    const snap = await a.exportSnapshot()
+    const old = { ...snap, job_leads: snap.job_leads!.map(({ posted_at, closed_at, screen, fit, ...rest }) => rest) }
+    const b = fresh()
+    await b.replaceWith(old as never)
+    expect((await b.listJobLeads())[0]).toMatchObject({ company_name: 'Northwind Robotics', posted_at: null, closed_at: null, screen: null, fit: null })
+  })
+})
+
 describe('pipeline: one interview stage with rounds', () => {
   test('legacy phone/onsite become interview (+ the round they stood for); rounds are validated', async () => {
     const store = fresh()
@@ -313,6 +361,24 @@ test('upgrading a browser database from v4 moves phone/onsite to interview round
 })
 
 describe('upgrades', () => {
+  test('v13: leads from before the apply queue get its fields, empty', async () => {
+    const name = `landed-upgrade-${++n}`
+    const old = new Dexie(name)
+    old.version(12).stores({
+      companies: 'id, name', applications: 'id, company_id, last_activity_at', resumes: 'id, created_at',
+      portal_connections: 'id, [company_id+provider]', portal_events: 'id, created_at', ai_runs: 'id', meta: 'key',
+      agent_observations: 'id, created_at, &[connection_id+idempotency_key], processing_status',
+      job_leads: 'id, &fingerprint, status, last_seen_at', status_suggestions: 'id, &dedupe_key, state, created_at',
+      job_searches: 'id, status, created_at', agent_conversations: 'id, updated_at', application_answers: 'id', application_files: 'id, &kind',
+    })
+    await old.table('job_leads').add({
+      id: 'l1', fingerprint: 'url:jobs.example.com/1', company_name: 'Lumen Labs', title: 'Data Scientist Intern', status: 'new',
+      sources: [], last_seen_at: '2026-10-17T12:00:00Z', first_seen_at: '2026-10-17T12:00:00Z', deadline: '2026-10-30',
+    })
+    old.close()
+    const [lead] = await createLocalStore(name).listJobLeads()
+    expect(lead).toMatchObject({ title: 'Data Scientist Intern', deadline: '2026-10-30', posted_at: null, closed_at: null, screen: null, fit: null })
+  })
   test('v10: a round added by hand after v9 is numbered with the others, by time', async () => {
     const name = `landed-upgrade-${++n}`
     const old = new Dexie(name)

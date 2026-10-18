@@ -15,7 +15,7 @@ it before you change that area.
 | Visual style | [docs/ui.md](docs/ui.md) |
 | Agent HTTP protocol | [apps/server/AGENT_PROTOCOL.md](apps/server/AGENT_PROTOCOL.md) |
 | Server setup and deployment | [apps/server/README.md](apps/server/README.md) |
-| Open proposal: Leads become the apply queue | [docs/leads-model.md](docs/leads-model.md) |
+| Leads as the apply queue: fields, priority, where postings are fetched | [docs/leads-model.md](docs/leads-model.md) |
 
 ## Commit attribution
 
@@ -58,6 +58,9 @@ messages (PR title and a clean body, no trailer).
   email, the offline account cache, filters).
 - `portal_connections` writes go through `upsertConnection()`. No
   select-then-insert.
+- Public job postings are fetched by the browser, never through the server.
+  Screening and scoring use the resume, so they run in the browser too. Lead
+  queue fields go through `readLeadQueueFields` on every write path.
 
 ## Agents report; Landed decides
 

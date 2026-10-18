@@ -3,6 +3,7 @@
 // observations processed. Mounted behind requireCloud — sync-off accounts
 // keep these in their browser. The processing itself runs in the browser
 // (packages/observation-processor); these routes just store results.
+import { readLeadQueueFields } from '@landed/schema/lead-queue'
 import { parseDeadline } from '@landed/schema/pipeline'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
@@ -15,7 +16,7 @@ type Row = Record<string, any>
 export const LEAD_COLUMNS = [
   'id', 'fingerprint', 'ats_key', 'canonical_url', 'company_key', 'title_key', 'company_name', 'title',
   'job_url', 'location', 'description', 'sources', 'status', 'application_id', 'first_seen_at', 'last_seen_at',
-  'created_at', 'deadline',
+  'created_at', 'deadline', 'posted_at', 'closed_at', 'screen', 'fit',
 ] as const
 
 export const SUGGESTION_COLUMNS = [
@@ -24,7 +25,7 @@ export const SUGGESTION_COLUMNS = [
   'resolved_at',
 ] as const
 
-const JSON_COLUMNS = new Set(['sources', 'candidate_ids', 'evidence', 'observation_ids', 'processing_result'])
+const JSON_COLUMNS = new Set(['sources', 'candidate_ids', 'evidence', 'observation_ids', 'processing_result', 'screen', 'fit'])
 const PROCESSING_STATUSES = ['pending', 'processed', 'needs-review', 'rejected']
 
 /** Pick the given columns from a request body (null when absent), wrapping
@@ -54,6 +55,14 @@ function upsert(sql: Sql, table: string, cols: readonly string[]) {
   }
 }
 
+/** The apply-queue fields in a lead write (docs/leads-model.md), validated
+ *  exactly like the local store: null clears, anything else must parse. */
+function leadQueue(body: Row): Row {
+  const read = readLeadQueueFields(body)
+  if (!read.ok) fail(400, read.error.message)
+  return read.fields
+}
+
 export function inboxRoutes(sql: Sql) {
   const app = new Hono<AppEnv>()
   const saveLead = upsert(sql, 'job_leads', LEAD_COLUMNS)
@@ -67,7 +76,8 @@ export function inboxRoutes(sql: Sql) {
 
   // Full-record upsert: the processor merges in the browser and sends the result.
   app.put('/job-leads/:id', async (c) => {
-    return c.json(await saveLead(c.get('user').id, c.req.param('id'), await jsonBody(c)))
+    const body = await jsonBody(c)
+    return c.json(await saveLead(c.get('user').id, c.req.param('id'), { ...body, ...leadQueue(body) }))
   })
 
   app.patch('/job-leads/:id', async (c) => {
@@ -79,7 +89,10 @@ export function inboxRoutes(sql: Sql) {
       patch.deadline = body.deadline === null || body.deadline === '' ? null : parseDeadline(body.deadline)
       if (body.deadline && !patch.deadline) fail(400, 'deadline must be a date')
     }
-    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: status, application_id, deadline)')
+    for (const [k, v] of Object.entries(leadQueue(body))) patch[k] = JSON_COLUMNS.has(k) && v !== null ? sql.json(v) : v
+    if (Object.keys(patch).length === 0) {
+      fail(400, 'nothing to update (allowed: status, application_id, deadline, posted_at, closed_at, screen, fit)')
+    }
     const [row] = await sql`
       update job_leads set ${sql(patch)} where id = ${c.req.param('id')} and user_id = ${c.get('user').id}
       returning ${sql(LEAD_COLUMNS as unknown as string[])}`

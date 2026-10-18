@@ -15,6 +15,7 @@
 // connections by (company, provider), so signing in on a second device that
 // has its own data merges rather than duplicates.
 import { parseMasterResume } from '@landed/schema/master-resume'
+import { leadQueueDefaults } from '@landed/schema/lead-queue'
 import { normalizeStage, parseInterviews } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import { Hono } from 'hono'
@@ -85,7 +86,7 @@ function defaults(now: string): Row {
 
 const JSON_COLUMNS = new Set([
   'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
-  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json', 'turns', 'answers',
+  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json', 'turns', 'answers', 'screen', 'fit',
 ])
 
 function chunks<T>(rows: T[]): T[][] {
@@ -239,7 +240,8 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
   const appRef = (id: unknown) => (typeof id === 'string' && appIds.has(id) ? id : null)
   counts.job_leads = await insertRows('job_leads', list('job_leads')
     .filter((r) => typeof r.fingerprint === 'string')
-    .map((r) => normalize('job_leads', r, { application_id: appRef(r.application_id) })), true)
+    // Backups from before the queue fields (0021) have none; unreadable ones become null.
+    .map((r) => normalize('job_leads', r, { application_id: appRef(r.application_id), ...leadQueueDefaults(r) })), true)
   const stageOf = (v: unknown) => (v == null ? null : normalizeStage(v)?.stage ?? null)
   counts.status_suggestions = await insertRows('status_suggestions', list('status_suggestions')
     .filter((r) => typeof r.dedupe_key === 'string')

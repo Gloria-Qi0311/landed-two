@@ -54,6 +54,7 @@ Two ideas shape the code:
 | `apps/extension` | MV3 extension for Chrome, Edge, Brave and Safari. Autofill and portal status detection | `manifest.json`, `background.js`, `content.js`, `lib/fill/` |
 | `packages/schema` | Shapes and validators used by web, server and daemon | `src/index.ts` |
 | `packages/observation-processor` | Matching, dedupe and auto-apply rules (pure functions) | `src/index.ts`, [observation-processor.md](observation-processor.md) |
+| `packages/supply` | The supply track: public job source parsers, hard filters, fit score, priority (pure functions) | `src/index.ts`, [leads-model.md](leads-model.md) |
 | `packages/ai-roundtrip` | Prompt and parse helpers for the paste-to-ChatGPT fallback | `src/index.ts` |
 
 ## Where data lives
@@ -99,8 +100,8 @@ Agent chat → landed-brief block → user confirms → active job_searches row
 lib/inbox/leads.ts → ingestFoundJobs → processor dedupes → job_leads → Leads column
 ```
 
-The plan for turning Leads into an apply queue (filters, scores, approval) is in
-[leads-model.md](leads-model.md).
+Turning Leads into an apply queue (filters, scores, approval, and where public
+postings are fetched: the browser) is in [leads-model.md](leads-model.md).
 
 ### 3. Execution: filling a form
 
@@ -163,7 +164,7 @@ Details are in [pipeline.md](pipeline.md).
 | `apps/server` | node:test | Needs `TEST_DATABASE_URL`; the suite wipes and re-creates that database |
 | `apps/daemon` | node:test | Some tests are macOS-only and skip on Linux |
 | `apps/extension` | Jest + jsdom | Whole-page fill tests load the content scripts in manifest order (`tests/helpers/content-scripts.js`) |
-| `packages/observation-processor`, `packages/ai-roundtrip` | Vitest | |
+| `packages/observation-processor`, `packages/ai-roundtrip`, `packages/supply` | Vitest | `packages/supply` also tests `@landed/schema/lead-queue` |
 
 ## Releases
 

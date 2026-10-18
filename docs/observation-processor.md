@@ -162,6 +162,7 @@
 - `sources`：哪些 Agent 连接、哪些 observation 报告过它
 - `status`：`new` | `saved`（已转成投递记录）| `dismissed` | `already_applied`
 - `application_id?`、`first_seen_at`、`last_seen_at`
+- `posted_at`、`closed_at`、`screen`、`fit`：待投库的字段（migration 0021、Dexie v13，见 `docs/leads-model.md`）。供给线写入，处理程序新建时都是空，合并时原样保留
 
 **`status_suggestions`**（确认队列）
 - `id`、`observation_ids[]`、`application_id?`（未匹配时为空）、`candidate_ids[]`（有歧义时的候选）

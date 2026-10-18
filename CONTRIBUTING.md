@@ -17,6 +17,7 @@ Code reads it on every session. How the parts fit together is in
 | `apps/extension` | Browser extension: Apply Assist autofill, portal status detection. Chrome/Edge/Brave, and Safari through Landed for Mac. |
 | `packages/schema` | Shapes and validators shared by web, server, daemon. |
 | `packages/observation-processor` | The only place matching / auto-apply rules live. |
+| `packages/supply` | The supply track: public job source parsers, hard filters, fit score, priority. |
 | `docs/` | Architecture and one doc per area; `docs/history/` keeps early notes and the first prototype. |
 
 ## Set up

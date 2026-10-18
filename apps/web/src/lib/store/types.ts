@@ -11,8 +11,11 @@ import type { ApplicationAnswers } from '@landed/schema/application-answers'
 import type { ApplicationFile, FileKind } from '@landed/schema/application-files'
 import type { MasterResume, ResumeTarget, TailorNotes } from '@landed/schema/master-resume'
 import type { InterviewRound } from '@landed/schema/pipeline'
+import type { LEAD_QUEUE_FIELDS } from '@landed/schema/lead-queue'
 import type { SearchBrief } from '@landed/schema/search-brief'
 import type { JobLead, Suggestion } from '@landed/observation-processor'
+
+type LeadQueueField = typeof LEAD_QUEUE_FIELDS[number]
 
 export type DbCompany = {
   id: string
@@ -312,7 +315,9 @@ export interface DataStore {
   listJobLeads(): Promise<DbJobLead[]> // last_seen_at desc
   /** Insert or replace by id; a second lead with the same fingerprint is a 409. */
   saveJobLead(lead: Owned<DbJobLead>): Promise<DbJobLead>
-  updateJobLead(id: string, patch: Partial<Pick<DbJobLead, 'status' | 'application_id' | 'deadline'>>): Promise<DbJobLead>
+  /** The queue fields (posted_at, closed_at, screen, fit) are validated by
+   *  @landed/schema/lead-queue; null clears. */
+  updateJobLead(id: string, patch: Partial<Pick<DbJobLead, 'status' | 'application_id' | 'deadline' | LeadQueueField>>): Promise<DbJobLead>
 
   listSuggestions(): Promise<DbSuggestion[]> // created_at desc
   /** Insert or replace by id; a second suggestion with the same dedupe_key is a 409. */
