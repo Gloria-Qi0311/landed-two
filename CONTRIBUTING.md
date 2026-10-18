@@ -24,6 +24,14 @@ Code reads it on every session. How the parts fit together is in
 You need Node 24 (`nvm use` reads `.nvmrc`), pnpm 10 (`corepack enable`) and
 Postgres 17 (`brew install postgresql@17`, then `brew services start postgresql@17`).
 
+Homebrew's `node@24` and `postgresql@17` are keg-only: they aren't on your PATH
+until you add them, and `node`, `createdb` and `psql` aren't found. Add this to
+`~/.zprofile` and open a new terminal:
+
+```sh
+export PATH="/opt/homebrew/opt/node@24/bin:/opt/homebrew/opt/postgresql@17/bin:$PATH"
+```
+
 ```sh
 git clone https://github.com/AntaresYuan/landed.git
 cd landed
@@ -45,11 +53,20 @@ Optional, depending on what you work on:
 
 - **Agents** (chat, job search, resume parsing): install [Claude Code](https://claude.com/claude-code)
   and pair your computer from the Agent page, or run `pnpm landed connect '<link from the Agent page>'`.
+  The native installer puts `claude` in `~/.local/bin`; add that to your PATH too, and run `claude`
+  once to sign in before pairing.
 - **Extension**: `pnpm --filter @landed/extension build`, then in Chrome → Extensions → Developer mode →
   Load unpacked → `apps/extension/dist`. It talks to the production server by default
   (`API_URL` in `apps/extension/lib/config.js`); the page bridge works with `localhost` too.
+  With Landed for Mac installed, load `~/.landed/extension` instead: the app keeps that copy current
+  and its native host is registered for it. It's a hidden folder, so press Cmd+Shift+G in the folder
+  picker. Both copies have the same extension ID, so load only one.
 - **Local AI for autofill**: [Ollama](https://ollama.com) with a small model (`ollama pull qwen3.5:4b`).
-- **Landed for Mac**: `pnpm --filter @landed/daemon build:mac` (the Safari extension needs full Xcode).
+- **Landed for Mac**: `LANDED_SIGN_UPDATES=0 pnpm --filter @landed/daemon build:mac --install`
+  (the Safari extension needs full Xcode), then open `~/Applications/Landed.app` once to install the
+  background service and the extension. Keep `LANDED_SIGN_UPDATES=0`: with full Xcode, a plain build
+  creates a release signing key in `~/.landed-release`, and only the owner's release machine should
+  have one.
 
 Never point anything at the production database, and never use real people's
 data in tests or fixtures — use made-up names, emails and phone numbers.
