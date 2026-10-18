@@ -80,8 +80,9 @@ pnpm typecheck && pnpm lint && pnpm test
 
 Releases are done by the repo owner for now:
 
-- **Web + server**: `deploy/mac-mini/deploy.sh` from a clean checkout of `main` pushes it to the Mac mini
-  and restarts the service.
+- **Web + server**: `deploy/mac-mini/deploy.sh` from a clean checkout of `main` that matches GitHub's pushes
+  it to the Mac mini and restarts the service. The push only fast-forwards: the script stops if the mini
+  runs a commit your checkout doesn't have, and it deploys other branches only with `--any-branch`.
 - **Landed for Mac**: `deploy.sh` also builds, signs and publishes the app on the owner's machine.
   Installed apps update themselves, and only to builds signed with the release key, which never
   leaves that machine (`~/.landed-release`).
