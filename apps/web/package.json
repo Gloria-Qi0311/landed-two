@@ -20,6 +20,7 @@
     "@landed/ai-roundtrip": "workspace:*",
     "@landed/observation-processor": "workspace:*",
     "@landed/schema": "workspace:*",
+    "@landed/supply": "workspace:*",
     "@tanstack/react-query": "^5.100.10",
     "dexie": "4.4.6",
     "mammoth": "1.8.0",

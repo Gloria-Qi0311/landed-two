@@ -10,6 +10,7 @@ import { usePortalRunner } from './hooks/portal';
 import { useResumeTaskRunner } from './hooks/resumes';
 import { useAgentChatRunner } from './hooks/conversations';
 import { useSearchRunner } from './hooks/search';
+import { useAutoSupply, useSupplyRefresh } from './hooks/supply';
 import { useAutomationRunner } from './hooks/automation';
 import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
@@ -134,6 +135,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useCloudBriefing();
   useObservationProcessor();
   useSearchRunner();
+  useAutoSupply();
   useAutomationRunner();
   usePortalRunner();
   useResumeTaskRunner();
@@ -340,8 +342,10 @@ function ApplicationsPage({
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{content}</div>
   );
 
-  // Jobs agents found but the user hasn't acted on — the Kanban's Leads column.
-  const leads = (useJobLeads().data ?? []).filter((l) => l.status === 'new');
+  // Jobs agents and job lists found but the user hasn't acted on — the
+  // Kanban's Leads column. Postings that closed leave it (the data stays).
+  const leads = (useJobLeads().data ?? []).filter((l) => l.status === 'new' && !l.closed_at);
+  const leadsRefresh = useSupplyRefresh();
   const leadActions = useLeadActions();
   const updateApplication = useUpdateApplication();
   const recordApplyClick = useRecordApplyClick();
@@ -407,6 +411,7 @@ function ApplicationsPage({
           onOpenLead={(lead: DbJobLead) => recordApplyClick({ kind: 'lead', lead })}
           onSetLeadDeadline={(id: string, deadline: string | null) => leadActions.setDeadline.mutate({ id, deadline })}
           onSetAppDeadline={(id: string, deadline: string | null) => updateApplication.mutate({ id, patch: { deadline } })}
+          leadsRefresh={leadsRefresh}
         />
       </div>
     </>

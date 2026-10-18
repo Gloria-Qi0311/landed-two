@@ -239,11 +239,15 @@ belongs to one of the three.
 | Automation | Looks at | Then |
 |---|---|---|
 | Check email | New emails | Application status; its "Then" holds the auto-apply choice (`users.auto_apply_updates`) |
-| Find new jobs | The active brief as criteria, editable in place (an edit makes a new active search via `addJobSearch`) | Leads |
+| Find new jobs | The active brief as criteria, editable in place (an edit makes a new active search via `addJobSearch`); while Landed is open, also the SimplifyJobs lists | Leads |
 | Check candidate portals | Applications quiet for N days | Ask-first status updates |
 
 They run on a schedule the user sets (`users.automations` via `/me`, migration
 0015; `packages/schema/src/automation.ts`, which also has the schedule math).
+One exception: with Find new jobs on, the open web app also checks the public
+SimplifyJobs lists itself, 30 seconds after the search last changed and every 6
+hours (`hooks/supply.ts`, `lib/supply.ts`; see
+[leads-model.md](leads-model.md#sources)). That needs no agent and no computer.
 
 - **The daemon runs the schedule**, so it works with Landed closed
   (`apps/daemon/src/automations.ts`, state in `~/.landed/automations.json`, mode

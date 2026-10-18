@@ -16,6 +16,12 @@ describe('parsePostedAt', () => {
   test.each([null, undefined, '', 'yesterday', '2026-02-30', 0, -5, NaN, {}])('%s → null', (raw) => {
     expect(parsePostedAt(raw)).toBeNull()
   })
+
+  test('seconds where ms are expected land in 1970: rejected, not stored', () => {
+    expect(parsePostedAt(1760745600)).toBeNull()
+    expect(parsePostedAt(1760745600 * 1000)).toBe('2025-10-18')
+    expect(parsePostedAt('1999-12-31')).toBeNull()
+  })
 })
 
 describe('parseClosedAt', () => {
@@ -24,8 +30,8 @@ describe('parseClosedAt', () => {
     expect(parseClosedAt(new Date(Date.UTC(2026, 9, 17)))).toBe('2026-10-17T00:00:00.000Z')
     expect(parseClosedAt(Date.UTC(2026, 9, 17))).toBe('2026-10-17T00:00:00.000Z')
   })
-  test('anything else → null', () => {
-    for (const raw of [null, '', 'soon', {}, NaN]) expect(parseClosedAt(raw)).toBeNull()
+  test('anything else → null, and so is a time outside 2000–2100', () => {
+    for (const raw of [null, '', 'soon', {}, NaN, 0, 1760745600, '1970-01-01T00:00:00Z', new Date(0)]) expect(parseClosedAt(raw)).toBeNull()
   })
 })
 

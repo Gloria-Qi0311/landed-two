@@ -28,6 +28,7 @@ import { CompanyMark, Icon, stageColors } from './primitives';
 import { LeadAssistButton } from './apply-assist';
 import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
+import type { SupplyResult } from '../lib/supply';
 import { companyKey } from '@landed/observation-processor';
 
 // ────────────────────────────────────────────────────────────────────────
@@ -293,15 +294,30 @@ function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline, grouped }: 
   );
 }
 
+/** Checking the public job lists now (hooks/supply.ts); refresh is null
+ *  without an active search to fit. */
+export type LeadsRefresh = { refresh: (() => void) | null; running: boolean; last: SupplyResult | null; error: string | null };
+
 type LeadsColumnProps = {
   leads: DbJobLead[]; saved: BoardApp[]; onDismiss?: (id: string) => void; onOpen?: (lead: DbJobLead) => void;
   onOpenApp: (id: string) => void; getCompany: (id: string) => MarkCompany; duplicateIds: Set<string>;
-  onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline;
+  onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline; refresh?: LeadsRefresh;
 };
+
+/** "Checked 2 lists · 3 new" after a check, or what went wrong. */
+function refreshNote(r: LeadsRefresh): string | null {
+  if (r.running) return 'Checking job lists…';
+  if (r.error) return "Couldn't check the job lists";
+  const last = r.last;
+  if (!last) return null;
+  if (last.lists.length === 0) return 'The job lists only carry internships and new-grad roles';
+  if (last.failed.length === last.lists.length) return "Couldn't reach the job lists";
+  return `Checked SimplifyJobs · ${last.added ? `${last.added} new` : 'nothing new'}${last.closed ? ` · ${last.closed} closed` : ''}`;
+}
 // A Leads card: an agent-found job, or an application not applied to yet.
 type LeadItem = { lead: DbJobLead; app?: undefined; deadline: string | null } | { app: BoardApp; lead?: undefined; deadline: string | null };
 
-function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline }: LeadsColumnProps) {
+function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh }: LeadsColumnProps) {
   // Dropping an application here puts it back to "not applied yet".
   const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
   const count = leads.length + saved.length;
@@ -312,8 +328,18 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
           <Icon name="wand" size={12} />
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>Leads</span>
           <span style={laneCount}>{count}</span>
+          {refresh?.refresh && (
+            <button type="button" className="btn-ghost" title="Check the SimplifyJobs lists for new postings that fit your search"
+              aria-label="Check job lists now" disabled={refresh.running} onClick={refresh.refresh}
+              style={{ padding: 2, display: 'flex', color: 'var(--fg-muted)', opacity: refresh.running ? 0.5 : 1 }}>
+              <Icon name="refresh" size={12} />
+            </button>
+          )}
         </div>
         <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3, lineHeight: 1.4 }}>Not applied yet — drag into a stage when you apply</div>
+        {refresh && refreshNote(refresh) && (
+          <div role="status" style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>{refreshNote(refresh)}</div>
+        )}
       </div>
       <div style={{ padding: '2px 8px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: 1 }}>
         {/* Soonest deadline first; a company's leads and saved applications together. */}
@@ -351,11 +377,12 @@ type KanbanProps = {
   apps: BoardApp[]; companies: BoardCompany[]; onOpen: (id: string) => void; onMoveCard: (id: string, stage: string) => void;
   leads?: DbJobLead[]; onAddLead?: (lead: DbJobLead, stage: Stage) => void; onDismissLead?: (id: string) => void;
   onOpenLead?: (lead: DbJobLead) => void; onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline;
+  leadsRefresh?: LeadsRefresh;
 };
 
 const UNKNOWN_COMPANY: MarkCompany = { name: 'Unknown company', hue: null, logo: null };
 
-export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline }: KanbanProps) => {
+export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh }: KanbanProps) => {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -401,7 +428,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
       <div style={{ display: 'flex', gap: 12, padding: '16px 28px 24px', overflowX: 'auto', height: '100%', alignItems: 'stretch' }}>
         <LeadsColumn leads={leads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
           onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds}
-          onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} />
+          onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} refresh={leadsRefresh} />
         {pipelineStages.map(stage => (
           <DroppableColumn
             key={stage.id}

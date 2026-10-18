@@ -19,6 +19,7 @@
     "vitest": "^4.1.6"
   },
   "dependencies": {
+    "@landed/observation-processor": "workspace:*",
     "@landed/schema": "workspace:*"
   }
 }

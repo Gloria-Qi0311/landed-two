@@ -282,6 +282,9 @@ function SearchCard({ designated, targets, cloudLine }: CardProps) {
         New postings land in the <b>Leads</b> column, soonest deadline first; ones already there (or already applied to) are merged, not repeated.
         {agent ? ` Searched by ${agent.label}.` : !anyAgent && designated ? ' No agent on your computer can search the web yet.' : ''}
       </Row>
+      <Row label="Job lists">
+        While Landed is open, it also checks the SimplifyJobs new-grad and internship lists every few hours: open postings from the last 30 days that fit these criteria.
+      </Row>
       {cloudLine && <Row label="Also">{cloudLine}</Row>}
     </AutomationCard>
   )

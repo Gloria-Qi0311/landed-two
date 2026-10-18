@@ -61,6 +61,8 @@ messages (PR title and a clean body, no trailer).
 - Public job postings are fetched by the browser, never through the server.
   Screening and scoring use the resume, so they run in the browser too. Lead
   queue fields go through `readLeadQueueFields` on every write path.
+- A public list's postings go through `ingestFoundJobs` with one stable
+  observation id per posting, so refreshing never adds a source twice.
 
 ## Agents report; Landed decides
 

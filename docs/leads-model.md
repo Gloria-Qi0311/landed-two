@@ -103,6 +103,40 @@ never go through the Landed server.
   of this decision. A server-side cache stays out unless a source stops allowing
   browser requests.
 
+## Sources
+
+### SimplifyJobs lists (#90)
+
+The New Grad and Internships repos publish every listing as JSON
+(`.github/scripts/listings.json`, the file their README tables are generated
+from): id, company, title, link, locations, posting date, whether it's still
+open, sponsorship, degrees. That's read instead of the README tables: no HTML to
+parse, real posting dates, and closed postings are marked. About 2 MB gzipped
+per list; the browser's HTTP cache revalidates it (ETag), so an unchanged list
+costs a 304.
+
+- **Which list**: from the brief's level and roles (`listsForBrief`): internships,
+  new grad, both when it doesn't say, none for senior roles.
+- **Coarse filter** (`selectForBrief`, `packages/supply/src/simplify.ts`): open,
+  posted in the last 30 days, every meaningful word of one of the brief's roles
+  in the title ("engineer" finds "engineering", level words aside), one of the
+  brief's places (NYC, SF, Bay Area and LA understood; remote postings when the
+  brief wants remote), not an excluded company. Newest first, at most 60 per list
+  per refresh. Hard filters (sponsorship, graduation date) are #92's, not here;
+  the list's sponsorship label goes into the lead's description for them.
+- **Ingest**: through `ingestFoundJobs` like an agent's finds, with one stable
+  observation id per listing (`simplify:<list>:<id>`), so a refresh never adds the
+  same source twice and a posting an agent also found is one lead with both
+  sources (`found by claude, SimplifyJobs New Grad`).
+- **After each refresh** every lead a fetched list made gets its `posted_at`, and
+  `closed_at` once the list marks the posting closed or drops it. A list that
+  couldn't be fetched closes nothing. Leads are only closed, never reopened.
+  Closed leads leave the Leads column; the data stays.
+- **When**: part of Find new jobs. While Landed is open and that automation is on,
+  30 seconds after the search last changed (each criteria edit is a new search;
+  checking after the first would pull every posting for the roles alone) and every
+  6 hours. The Leads column's refresh button checks now.
+
 ## Left for later PRs
 
 - `apply_mode` (manual / assist / auto) and the daily limit, which only matter

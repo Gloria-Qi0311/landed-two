@@ -26,14 +26,20 @@ export type LeadQueueFields = {
 export const LEAD_QUEUE_FIELDS = ['posted_at', 'closed_at', 'screen', 'fit'] as const
 
 export const MAX_REASONS = 10
+/** Years a posting or closing date may have: a source that sends seconds
+ *  where ms are expected lands in 1970 and is rejected, not stored. */
+const MIN_YEAR = 2000
+const MAX_YEAR = 2100
+const inRange = (year: number) => year >= MIN_YEAR && year <= MAX_YEAR
 export const MAX_REASON_LENGTH = 300
 
 /** A posting date: an ISO date or time (its own calendar day), or epoch ms
- *  (Lever's createdAt) → "YYYY-MM-DD". Anything else → null. */
+ *  (Lever's createdAt) → "YYYY-MM-DD", in 2000–2100. Anything else → null. */
 export function parsePostedAt(raw: unknown): string | null {
   if (typeof raw === 'number') {
-    if (!Number.isFinite(raw) || raw <= 0) return null
-    return new Date(raw).toISOString().slice(0, 10)
+    if (!Number.isFinite(raw)) return null
+    const d = new Date(raw)
+    return inRange(d.getUTCFullYear()) ? d.toISOString().slice(0, 10) : null
   }
   if (typeof raw !== 'string' || !raw.trim()) return null
   const t = raw.trim()
@@ -41,7 +47,7 @@ export function parsePostedAt(raw: unknown): string | null {
   if (m) {
     const [y, mo, d] = [+m[1], +m[2], +m[3]]
     const date = new Date(Date.UTC(y, mo - 1, d))
-    if (y < 2000 || y > 2100 || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return null
+    if (!inRange(y) || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return null
     return `${m[1]}-${m[2]}-${m[3]}`
   }
   // "Oct 5, 2026": Date reads it as local midnight, so take the local day
@@ -49,17 +55,20 @@ export function parsePostedAt(raw: unknown): string | null {
   const ms = Date.parse(t)
   if (Number.isNaN(ms)) return null
   const d = new Date(ms)
-  if (d.getFullYear() < 2000 || d.getFullYear() > 2100) return null
+  if (!inRange(d.getFullYear())) return null
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** A moment (ISO string, epoch ms or Date) → ISO time. Anything else → null. */
+/** A moment (ISO string, epoch ms or Date) → ISO time, in 2000–2100.
+ *  Anything else → null. */
 export function parseClosedAt(raw: unknown): string | null {
   const ms = raw instanceof Date ? raw.getTime()
     : typeof raw === 'number' ? raw
       : typeof raw === 'string' && raw.trim() ? Date.parse(raw.trim())
         : NaN
-  return Number.isFinite(ms) ? new Date(ms).toISOString() : null
+  if (!Number.isFinite(ms)) return null
+  const d = new Date(ms)
+  return inRange(d.getUTCFullYear()) ? d.toISOString() : null
 }
 
 function parseReasons(raw: unknown): string[] | null {

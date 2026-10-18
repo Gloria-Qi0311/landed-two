@@ -13,12 +13,15 @@ export type IngestResult = { found: number; added: number; merged: number; alrea
  * through the observation processor as a `job_discovered` observation, so
  * deduplication and "already applied" use the same rules as external
  * agents. Idempotent: observation ids derive from the run (`<job id>:<n>`),
- * so ingesting the same run twice changes nothing.
+ * so ingesting the same run twice changes nothing. A source whose jobs have
+ * their own ids (a public list) passes `observationIds`, one per job, so
+ * seeing the same posting on the next refresh changes nothing either.
  */
 export async function ingestFoundJobs(
   store: DataStore,
   jobs: FoundJob[],
   source: { run_id: string; runtime_id: string; agent: string },
+  opts: { observationIds?: string[]; connectionId?: string } = {},
 ): Promise<IngestResult> {
   const [leads, apps, companies] = await Promise.all([store.listJobLeads(), store.listApplications(), store.listCompanies()])
   let ctx: Context = {
@@ -32,8 +35,8 @@ export async function ingestFoundJobs(
   const observedAt = new Date().toISOString()
   for (const [i, job] of jobs.entries()) {
     const outcome = processObservation({
-      id: `${source.run_id}:${i}`,
-      connection_id: `runtime:${source.runtime_id}`,
+      id: opts.observationIds?.[i] ?? `${source.run_id}:${i}`,
+      connection_id: opts.connectionId ?? `runtime:${source.runtime_id}`,
       observation_type: 'job_discovered',
       observed_at: observedAt,
       provider: source.agent,

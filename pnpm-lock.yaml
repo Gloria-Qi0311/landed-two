@@ -115,6 +115,9 @@ importers:
       '@landed/schema':
         specifier: workspace:*
         version: link:../../packages/schema
+      '@landed/supply':
+        specifier: workspace:*
+        version: link:../../packages/supply
       '@tanstack/react-query':
         specifier: ^5.100.10
         version: 5.100.10(react@19.2.6)
@@ -217,6 +220,9 @@ importers:
 
   packages/supply:
     dependencies:
+      '@landed/observation-processor':
+        specifier: workspace:*
+        version: link:../observation-processor
       '@landed/schema':
         specifier: workspace:*
         version: link:../schema

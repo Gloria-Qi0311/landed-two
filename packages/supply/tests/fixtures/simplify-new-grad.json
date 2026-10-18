@@ -1,0 +1,192 @@
+[
+ {
+  "source": "Simplify",
+  "category": "Software",
+  "company_name": "Axon",
+  "id": "984e5620-d97d-4408-9534-5b618ea183b2",
+  "title": "Software Engineer 1",
+  "active": true,
+  "date_updated": 1792190281,
+  "date_posted": 1792189506,
+  "url": "https://job-boards.greenhouse.io/axon/jobs/7703668003",
+  "locations": [
+   "Boston, MA",
+   "Seattle, WA",
+   "Scottsdale, AZ",
+   "Atlanta, GA"
+  ],
+  "company_url": "https://simplify.jobs/c/Axon",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Bachelor's"
+  ]
+ },
+ {
+  "source": "Simplify",
+  "category": "Software",
+  "company_name": "Affirm",
+  "id": "265e1dc0-f078-4530-86f1-f998666a2322",
+  "title": "Software Engineer 1 - Fullstack - Search",
+  "active": true,
+  "date_updated": 1792102348,
+  "date_posted": 1792102176,
+  "url": "https://job-boards.greenhouse.io/affirm/jobs/8017340003",
+  "locations": [
+   "Remote in USA"
+  ],
+  "company_url": "https://simplify.jobs/c/Affirm",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": []
+ },
+ {
+  "source": "Simplify",
+  "category": "Software",
+  "company_name": "CVector",
+  "id": "5e801b15-781c-4f79-8630-11096eed5278",
+  "title": "Full Stack Software Engineer 1 or 2",
+  "active": true,
+  "date_updated": 1792226381,
+  "date_posted": 1786411959,
+  "url": "https://apply.workable.com/cvector/j/0D0DE27033/apply",
+  "locations": [
+   "NYC"
+  ],
+  "company_url": "https://simplify.jobs/c/CVector",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Bachelor's"
+  ]
+ },
+ {
+  "source": "Simplify",
+  "category": "AI/ML/Data",
+  "company_name": "American Institutes for Research",
+  "id": "e1ba7862-cdbf-402c-8153-b3b41a329ce9",
+  "title": "Data Scientist - Project Success and Innovation",
+  "active": true,
+  "date_updated": 1792189804,
+  "date_posted": 1792188731,
+  "url": "https://job-boards.greenhouse.io/americaninstitutesforresearch/jobs/5454172008",
+  "locations": [
+   "Austin, TX",
+   "Remote in USA",
+   "Chicago, IL",
+   "Arlington County, Arlington, VA",
+   "Sacramento, CA",
+   "Chapel Hill, NC"
+  ],
+  "company_url": "https://simplify.jobs/c/American-Institutes-For-Research",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Master's",
+   "PhD"
+  ]
+ },
+ {
+  "source": "Simplify",
+  "category": "Product",
+  "company_name": "JP Morgan Chase",
+  "id": "a4aad8c4-9986-41fb-a34f-cc96716c834f",
+  "title": "Martech Product Manager - Associate",
+  "active": true,
+  "date_updated": 1788457523,
+  "date_posted": 1778249100,
+  "url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210713064",
+  "locations": [
+   "London, UK"
+  ],
+  "company_url": "https://simplify.jobs/c/JP-Morgan-Chase",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Bachelor's"
+  ]
+ },
+ {
+  "date_updated": 1781590639,
+  "sponsorship": "Does Not Offer Sponsorship",
+  "active": true,
+  "degrees": [],
+  "url": "https://jobs.ashbyhq.com/people-culture-talent/c1049c49-aea6-4862-a711-a4c78cf6e959",
+  "company_name": "People Culture Talent",
+  "title": "Full-Stack Engineer",
+  "locations": [
+   "San Francisco, CA"
+  ],
+  "category": "Software Engineering",
+  "source": "rahmanMian",
+  "id": "22a341c0-1428-4064-a7c3-2c01961fcee3",
+  "date_posted": 1781590639,
+  "company_url": "",
+  "is_visible": true
+ },
+ {
+  "source": "Simplify",
+  "category": "Software",
+  "company_name": "Northrop Grumman",
+  "id": "b5a395ae-42f1-46ba-a288-7d34298231bc",
+  "title": "Associate Software Engineer - Pathways",
+  "active": false,
+  "date_updated": 1792190280,
+  "date_posted": 1792108800,
+  "url": "https://ngc.wd1.myworkdayjobs.com/Northrop_Grumman_External_Site/job/United-States-Virginia-Dulles/XMLNAME-2027-Associate-Software-Engineer-Pathways-Dulles-VA_R10256499",
+  "locations": [
+   "Dulles, VA"
+  ],
+  "company_url": "https://simplify.jobs/c/Northrop-Grumman",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Bachelor's",
+   "Master's"
+  ]
+ },
+ {
+  "source": "Simplify",
+  "category": "Software",
+  "company_name": "Albertsons",
+  "id": "721109b1-f8d7-4e4a-a9ca-e7d8f9bde744",
+  "title": "Entry Level Front End Engineer",
+  "active": false,
+  "date_updated": 1781004225,
+  "date_posted": 1780524687,
+  "url": "https://eofd.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/718583",
+  "locations": [
+   "Oregon City, OR"
+  ],
+  "company_url": "https://simplify.jobs/c/Albertsons",
+  "is_visible": false,
+  "sponsorship": "Other",
+  "degrees": []
+ },
+ {
+  "id": "broken-no-url",
+  "company_name": "Made Up Co",
+  "title": "Software Engineer",
+  "url": "",
+  "active": true,
+  "locations": [],
+  "date_posted": 1792281600
+ },
+ {
+  "id": "broken-js-url",
+  "company_name": "Made Up Co",
+  "title": "Software Engineer",
+  "url": "javascript:alert(1)",
+  "active": true,
+  "locations": [],
+  "date_posted": 1792281600
+ },
+ {
+  "company_name": "No Id Inc",
+  "title": "Software Engineer",
+  "url": "https://jobs.example.com/x",
+  "active": true
+ },
+ "not an object",
+ null
+]
