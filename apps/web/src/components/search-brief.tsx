@@ -1,15 +1,21 @@
-// The search brief the agent proposes in the Agent chat, as a card with
-// one button: confirm it and search with every agent on the user's online
-// computers. Plus the status strip for the active search (running / last
-// run) at the top of the chat.
-import type { ReactNode } from 'react'
-import type { SearchBrief } from '@landed/schema/search-brief'
+// The search brief the agent proposes in the Agent chat, as a card with one
+// button: save it to the Find new jobs automation, turn that on, and search
+// now — with the agents and sources ticked on the card (Search with; the
+// agent may suggest them, and a schedule, in the same block). Plus the status
+// strip for the active search (running / last run) at the top of the chat.
+import { useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import type { SearchBrief, SearchSetup } from '@landed/schema/search-brief'
+import { describeSchedule, type Automations, type Schedule, type SearchSources } from '@landed/schema/automation'
 import { Icon } from './primitives'
 import { formatRelative } from '../lib/time'
 import { useJobSearch, type SearchRun } from '../lib/job-search'
 import type { DbJobSearch } from '../lib/store'
 import { useRuntimes } from '../hooks/runtimes'
-import { needsDaemonUpdate, searchTargets, useActiveSearch, useStartSearch } from '../hooks/search'
+import { useAgentConnections } from '../hooks/agents'
+import { useAutomations, useSetAutomations } from '../hooks/automation'
+import { chosenSearchTargets, needsDaemonUpdate, searchComputer, useActiveSearch, useEditBrief, useStartSearch } from '../hooks/search'
+import { SearchSourcesPicker } from './search-sources'
 import { muted, danger } from './ui'
 
 const BRIEF_KEYS: (keyof SearchBrief)[] = [
@@ -39,21 +45,52 @@ function useSearchState() {
   const active = useActiveSearch()
   const runs = useJobSearch((s) => s.runs)
   const start = useStartSearch()
+  const { automations } = useAutomations()
   const activeRuns = active ? runs.filter((r) => r.search_id === active.id) : []
   return {
     active,
     activeRuns,
     running: activeRuns.some((r) => r.status === 'running') || start.isPending,
-    targets: searchTargets(runtimes.data),
+    targets: chosenSearchTargets(runtimes.data, automations),
     outdated: needsDaemonUpdate(runtimes.data),
     start,
   }
 }
 
-export function BriefCard({ brief, latest }: { brief: SearchBrief; latest: boolean }) {
-  const { active, running, targets, outdated, start } = useSearchState()
+/** The agent's suggested schedule, on top of the current one. */
+function withSuggestion(current: Schedule, suggested: SearchSetup['schedule']): Schedule {
+  if (!suggested) return current
+  if (suggested.kind === 'interval') return suggested
+  return { kind: 'daily', time: suggested.time, days: current.kind === 'daily' ? current.days : [0, 1, 2, 3, 4, 5, 6] }
+}
+
+export function BriefCard({ brief, setup, latest }: { brief: SearchBrief; setup: SearchSetup | null; latest: boolean }) {
+  const { active, running, outdated, start } = useSearchState()
+  const runtimes = useRuntimes()
+  const { automations, loaded } = useAutomations()
+  const setAutomations = useSetAutomations()
+  const saveBrief = useEditBrief()
+  const cloud = (useAgentConnections().data ?? []).filter((c) => !c.revoked_at && c.scopes.includes('tasks:read')).map((c) => c.display_name)
+  const choices = searchComputer(runtimes.data, automations).map((t) => t.agent)
   const confirmed = !!active && sameBrief(active.brief, brief)
   const stale = !latest && !confirmed
+
+  // What the card will save: the current Search with, or what the agent
+  // suggested (only agents that are here).
+  const suggested = setup?.search_with?.filter((id) => choices.some((a) => a.id === id)) ?? []
+  const [sources, setSources] = useState<SearchSources | null>(null)
+  const draft: SearchSources = sources ?? { ...automations.job_search.sources!, ...(suggested.length ? { agents: suggested } : {}) }
+  const schedule = withSuggestion(automations.job_search.schedule, setup?.schedule ?? null)
+  const job = automations.job_search
+  const busy = running || setAutomations.isPending || saveBrief.isPending
+
+  const save = async () => {
+    const next: Automations = { ...automations, job_search: { ...job, enabled: true, schedule, sources: draft } }
+    await setAutomations.mutateAsync(next)
+    const targets = chosenSearchTargets(runtimes.data, next)
+    if (targets.length) start.mutate({ brief, existingId: confirmed ? active!.id : undefined, targets })
+    else if (!confirmed) await saveBrief.mutateAsync(brief)
+  }
 
   return (
     <div style={{
@@ -80,27 +117,30 @@ export function BriefCard({ brief, latest }: { brief: SearchBrief; latest: boole
         </div>
 
         {confirmed && (
-          <div style={muted}>This is your active search — run it again from the bar at the top. New jobs land in the Leads column.</div>
+          <div style={muted}>
+            Saved to <Link to="/automation">Find new jobs</Link>{job.enabled ? ` — on, ${describeSchedule(job.schedule).toLowerCase()}` : ' (turned off)'}. New jobs land in the
+            Leads column; run it again from the bar at the top.
+          </div>
         )}
         {!stale && !confirmed && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Search with</div>
+              <SearchSourcesPicker agents={choices} sources={draft} cloud={cloud} disabled={busy || !loaded} onChange={setSources} />
+            </div>
             <div>
-              <button type="button" className={confirmed ? 'btn-secondary' : 'btn-primary'}
-                disabled={running || targets.length === 0}
-                style={{ opacity: running || targets.length === 0 ? 0.6 : 1 }}
-                onClick={() => start.mutate({ brief, existingId: confirmed ? active!.id : undefined, targets })}>
+              <button type="button" className="btn-primary" disabled={busy || !loaded} style={{ opacity: busy || !loaded ? 0.6 : 1 }} onClick={() => void save()}>
                 <Icon name="search" size={12} />
-                {running ? 'Searching…' : confirmed ? 'Search again' : 'Confirm & search'}
+                {running ? 'Searching…' : 'Save to Find new jobs & search now'}
               </button>
             </div>
             <div style={muted}>
-              {targets.length > 0
-                ? `Searches with ${targets.map((t) => `${t.agent.label} on ${t.runtime.name}`).join(', ')}. New jobs land in the Leads column.`
-                : outdated
-                  ? 'The Landed daemon on your computer needs an update to search: stop it and run `pnpm landed start` again.'
-                  : 'Your computer is offline — start the Landed daemon to search.'}
+              {`Turns on Find new jobs (${describeSchedule(schedule).toLowerCase()}) with these criteria; change either on the Automation page.`}
+              {choices.length === 0 && (outdated
+                ? ' The Landed daemon on your computer needs an update to search; the lists and job boards still run.'
+                : ' Your agents search once your computer is back online.')}
             </div>
-            {start.error && <div role="alert" style={{ ...muted, color: danger }}>{(start.error as Error).message}</div>}
+            {(start.error ?? setAutomations.error) && <div role="alert" style={{ ...muted, color: danger }}>{((start.error ?? setAutomations.error) as Error).message}</div>}
           </div>
         )}
       </div>

@@ -233,6 +233,14 @@ describe('MCP', () => {
     assert.ok(email.instructions.includes(`after:${Math.floor(Date.parse(email.since) / 1000)}`)) // exact, not a date
     assert.match(tasks.content[0].text, /submit with submit_jobs/)
 
+    // Find new jobs set to search without cloud agents: only the email check is theirs.
+    await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true, sources: { agents: ['claude'], cloud_agents: false } }, email_check: { enabled: true } } } })
+    tasks = await tool(access, 'get_tasks')
+    assert.deepEqual(tasks.structuredContent.tasks.map((t: { id: string }) => t.id), ['email_check'])
+    await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true, sources: { agents: ['claude'], cloud_agents: false } }, email_check: { enabled: false } } } })
+    assert.match((await tool(access, 'get_tasks')).structuredContent.note, /own computer/)
+    await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true }, email_check: { enabled: true } } } })
+
     // Jobs: invalid ones dropped, repeats recognized.
     const jobs = [
       { company: 'Blorp', title: 'Backend Engineer', job_url: 'https://jobs.example/blorp/1', location: 'Seattle, WA', why: 'fits', deadline: null },

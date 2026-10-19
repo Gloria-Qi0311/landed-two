@@ -113,7 +113,11 @@ async function run(config: Config, opts: { service?: boolean } = {}): Promise<'r
     try {
       const me = await client.hello({ name, agents, daemon_version: VERSION }) as { id: string }
       // Which computer this is: the browser names the one that runs the schedule.
-      setupAutomations({ runtimeId: me.id, runTask, log, pickAgent: (kind) => agentForKind(agents, kind) })
+      setupAutomations({
+        runtimeId: me.id, runTask, log,
+        pickAgent: (kind) => agentForKind(agents, kind),
+        agentsFor: (kind) => agents.filter((a) => a.kinds.includes(kind)).map((a) => ({ id: a.id, label: a.label })),
+      })
       await client.stream(work, () => {
         backoff = 1000
         log(`connected to ${config.server} as "${name}" — agents: ${describe(agents)}`)

@@ -242,10 +242,13 @@ async function callTool(sql: Sql, conn: Connection, name: string, args: Record<s
     const last = Math.max(conn.email_checked_at ? Date.parse(conn.email_checked_at) : 0, run ? Date.parse(run.last_done_at) : 0)
     const since = new Date(last ? last - EMAIL_OVERLAP_MS : now.getTime() - FIRST_EMAIL_LOOKBACK_DAYS * 86_400_000)
     const automations = parseAutomations(conn.automations)
-    const on = { job_search: automations.job_search.enabled, email_check: automations.email_check.enabled }
+    // Find new jobs can leave cloud agents out (Automation page → Search with).
+    const on = { job_search: automations.job_search.enabled && automations.job_search.sources?.cloud_agents !== false, email_check: automations.email_check.enabled }
     const tasks = buildTasks(briefing, on, since, now)
     const note = !on.job_search && !on.email_check
-      ? "The user hasn't turned on any automation in Landed (Automation page: job search, email check), so there's nothing to do."
+      ? automations.job_search.enabled
+        ? "The user's job search runs on their own computer, not with cloud agents (Landed's Automation page), so there's nothing to do."
+        : "The user hasn't turned on any automation in Landed (Automation page: job search, email check), so there's nothing to do."
       : on.job_search && !row
         ? "Landed hasn't received the user's search direction yet. Ask them to open Landed once: it shares the brief while you're connected."
         : on.job_search && !briefing?.brief ? "The user hasn't confirmed a search direction in Landed yet, so there is no job search to run. They can agree on one with Landed's Agent." : null

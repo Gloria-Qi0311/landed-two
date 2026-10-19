@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickQuietPortals,
+  AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickQuietPortals, pickSearchAgents,
   type AutomationKind, type AutomationResult, type AutomationRun, type Automations, type SyncContext, type SyncInput, type SyncOutput,
 } from '@landed/schema/automation'
 import { home } from './config.ts'
@@ -63,6 +63,8 @@ function save() {
 let myRuntimeId: string | null = null
 let runTaskFn: ((task: Task, emit: (e: TaskEvent) => void) => Promise<void>) | null = null
 let pickAgent: (kind: AutomationKind) => string | null = () => 'claude'
+/** Every agent here that can run a kind (Find new jobs can search with several). */
+let agentsFor: ((kind: AutomationKind) => { id: string; label: string }[]) | null = null
 let log: (msg: string) => void = () => {}
 const running = new Set<AutomationKind>()
 
@@ -70,11 +72,13 @@ const running = new Set<AutomationKind>()
  *  task and with which agent here, logging. */
 export function setupAutomations(opts: {
   runtimeId: string; runTask: typeof runTaskFn; log: (msg: string) => void; pickAgent?: (kind: AutomationKind) => string | null
+  agentsFor?: (kind: AutomationKind) => { id: string; label: string }[]
 }) {
   myRuntimeId = opts.runtimeId
   runTaskFn = opts.runTask
   log = opts.log
   if (opts.pickAgent) pickAgent = opts.pickAgent
+  if (opts.agentsFor) agentsFor = opts.agentsFor
   const st = s()
   if (st.owner !== opts.runtimeId) {
     if (st.owner) {
@@ -163,21 +167,39 @@ const PAYLOAD: Record<AutomationKind, 'findings' | 'jobs' | 'results'> = { email
 /** "Oct 13, 1:20 PM" in this computer's time zone (the user's). */
 const localTime = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
-function describeRun(kind: AutomationKind, n: number, input: Record<string, unknown>) {
+function describeRun(kind: AutomationKind, n: number, input: Record<string, unknown>, agentLabel: string | null) {
   const s = n === 1 ? '' : 's'
   if (kind === 'email_check') return `${n} application email${s} since ${localTime(String(input.since))}`
   if (kind === 'portal_check') return `${n} portal${s} checked`
-  return `${n} job${s}`
+  return `${n} job${s}${agentLabel ? ` · ${agentLabel}` : ''}`
 }
 
+/** Run a kind now. Find new jobs runs once per agent chosen on the
+ *  Automation page (pickSearchAgents), one after another; the browser
+ *  merges what they find. */
 async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
   const st = s()
   if (running.has(kind) || !st.context || !runTaskFn) return
+  const several = kind === 'job_search' && agentsFor ? pickSearchAgents(agentsFor(kind), st.automations?.job_search.sources) : null
+  running.add(kind)
+  try {
+    if (several && several.length > 0) {
+      for (const agent of several) await runWith(kind, agent.id, several.length > 1 ? agent.label : null, opts)
+    } else {
+      await runWith(kind, pickAgent(kind), null, opts)
+    }
+  } finally {
+    running.delete(kind)
+  }
+}
+
+async function runWith(kind: AutomationKind, agent: string | null, agentLabel: string | null, opts: RunOptions) {
+  const st = s()
+  if (!st.context || !runTaskFn) return
   const id = randomUUID()
   const started = new Date().toISOString()
   const run: AutomationRun = { id, kind, started_at: started, finished_at: null, status: 'running', summary: null, error: null }
   st.runs = [run, ...st.runs].slice(0, MAX_RUNS)
-  const agent = pickAgent(kind)
   const plan: Planned = agent ? inputFor(kind, st.context, st, opts) : {
     error: kind === 'email_check' ? 'No agent on this computer can read your email (Claude Code with a Gmail connector can).'
       : kind === 'portal_check' ? "No agent on this computer can use Chrome (Claude Code with Claude in Chrome can)."
@@ -198,15 +220,10 @@ async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
     return
   }
   const input = plan.input
-  running.add(kind)
   save()
-  log(`automation: ${kind} started`)
+  log(`automation: ${kind} started${agentLabel ? ` (${agentLabel})` : ''}`)
   let end: TaskEvent | null = null
-  try {
-    await runTaskFn({ id, agent: agent!, kind, input }, (e) => { if (e.type === 'done' || e.type === 'error') end = e })
-  } finally {
-    running.delete(kind)
-  }
+  await runTaskFn({ id, agent: agent!, kind, input }, (e) => { if (e.type === 'done' || e.type === 'error') end = e })
   const finished = new Date().toISOString()
   run.finished_at = finished
   const e = end as TaskEvent | null
@@ -217,7 +234,7 @@ async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
     st.outbox.push({ id, kind, started_at: started, finished_at: finished, summary: e.text, [PAYLOAD[kind]]: payload, ...(plan.items ? { items: plan.items } : {}) })
     for (const item of plan.items ?? []) (st.portal_checked ??= {})[item.application_id] = finished
     run.status = 'ok'
-    run.summary = describeRun(kind, kind === 'portal_check' ? plan.items?.length ?? payload.length : payload.length, input)
+    run.summary = describeRun(kind, kind === 'portal_check' ? plan.items?.length ?? payload.length : payload.length, input, agentLabel)
   } else {
     st.last_failure[kind] = finished
     run.status = 'error'
@@ -233,5 +250,6 @@ export function resetAutomationsForTests() {
   state = null
   myRuntimeId = null
   pickAgent = () => 'claude'
+  agentsFor = null
   running.clear()
 }

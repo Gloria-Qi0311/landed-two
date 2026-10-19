@@ -178,6 +178,11 @@ not, settings via `?view=settings`. Old `/applications?agent=…` and `/agents`
 links redirect there. Agent work that belongs to a page stays there: the board
 keeps only its own updates, and My Resume runs its own tasks.
 
+Chat needs one agent (product decision, 2026-10-19): the header names it, and
+Settings has "Chat with" when the computer has several (remembered on this
+device). Which agents search for jobs is not chosen here; it's Find new jobs →
+Search with (below).
+
 - **Chat history**: conversations live in the data store (`agent_conversations`;
   Dexie v7, migration 0014), and the Agent page lists them on its left. A
   conversation's id doubles as its Claude Code session id, so continuing a chat
@@ -220,9 +225,17 @@ keeps only its own updates, and My Resume runs its own tasks.
 ## Job search
 
 The chat agent ends a reply with a ```` ```landed-brief ```` JSON block once the
-direction is clear. Confirming stores it as the active `job_searches` row (data
-store, one active per account) and runs `job_search` on every agent of every
-online computer (`lib/job-search.ts`). The daemon returns schema-bound results
+direction is clear; when the user said which agents should search or how often,
+the same JSON may carry `search_with` (agent ids) and `schedule` ("daily 09:00",
+"every 4 hours"), parsed by `parseSearchSetup`. The card (`components/search-brief.tsx`)
+shows Search with, ticked from the current setting or the agent's suggestion, and
+one button, **Save to Find new jobs & search now** (product decision,
+2026-10-19: search is configured in one place). It stores the brief as the active
+`job_searches` row (data store, one active per account), turns Find new jobs on
+with that schedule and sources, and runs `job_search` now with the chosen agents
+on the computer that runs the schedule (`chosenSearchTargets` in
+`hooks/search.ts`, `lib/job-search.ts`), so a search now and the scheduled one
+use the same agents. Nothing is set until the user clicks. The daemon returns schema-bound results
 (`claude --json-schema`). The browser feeds each job through the observation
 processor (`ingestFoundJobs` in `lib/inbox/leads.ts`) so they dedupe into the
 **Leads** column like external agents' finds. The brief and result shapes and
@@ -239,8 +252,22 @@ belongs to one of the three.
 | Automation | Looks at | Then |
 |---|---|---|
 | Check email | New emails | Application status; its "Then" holds the auto-apply choice (`users.auto_apply_updates`) |
-| Find new jobs | The active brief as criteria, editable in place (an edit makes a new active search via `addJobSearch`); while Landed is open, also the SimplifyJobs lists and followed companies' job boards | Leads |
+| Find new jobs | The active brief as criteria, editable in place (an edit makes a new active search via `addJobSearch`), searched with what Search with ticks | Leads |
 | Check candidate portals | Applications quiet for N days | Ask-first status updates |
+
+**Find new jobs → Search with** (`users.automations.job_search.sources`,
+`SearchSources` in `packages/schema/src/automation.ts`; `components/search-sources.tsx`):
+
+- **Agents** on the computer that runs the schedule (Claude Code, Codex, any ACP
+  agent there). Each ticked one searches, one after another, with the user's own
+  subscription (`pickSearchAgents`; none of them here → the first that can
+  search). The daemon's scheduled run and Run now both use it, and the results
+  are merged by the processor. Default: Claude Code.
+- **SimplifyJobs lists** and **company job boards**, fetched by the browser while
+  Landed is open (`lib/supply.ts`, `refreshSupply`'s `sources`); they cost no
+  tokens. Run now refreshes them too.
+- **Cloud agents** (only shown when one is connected): unticked, `get_tasks`
+  gives them no job search (`routes/mcp.ts`).
 
 They run on a schedule the user sets (`users.automations` via `/me`, migration
 0015; `packages/schema/src/automation.ts`, which also has the schedule math).

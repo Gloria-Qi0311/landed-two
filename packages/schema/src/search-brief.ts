@@ -135,19 +135,44 @@ export const BRIEF_FENCE = 'landed-brief'
 
 /** Split an agent reply into the visible text and the brief it proposes.
  *  `drafting` = the block has started but not finished streaming yet. */
-export function extractBrief(reply: string): { text: string; brief: SearchBrief | null; drafting: boolean } {
+/** What the agent suggests about running the search, from the same block:
+ *  which agents to search with and how often, when the user said so. The
+ *  card shows it; nothing is set until the user saves. */
+export type SearchSetup = {
+  search_with: string[] | null
+  schedule: { kind: 'interval'; hours: number } | { kind: 'daily'; time: string } | null
+}
+
+export function parseSearchSetup(raw: unknown): SearchSetup {
+  const r = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
+  const ids = Array.isArray(r.search_with)
+    ? [...new Set(r.search_with.filter((a): a is string => typeof a === 'string').map((a) => a.trim().toLowerCase()).filter((a) => /^[a-z0-9][a-z0-9:._-]{0,39}$/.test(a)))].slice(0, 6)
+    : []
+  const s = typeof r.schedule === 'string' ? r.schedule.trim().toLowerCase() : ''
+  const daily = s.match(/^daily\s+([01]\d|2[0-3]):([0-5]\d)$/)
+  const every = s.match(/^every\s+(\d{1,2})\s+hours?$/)
+  const schedule = daily ? { kind: 'daily' as const, time: `${daily[1]}:${daily[2]}` }
+    : every && [1, 2, 4, 8, 12].includes(Number(every[1])) ? { kind: 'interval' as const, hours: Number(every[1]) }
+      : null
+  return { search_with: ids.length ? ids : null, schedule }
+}
+
+export function extractBrief(reply: string): { text: string; brief: SearchBrief | null; setup: SearchSetup | null; drafting: boolean } {
   const start = reply.search(new RegExp('```' + BRIEF_FENCE + '[^\\n]*\\n'))
-  if (start === -1) return { text: reply, brief: null, drafting: false }
+  if (start === -1) return { text: reply, brief: null, setup: null, drafting: false }
   const bodyStart = reply.indexOf('\n', start) + 1
   const end = reply.indexOf('```', bodyStart)
   const before = reply.slice(0, start).trimEnd()
-  if (end === -1) return { text: before, brief: null, drafting: true }
+  if (end === -1) return { text: before, brief: null, setup: null, drafting: true }
   const after = reply.slice(end + 3).trim()
   let brief: SearchBrief | null = null
+  let setup: SearchSetup | null = null
   try {
-    brief = parseBrief(JSON.parse(reply.slice(bodyStart, end)))
+    const raw = JSON.parse(reply.slice(bodyStart, end))
+    brief = parseBrief(raw)
+    setup = brief ? parseSearchSetup(raw) : null
   } catch {
     brief = null
   }
-  return { text: after ? `${before}\n\n${after}` : before, brief, drafting: false }
+  return { text: after ? `${before}\n\n${after}` : before, brief, setup, drafting: false }
 }

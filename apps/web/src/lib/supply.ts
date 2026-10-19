@@ -42,9 +42,14 @@ export type SupplyCheck = SupplyResult & {
 export async function refreshSupply(
   store: DataStore,
   brief: SearchBrief,
-  opts: { fetchFn?: typeof fetch; now?: Date } = {},
+  opts: { fetchFn?: typeof fetch; now?: Date; sources?: { job_lists: boolean; company_boards: boolean } } = {},
 ): Promise<SupplyCheck> {
-  const lists = await refreshSimplify(store, brief, opts)
+  // Find new jobs → Search with: either source can be left out.
+  const now = opts.now ?? new Date()
+  const lists = opts.sources?.job_lists === false
+    ? { lists: [], found: 0, added: 0, merged: 0, closed: 0, failed: [], at: now.toISOString() }
+    : await refreshSimplify(store, brief, opts)
+  if (opts.sources?.company_boards === false) return { ...lists, boards: 0, boards_failed: [] }
   const [applications, companies, leads, resolved] = await Promise.all([
     store.listApplications(), store.listCompanies(), store.listJobLeads(), resolveBoards(brief.include_companies, opts.fetchFn),
   ])
@@ -116,18 +121,18 @@ type State = {
   running: boolean
   last: SupplyCheck | null
   error: string | null
-  refresh: (store: DataStore, brief: SearchBrief, onData: () => void) => Promise<void>
+  refresh: (store: DataStore, brief: SearchBrief, onData: () => void, sources?: { job_lists: boolean; company_boards: boolean }) => Promise<void>
 }
 
 export const useSupply = create<State>((set, get) => ({
   running: false,
   last: null,
   error: null,
-  async refresh(store, brief, onData) {
+  async refresh(store, brief, onData, sources) {
     if (get().running) return
     set({ running: true, error: null })
     try {
-      const last = await refreshSupply(store, brief)
+      const last = await refreshSupply(store, brief, { sources })
       set({ last })
       if (last.added + last.merged + last.closed > 0) onData()
     } catch (e) {

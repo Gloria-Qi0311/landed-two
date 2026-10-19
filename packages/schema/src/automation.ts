@@ -20,9 +20,16 @@ export type Schedule =
   | { kind: 'interval'; hours: number }
   | { kind: 'daily'; time: string; days: number[] }
 
+/** Where Find new jobs looks (job_search only). `agents`: ids of the agents
+ *  on the user's computer to search with (claude, codex, an ACP agent…);
+ *  each runs the search, and the results are merged. The public sources run
+ *  in the browser (apps/web/src/lib/supply.ts); cloud agents pull the task
+ *  themselves (get_tasks). */
+export type SearchSources = { agents: string[]; job_lists: boolean; company_boards: boolean; cloud_agents: boolean }
+
 /** `quiet_days` (portal_check only): look at an application's portal once
- *  it has had no news for this many days. */
-export type AutomationConfig = { enabled: boolean; schedule: Schedule; quiet_days?: number }
+ *  it has had no news for this many days. `sources` (job_search only). */
+export type AutomationConfig = { enabled: boolean; schedule: Schedule; quiet_days?: number; sources?: SearchSources }
 export type Automations = Record<AutomationKind, AutomationConfig>
 
 export const INTERVAL_HOURS = [1, 2, 4, 8, 12]
@@ -32,9 +39,13 @@ export const QUIET_DAY_CHOICES = [7, 14, 21, 30]
 /** At most this many portals per run: each one is a few minutes of browsing. */
 export const MAX_PORTALS_PER_RUN = 5
 
+/** Claude Code, plus the public sources, which cost no tokens. */
+export const DEFAULT_SEARCH_SOURCES: SearchSources = { agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true }
+export const MAX_SEARCH_AGENTS = 6
+
 export const DEFAULT_AUTOMATIONS: Automations = {
   email_check: { enabled: false, schedule: { kind: 'interval', hours: 4 } },
-  job_search: { enabled: false, schedule: { kind: 'daily', time: '09:00', days: ALL_DAYS } },
+  job_search: { enabled: false, schedule: { kind: 'daily', time: '09:00', days: ALL_DAYS }, sources: DEFAULT_SEARCH_SOURCES },
   portal_check: { enabled: false, schedule: { kind: 'daily', time: '10:00', days: [1] }, quiet_days: 14 },
 }
 
@@ -58,8 +69,28 @@ export function parseAutomations(raw: unknown): Automations {
     const x = r[kind]
     out[kind] = { enabled: x?.enabled === true, schedule: parseSchedule(x?.schedule, d.schedule) }
     if (kind === 'portal_check') out[kind].quiet_days = QUIET_DAY_CHOICES.includes(x?.quiet_days as number) ? x!.quiet_days as number : d.quiet_days
+    if (kind === 'job_search') out[kind].sources = parseSearchSources(x?.sources)
   }
   return out
+}
+
+/** Stored search sources → valid ones; missing → the defaults. */
+export function parseSearchSources(raw: unknown): SearchSources {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEFAULT_SEARCH_SOURCES, agents: [...DEFAULT_SEARCH_SOURCES.agents] }
+  const r = raw as Record<string, unknown>
+  const agents = Array.isArray(r.agents)
+    ? [...new Set(r.agents.filter((a): a is string => typeof a === 'string' && /^[a-z0-9][a-z0-9:._-]{0,39}$/.test(a)))].slice(0, MAX_SEARCH_AGENTS)
+    : [...DEFAULT_SEARCH_SOURCES.agents]
+  const flag = (k: keyof Omit<SearchSources, 'agents'>) => (typeof r[k] === 'boolean' ? r[k] as boolean : DEFAULT_SEARCH_SOURCES[k])
+  return { agents, job_lists: flag('job_lists'), company_boards: flag('company_boards'), cloud_agents: flag('cloud_agents') }
+}
+
+/** The agents here a search runs with: the chosen ones that are here, else
+ *  the first that can search (so a computer without the chosen agents still
+ *  searches). Shared by the daemon's schedule and the browser's Run now. */
+export function pickSearchAgents<A extends { id: string }>(available: A[], sources: SearchSources | undefined): A[] {
+  const chosen = available.filter((a) => (sources ?? DEFAULT_SEARCH_SOURCES).agents.includes(a.id))
+  return chosen.length ? chosen : available.slice(0, 1)
 }
 
 /** When a schedule next fires after the last run (local time). Never run → now. */

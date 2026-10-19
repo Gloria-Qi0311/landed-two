@@ -19,14 +19,17 @@ export function useSupplyRefresh() {
   const { store, ready } = useStore()
   const search = useActiveSearch()
   const { running, last, error, refresh } = useSupply()
+  const sources = useAutomations().automations.job_search.sources
   const brief = search?.brief ?? null
+  const lists = sources?.job_lists !== false
+  const boards = sources?.company_boards !== false
   const run = useCallback(() => {
     if (!ready || !brief) return
     void refresh(store, brief, () => {
       for (const key of ['job_leads', 'followed_boards']) qc.invalidateQueries({ queryKey: [key] })
-    })
-  }, [ready, brief, refresh, store, qc])
-  return { refresh: brief && ready ? run : null, running, last, error }
+    }, { job_lists: lists, company_boards: boards })
+  }, [ready, brief, refresh, store, qc, lists, boards])
+  return { refresh: brief && ready && (lists || boards) ? run : null, running, last, error }
 }
 
 /** Mounted once (App): the automatic refresh, with "Find new jobs" on. */

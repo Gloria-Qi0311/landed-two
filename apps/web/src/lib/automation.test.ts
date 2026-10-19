@@ -2,7 +2,7 @@
 // (the computer is mocked: it answers with a finished email check).
 import 'fake-indexeddb/auto'
 import { describe, expect, test, vi } from 'vitest'
-import { describeSchedule, isDue, nextRun, parseAutomations, parseSyncInput, parseSyncOutput } from '@landed/schema/automation'
+import { DEFAULT_SEARCH_SOURCES, describeSchedule, isDue, nextRun, parseAutomations, parseSyncInput, parseSyncOutput, pickSearchAgents } from '@landed/schema/automation'
 import { createLocalStore } from './store/local'
 
 const syncs: Record<string, unknown>[] = []
@@ -110,5 +110,22 @@ describe('the browser side of a sync', () => {
     expect(stored).toEqual(['email_check'])
     expect(syncs.at(-1)!.ack).toEqual(['22222222-0000-4000-8000-000000000001'])
     expect(useAutomationSync.getState().stored['22222222-0000-4000-8000-000000000001'].text).toBe('1 updated')
+  })
+})
+
+describe('Find new jobs → Search with', () => {
+  test('sources: Claude Code and the free sources by default; stored ones validated', () => {
+    expect(parseAutomations({}).job_search.sources).toEqual({ agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true })
+    expect(parseAutomations({ job_search: { enabled: true, sources: { agents: ['codex', 'gemini', 'codex', 'Bad Id!', 7], job_lists: false, cloud_agents: 'yes' } } }).job_search.sources)
+      .toEqual({ agents: ['codex', 'gemini'], job_lists: false, company_boards: true, cloud_agents: true })
+    expect(parseAutomations({ email_check: { enabled: true, sources: { agents: ['x'] } } }).email_check.sources).toBeUndefined()
+  })
+
+  test('who searches: the ticked agents that are here, else the first that can', () => {
+    const here = [{ id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }]
+    expect(pickSearchAgents(here, { ...DEFAULT_SEARCH_SOURCES, agents: ['codex', 'claude'] }).map((a) => a.id)).toEqual(['claude', 'codex'])
+    expect(pickSearchAgents(here, { ...DEFAULT_SEARCH_SOURCES, agents: ['codex'] }).map((a) => a.id)).toEqual(['codex'])
+    expect(pickSearchAgents(here, { ...DEFAULT_SEARCH_SOURCES, agents: ['gemini'] }).map((a) => a.id)).toEqual(['claude'])
+    expect(pickSearchAgents([], DEFAULT_SEARCH_SOURCES)).toEqual([])
   })
 })

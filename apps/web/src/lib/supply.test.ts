@@ -5,7 +5,7 @@ import type { SearchBrief } from '@landed/schema/search-brief'
 import { SIMPLIFY_LISTS } from '@landed/supply'
 import { ingestFoundJobs } from './inbox'
 import { createLocalStore } from './store/local'
-import { refreshSimplify } from './supply'
+import { refreshSimplify, refreshSupply } from './supply'
 
 let n = 0
 const fresh = () => createLocalStore(`landed-supply-${++n}`)
@@ -103,5 +103,18 @@ describe('refreshSimplify', () => {
     const { fetchFn, calls } = lists([listing({})])
     expect(await refreshSimplify(store, { ...brief, seniority: 'senior' }, { fetchFn, now })).toMatchObject({ lists: [], found: 0 })
     expect(calls).toEqual([])
+  })
+})
+
+describe('Find new jobs → Search with', () => {
+  test('a source left unticked is not fetched', async () => {
+    const store = fresh()
+    const { fetchFn, calls } = lists([listing({})])
+    const off = await refreshSupply(store, brief, { fetchFn, now, sources: { job_lists: false, company_boards: false } })
+    expect(calls).toEqual([])
+    expect(off).toMatchObject({ lists: [], added: 0, boards: 0 })
+    const on = await refreshSupply(store, brief, { fetchFn, now, sources: { job_lists: true, company_boards: false } })
+    expect(calls).toEqual([SIMPLIFY_LISTS.new_grad.url])
+    expect(on.added).toBe(1)
   })
 })

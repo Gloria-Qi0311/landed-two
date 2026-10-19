@@ -151,3 +151,30 @@ test('a new pairing starts fresh: no old results, runs or email window', async (
   const back = (Date.now() - Date.parse(String(calls[1].input.since))) / 86_400_000
   assert.ok(back > 29, 'a new account reads 30 days back, not from the old account\'s last check')
 })
+
+test('Find new jobs searches with each agent chosen on the Automation page that is here, one after another', async () => {
+  resetAutomationsForTests()
+  const calls: string[] = []
+  setupAutomations({
+    runtimeId: 'rt-a', log: () => {},
+    agentsFor: () => [{ id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }, { id: 'gemini', label: 'Gemini CLI' }],
+    runTask: async (task, emit) => { calls.push(task.agent); emit({ type: 'done', text: '', jobs: [{ company: 'Acme', title: 'APM' }] }) },
+  })
+  const withBrief = { ...context, brief: { roles: ['APM'] }, search_id: '11111111-2222-4333-8444-555555555555' }
+  const search = (agents: string[]) => ({
+    ...automations, email_check: { ...automations.email_check, enabled: false },
+    job_search: { ...automations.job_search, enabled: true, sources: { agents, job_lists: true, company_boards: true, cloud_agents: true } },
+  })
+  sync({ automations: search(['claude', 'codex', 'copilot']), context: withBrief, run_now: ['job_search'] })
+  await settle()
+  assert.deepEqual(calls, ['claude', 'codex'], 'the chosen ones that are on this computer; copilot is not')
+  const out = sync({ automations: search(['claude', 'codex', 'copilot']), context: withBrief })
+  assert.equal(out.results.filter((r) => r.kind === 'job_search').length, 2, 'one result per agent; the browser merges them')
+  assert.deepEqual(out.runs.filter((r) => r.kind === 'job_search').map((r) => r.summary).sort(), ['1 job · Claude Code', '1 job · Codex'])
+
+  // None of the chosen ones here: the first that can search still does.
+  calls.length = 0
+  sync({ automations: search(['copilot']), context: withBrief, run_now: ['job_search'] })
+  await settle()
+  assert.deepEqual(calls, ['claude'])
+})

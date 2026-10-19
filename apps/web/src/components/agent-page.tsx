@@ -52,7 +52,8 @@ export function AgentPage() {
   // A pairing that never connected (command never run) counts as not set up.
   const paired = (runtimes.data ?? []).filter((r) => !r.revoked_at && r.last_seen_at)
   // Every agent that can chat, on every online computer; the user picks one
-  // (Claude Code, Codex, Gemini CLI…), remembered on this device.
+  // in Settings (Claude Code, Codex, Gemini CLI…), remembered on this device.
+  // Chat needs only one; which agents search is Find new jobs' Search with.
   const choices = paired.filter((r) => r.online).flatMap((runtime) => runtime.agents.filter((a) => canRun(a, 'chat')).map((agent) => ({ runtime, agent })))
   const [preferred, setPreferred] = useState(readChatAgent)
   const pick = choices.find((c) => `${c.runtime.id}:${c.agent.id}` === preferred) ?? choices[0]
@@ -68,9 +69,7 @@ export function AgentPage() {
         subtitle={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 7, height: 7, borderRadius: 4, background: ready ? 'oklch(0.65 0.17 155)' : 'var(--border-strong)' }} />
-            {ready && agent && choices.length > 1 ? (
-              <AgentPicker choices={choices} value={`${ready.id}:${agent.id}`} onChange={(v) => { setPreferred(v); writeChatAgent(v) }} />
-            ) : ready && agent ? `${agent.label} on ${ready.name}, with your own subscription` : paired.length ? `${paired[0].name} is offline` : 'Not connected yet'}
+            {ready && agent ? `${agent.label} on ${ready.name}, with your own subscription` : paired.length ? `${paired[0].name} is offline` : 'Not connected yet'}
           </span>
         }
         actions={
@@ -81,7 +80,22 @@ export function AgentPage() {
       />
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         {view === 'settings' ? (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 28px' }}><div style={COLUMN}><AgentSettings /></div></div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 28px' }}>
+            <div style={{ ...COLUMN, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {ready && agent && choices.length > 1 && (
+                <div style={{ background: 'var(--surface)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>Chat with</div>
+                    <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+                      The agent you talk to here. Which agents search for jobs is set under Automation → Find new jobs.
+                    </div>
+                  </div>
+                  <AgentPicker choices={choices} value={`${ready.id}:${agent.id}`} onChange={(v) => { setPreferred(v); writeChatAgent(v) }} />
+                </div>
+              )}
+              <AgentSettings />
+            </div>
+          </div>
         ) : (
           <>
             <ConversationList conversations={conversations.data ?? []} loading={conversations.isLoading} />
@@ -148,7 +162,7 @@ function AgentPicker({ choices, value, onChange }: {
           </option>
         ))}
       </select>
-      <span>{several ? 'with your own subscription' : `on ${choices[0].runtime.name}, with your own subscription`}</span>
+      <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>{several ? 'with your own subscription' : `on ${choices[0].runtime.name}`}</span>
     </span>
   )
 }
@@ -449,7 +463,7 @@ function AgentReply({ text, latest, pending }: { text: string; latest: boolean; 
       {reply.drafting && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Writing up your search brief…</div>}
       {apps.drafting && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Reading your applications…</div>}
       {read.drafting && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Reading your answers…</div>}
-      {reply.brief && <BriefCard brief={reply.brief} latest={latest} />}
+      {reply.brief && <BriefCard brief={reply.brief} setup={reply.setup} latest={latest} />}
       {apps.applications.length > 0 && <ReportedApplicationsCard applications={apps.applications} />}
       {read.answers && !pending && <ReportedAnswersCard answers={read.answers} />}
     </>

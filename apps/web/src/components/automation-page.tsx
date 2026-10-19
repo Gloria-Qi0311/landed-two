@@ -24,8 +24,9 @@ import { useStore } from '../lib/store'
 import { computerCan, designate, requestRunNow, syncTargets, useAutomationSync, type SyncTarget } from '../lib/automation-sync'
 import { taskContext, useAutomations, useSetAutomations } from '../hooks/automation'
 import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
-import { useActiveSearch, useEditBrief } from '../hooks/search'
-import { useFollowedBoards } from '../hooks/supply'
+import { searchComputer, chosenSearchTargets, useActiveSearch, useEditBrief } from '../hooks/search'
+import { SearchSourcesPicker } from './search-sources'
+import { useFollowedBoards, useSupplyRefresh } from '../hooks/supply'
 import { ATS_LABELS } from '@landed/supply'
 import { useAgentConnections } from '../hooks/agents'
 import { useRuntimes } from '../hooks/runtimes'
@@ -87,7 +88,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function AutomationCard({ kind, icon, title, flow, presets, designated, blocker, children }: {
+function AutomationCard({ kind, icon, title, flow, presets, designated, blocker, onRunNow, children }: {
   kind: AutomationKind
   icon: string
   title: string
@@ -95,6 +96,8 @@ function AutomationCard({ kind, icon, title, flow, presets, designated, blocker,
   flow: string
   presets: Preset[]
   designated: SyncTarget | null
+  /** also on Run now (Find new jobs: the public sources, in this browser) */
+  onRunNow?: () => void
   /** why it can't run yet (and what to do), if so */
   blocker: ReactNode | null
   children: ReactNode
@@ -134,7 +137,7 @@ function AutomationCard({ kind, icon, title, flow, presets, designated, blocker,
               : a.enabled && state?.next_run_at ? `Next: ${when(state.next_run_at)}` : a.enabled ? 'Scheduled' : 'Off'}
             {state?.last_success_at && ` · last ran ${formatRelative(state.last_success_at)}`}
           </span>
-          <button type="button" className="btn-secondary" disabled={cantRun} onClick={() => requestRunNow(kind)} style={{ opacity: cantRun ? 0.6 : 1 }}>
+          <button type="button" className="btn-secondary" disabled={cantRun} onClick={() => { requestRunNow(kind); onRunNow?.() }} style={{ opacity: cantRun ? 0.6 : 1 }}>
             <Icon name="refresh" size={12} /> Run now
           </button>
         </span>
@@ -196,7 +199,7 @@ export function AutomationPage() {
           )}
           {sync.error && <div style={{ ...muted, color: danger }}>Couldn't reach your computer: {sync.error}</div>}
           <EmailCard designated={designated} targets={targets} cloudLine={cloudLine} />
-          <SearchCard designated={designated} targets={targets} cloudLine={cloudLine} />
+          <SearchCard designated={designated} targets={targets} cloud={cloud} />
           <PortalCard designated={designated} targets={targets} />
         </div>
       </div>
@@ -204,7 +207,7 @@ export function AutomationPage() {
   )
 }
 
-type CardProps = { designated: SyncTarget | null; targets: SyncTarget[]; cloudLine?: string | null }
+type CardProps = { designated: SyncTarget | null; targets: SyncTarget[]; cloudLine?: string | null; cloud?: { display_name: string }[] }
 
 /** The agent on the computer that runs the schedule, if it can do `kind`. */
 function runner(designated: SyncTarget | null, kind: AutomationKind) {
@@ -266,29 +269,37 @@ function AutoApplyChoice() {
 
 // 2 ── job search ──────────────────────────────────────────────────────────
 
-function SearchCard({ designated, targets, cloudLine }: CardProps) {
+function SearchCard({ designated, targets, cloud }: CardProps) {
   const navigate = useNavigate()
   const search = useActiveSearch()
-  const agent = runner(designated, 'job_search')
+  const { automations } = useAutomations()
+  const set = useSetAutomations()
+  const runtimes = useRuntimes().data
+  const sources = automations.job_search.sources!
+  const choices = searchComputer(runtimes, automations).map((t) => t.agent)
+  const searchers = chosenSearchTargets(runtimes, automations).map((t) => t.agent.label)
+  const supply = useSupplyRefresh()
   const anyAgent = targets.some((t) => computerCan(t, 'job_search'))
   return (
     <AutomationCard
       kind="job_search" icon="search" title="Find new jobs" flow="Your criteria → Leads"
       presets={[INTERVALS[INTERVALS.length - 1], ...DAILY]} designated={designated}
+      onRunNow={supply.refresh ?? undefined}
       blocker={search ? null : (
         <>Add the roles to look for below, or <button type="button" className="btn-secondary" style={{ fontSize: 11.5, padding: '1px 8px' }} onClick={() => navigate('/agent')}>work them out with your agent</button></>
       )}
     >
       <Row label="Criteria"><Criteria brief={search?.brief ?? null} /></Row>
+      <Row label="Search with">
+        <SearchSourcesPicker agents={choices} sources={sources} cloud={(cloud ?? []).map((c) => c.display_name)} disabled={set.isPending}
+          onChange={(next) => set.mutate({ ...automations, job_search: { ...automations.job_search, sources: next } })} />
+      </Row>
       <Row label="Then">
         New postings land in the <b>Leads</b> column, soonest deadline first; ones already there (or already applied to) are merged, not repeated.
-        {agent ? ` Searched by ${agent.label}.` : !anyAgent && designated ? ' No agent on your computer can search the web yet.' : ''}
+        {searchers.length ? ` Searched by ${searchers.join(' and ')}.` : !anyAgent && designated ? ' No agent on your computer can search the web yet.' : ''}
+        {sources.job_lists && ' While Landed is open, the SimplifyJobs new-grad and internship lists are checked every few hours too: open postings from the last 30 days that fit these criteria.'}
       </Row>
-      <Row label="Job lists">
-        While Landed is open, it also checks the SimplifyJobs new-grad and internship lists every few hours: open postings from the last 30 days that fit these criteria.
-      </Row>
-      {search && <Row label="Companies"><FollowedCompanies brief={search.brief} /></Row>}
-      {cloudLine && <Row label="Also">{cloudLine}</Row>}
+      {search && sources.company_boards && <Row label="Companies"><FollowedCompanies brief={search.brief} /></Row>}
     </AutomationCard>
   )
 }

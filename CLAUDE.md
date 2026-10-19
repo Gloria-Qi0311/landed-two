@@ -137,9 +137,13 @@ messages (PR title and a clean body, no trailer).
   (`apps/web/src/data.ts`).
 - Cards are grouped by company in every column.
 - The Applications page holds the board, Leads and "Needs your input". The Agent
-  page holds chat, agent questions and setup. Automation is exactly three
-  automations (When / Looks at / Then). Extension content is managed on
+  page holds chat (one agent), agent questions and setup. Automation is exactly
+  three automations (When / Looks at / Then). Extension content is managed on
   `/extension`.
+- Searching for jobs is configured in one place, Find new jobs: criteria,
+  schedule, and Search with (which agents, which public sources, cloud agents).
+  The chat's brief card saves to it and searches now with the same agents; the
+  agent only suggests.
 
 ## UI
 
