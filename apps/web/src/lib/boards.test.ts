@@ -161,3 +161,29 @@ describe('refreshBoards', () => {
     expect((await store.listJobLeads()).every((l) => l.closed_at === null)).toBe(true)
   })
 })
+
+describe('Lever: only a posting seen listed can close (review of #104)', () => {
+  const LEVER_LIST = 'https://api.lever.co/v0/postings/kestrel?mode=json'
+  const UNLISTED = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const LISTED = '99999999-8888-7777-6666-555555555555'
+  const lever = [{ ats: 'lever', board: 'kestrel', company: 'Kestrel Finance', from: 'application' }] as FollowedBoard[]
+  const posting = (id: string) => ({
+    id, text: 'Software Engineer', hostedUrl: `https://jobs.lever.co/kestrel/${id}`, createdAt: Date.UTC(2026, 9, 1),
+    categories: { location: 'Seattle, WA', allLocations: ['Seattle, WA'] }, descriptionPlain: 'Build things.', lists: [],
+  })
+
+  test('a posting shared by link alone (never on the list) stays open; one that was listed and left closes', async () => {
+    const store = fresh()
+    await ingestFoundJobs(store, [{
+      company: 'Kestrel Finance', title: 'Software Engineer (by link)', job_url: `https://jobs.lever.co/kestrel/${UNLISTED}`,
+      location: 'Seattle, WA', posted: null, deadline: null, salary: null, sponsorship: null, why: null,
+    }], { run_id: 'job-1', runtime_id: 'mac', agent: 'claude' })
+    await refreshBoards(store, brief(), lever, { fetchFn: network({ [LEVER_LIST]: [posting(LISTED)] }).fetchFn, now })
+    const later = new Date(2026, 9, 20, 9)
+    const r = await refreshBoards(store, brief(), lever, { fetchFn: network({ [LEVER_LIST]: [] }).fetchFn, now: later })
+    expect(r.closed).toBe(1)
+    const leads = await store.listJobLeads()
+    expect(leads.find((l) => l.job_url!.includes(UNLISTED))!.closed_at).toBeNull()
+    expect(leads.find((l) => l.job_url!.includes(LISTED))!.closed_at).toBe(later.toISOString())
+  })
+})

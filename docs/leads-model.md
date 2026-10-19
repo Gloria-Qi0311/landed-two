@@ -164,8 +164,11 @@ login (`packages/supply/src/ats.ts`, `apps/web/src/lib/boards.ts`):
   posting's full text as the lead's description (for the hard filters).
 - **Closed**: after a board is fetched, a lead whose posting was on that board
   and isn't any more gets `closed_at`, including a lead an agent found there (its
-  link names the board and the ATS key the posting). A board that fails closes
-  nothing.
+  link names the board and the ATS key the posting). On Lever only a posting we
+  saw listed can close: its list has published postings only, and one shared by
+  link alone never appears there. A board that fails closes nothing. The Find new
+  jobs card shows each followed board's page on hover, so a wrong guess (another
+  company with the same name) is easy to spot.
 
 ## Left for later PRs
 

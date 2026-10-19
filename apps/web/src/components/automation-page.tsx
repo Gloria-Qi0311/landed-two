@@ -304,6 +304,12 @@ function SearchCard({ designated, targets, cloud }: CardProps) {
   )
 }
 
+/** The board's public page, so a wrong guess (another company with the
+ *  same name) is easy to spot (review of #104). */
+function boardPage(b: { ats: 'greenhouse' | 'lever' | 'ashby'; board: string }): string {
+  return b.ats === 'greenhouse' ? `job-boards.greenhouse.io/${b.board}` : b.ats === 'lever' ? `jobs.lever.co/${b.board}` : `jobs.ashbyhq.com/${b.board}`
+}
+
 /** The companies whose own job boards are checked too (lib/boards.ts), each
  *  removable: × moves it to Skip. Worked out in this browser, never sent anywhere. */
 function FollowedCompanies({ brief }: { brief: SearchBrief }) {
@@ -325,7 +331,7 @@ function FollowedCompanies({ brief }: { brief: SearchBrief }) {
         <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {list.map((b) => (
             <span key={`${b.ats}:${b.board}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 4px 1px 8px', borderRadius: 999, background: 'var(--surface-2)', fontSize: 12 }}
-              title={b.from === 'search' ? 'From "Look at first"' : b.from === 'application' ? 'You applied here' : 'You approved a lead here'}>
+              title={`${b.from === 'search' ? 'From "Look at first"' : b.from === 'application' ? 'You applied here' : 'You approved a lead here'} · ${boardPage(b)}`}>
               {b.company} <span style={{ color: 'var(--fg-muted)' }}>· {ATS_LABELS[b.ats]}</span>
               <button type="button" className="btn-ghost" aria-label={`Stop checking ${b.company}`} title="Move to Skip"
                 disabled={edit.isPending} onClick={() => skip(b.company)} style={{ padding: 1, display: 'flex' }}>

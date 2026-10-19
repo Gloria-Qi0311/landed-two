@@ -100,15 +100,25 @@ export function forgetResolvedBoards() {
 export type BoardsResult = { boards: number; found: number; added: number; merged: number; closed: number; failed: string[] }
 
 /** Which board a lead's posting is on, and its id there: from the source a
- *  board fetch gave it, else from its own link (an agent found it there). */
-function postingOf(lead: DbJobLead): (Board & { id: string }) | null {
+ *  board fetch gave it (so it was listed), else from its own link (an agent
+ *  found it there; it may never have been on the list). */
+function postingOf(lead: DbJobLead): (Board & { id: string; listed: boolean }) | null {
   for (const s of lead.sources) {
     const src = boardSourceOf(s.observation_id)
-    if (src) return src
+    if (src) return { ...src, listed: true }
   }
   const board = boardFromUrl(lead.job_url)
   const id = board && postingIdFromAtsKey(lead.ats_key, board.ats)
-  return board && id ? { ...board, id } : null
+  return board && id ? { ...board, id, listed: false } : null
+}
+
+/** Whether a posting missing from its board's list has closed. Lever's list
+ *  only has published postings, and one shared by link alone never appears
+ *  there: missing is only "closed" if we saw it listed before (review of
+ *  #104). Greenhouse lists every open posting; Ashby's list carries the
+ *  unlisted ones too (isListed: false). */
+function goneMeansClosed(at: { ats: Board['ats']; listed: boolean }): boolean {
+  return at.ats !== 'lever' || at.listed
 }
 
 export async function refreshBoards(
@@ -172,7 +182,7 @@ export async function refreshBoards(
     const posting = board.get(at.id)
     const patch: Partial<Pick<DbJobLead, 'posted_at' | 'closed_at'>> = {}
     if (!lead.posted_at && posting?.posted_at) patch.posted_at = posting.posted_at
-    if (!lead.closed_at && !posting) patch.closed_at = now.toISOString()
+    if (!lead.closed_at && !posting && goneMeansClosed(at)) patch.closed_at = now.toISOString()
     if (Object.keys(patch).length === 0) continue
     await store.updateJobLead(lead.id, patch)
     if (patch.closed_at) result.closed++

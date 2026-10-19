@@ -17,7 +17,8 @@ export const SIMPLIFY_LISTS: Record<SimplifyList, { label: string; url: string }
   },
   internships: {
     label: 'SimplifyJobs Internships',
-    url: 'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/.github/scripts/listings.json',
+    // Renamed from Summer2026-Internships (the old name only works by redirect).
+    url: 'https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json',
   },
 }
 
