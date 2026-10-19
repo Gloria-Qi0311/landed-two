@@ -26,7 +26,8 @@ holds the message listener and `handleFill`.
 | `files.js` | Resume and cover letter uploads |
 | `choices.js` | Radio and checkbox groups, saved answers |
 | `inputs.js` | Text inputs in batches |
-| `dates.js` | Date pickers, multi-entry sections (experience, education) |
+| `dates.js` | Date pickers, multi-entry sections (experience, education) on Chinese portals |
+| `experience.js` | Work Experience and Education sections on English forms (Workday's "My Experience"): one entry per job and school |
 | `ai.js` | Asking the local model for unknown labels and unanswered choices |
 | `review.js` | Where each value came from; the fill report; the agent review after a fill |
 | `frames.js` | A sub-frame showing a form reports itself to the service worker |
@@ -76,6 +77,28 @@ Deterministic DOM rules run first. Fields are outlined green (filled) or yellow
 4. **Unknown labels** go to `apps/daemon/src/native-host.ts` → `match_fields`.
 5. **Unanswered choices** go to `native-host.ts` → `choose_options`.
 6. **Review**: the user's own agent checks the filled form → `review_fill` (below).
+
+### Work Experience and Education sections
+
+Fix, 2026-10-19: on Workday's "My Experience" page only the resume file went
+in. `lib/fill/experience.js` runs before the other phases and owns these
+sections' fields, so the page-wide rules (the user's own city, only the current
+job) and the local model never touch them:
+
+- **Work Experience** gets every job *and internship* on the resume, newest
+  first (`workEntries`), one entry each: job title, company, that job's location
+  (left empty when the job has none), "I currently work here", From / To
+  (Workday's MM and YYYY boxes, a single MM/YYYY box, or a year), role
+  description. "Add" or "Add Another" makes the next entry.
+- **Education** gets each school: school, degree, field of study, GPA, years.
+  Workday's "type and press Enter" search boxes (school, field of study) are
+  typed, Entered and the matching result is clicked; only on Workday, since an
+  Enter elsewhere can submit a form.
+- Sections are found by Workday's ids (`workExperienceSection`,
+  `workExperience-N`, `formField-jobTitle`…), else by their headings ("Work
+  Experience", "Work Experience 1") and field labels. What can't be filled stays
+  yellow when it has a value or is required. Chinese portals' sections keep the
+  older `dates.js` path.
 
 ### Forms in iframes and web components
 
@@ -168,6 +191,15 @@ page bridge hands them to the extension (`sync-answers` →
 
 For choice questions, the question is the legend, group label or surrounding
 text, and each option is its own label.
+
+**"Have you worked here before?" follows the resume** (fix, 2026-10-19): one saved
+yes/no can't answer it for every company — a Yes saved from one form made every
+company's question Yes. `previouslyEmployed` in `choice-answers.js`: a company
+on the resume (named in the question, or the careers site's host) is Yes;
+any other is No when the saved answer is No or blank; a saved Yes for a
+company the resume doesn't show stays with the user. The local model and the
+reviewer get the resume's employers as a fact instead of the saved yes/no, and
+an agent's read of a form never saves a Yes for it.
 
 **Never guessed:**
 

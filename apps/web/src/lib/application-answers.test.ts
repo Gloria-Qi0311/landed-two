@@ -38,3 +38,9 @@ test('saving a read: what it read replaces, the rest stays, custom merges by que
   expect(merged).toMatchObject({ country: 'United States', travel: 'no', relocate: 'yes', agree_to_terms: true })
   expect(merged.custom).toEqual([{ question: 'Worked here before?', answer: 'No' }, { question: 'experience in SQL?', answer: 'Expert' }])
 })
+
+test('a "worked here before: yes" read from one form is not saved for every company', () => {
+  const block = (body: string) => '```landed-answers\n' + body + '\n```'
+  expect(extractAnswers(block('{"legal_first_name":"Alex","previously_employed":"yes"}')).answers?.previously_employed).toBeNull()
+  expect(extractAnswers(block('{"legal_first_name":"Alex","previously_employed":"no"}')).answers?.previously_employed).toBe('no')
+})

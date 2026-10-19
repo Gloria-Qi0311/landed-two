@@ -162,7 +162,7 @@ export function ApplicationAnswersPane() {
         </Section>
 
         <Section title="Background">
-          <Row label="Worked at the company before?" help="Forms name the company; the answer is usually the same.">{yesNo('previously_employed')}</Row>
+          <Row label="Worked at the company before?" help="Yes for the companies on your resume, whatever you pick here; this is the answer for every other company — usually No.">{yesNo('previously_employed')}</Row>
           <Row label="Bound by a non-compete?">{yesNo('non_compete')}</Row>
           <Row label="How you heard about the job">{text('heard_from', 'e.g. Company careers website, LinkedIn')}</Row>
           <Row label="Join the talent network / job alerts?">{yesNo('talent_network')}</Row>

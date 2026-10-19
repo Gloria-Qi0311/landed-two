@@ -20,7 +20,7 @@ async function runChoiceFallback(choices, answers, flat) {
         request: {
           type: 'choose_options',
           questions: open.slice(0, 40).map((c) => ({ id: c.id, question: c.question, options: c.options })),
-          facts: CA.answerFacts(answers, flat),
+          facts: CA.answerFacts(answers, flat, F.employers),
         },
       }, (res) => {
         void chrome.runtime.lastError;

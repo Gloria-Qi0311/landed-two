@@ -323,7 +323,7 @@ const CHAT_SYSTEM_PROMPT = [
   ' "disability": null, "custom": [{"question": "…", "answer": "…"}]}',
   '```',
   'Yes/no fields are "yes", "no" or null; null for anything the form does not show. heard_from is generic, without',
-  'the company ("Company careers website", "LinkedIn"); previously_employed is whether they had worked at that company.',
+  'the company ("Company careers website", "LinkedIn"); previously_employed is "no" when they said they had not worked at that company, else null (a Yes is about that one company).',
   'Every other question goes in custom with its answer, the question worded without the company name; skip ones',
   'that only make sense for that one job. Never include passwords or ID / Social Security numbers. Landed shows these',
   'as a card and the user saves them with one click (ticking consent boxes is their own separate switch), so never',

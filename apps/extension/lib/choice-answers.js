@@ -96,12 +96,46 @@
 
   /** What to answer, or null to leave it for the user. `ctx.today` (a Date)
    *  and `ctx.dateInput` (an <input type=date>) shape "today". */
+  // ── "Have you worked here before?" is about one company ────────────────
+  // The saved answer can't say it for every company: a Yes saved from one
+  // form once made every company's question Yes. The resume decides: a
+  // company it lists (named in the question, or the careers site's host) is
+  // Yes; any other is No when the saved answer is No or blank. A saved Yes
+  // for a company the resume doesn't show leaves the question to the user.
+
+  function companyNorm(s) {
+    return String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .replace(/\b(?:inc|llc|ltd|limited|corp|corporation|co|company|plc|gmbh|the|n a|s a|ag|nv|bv)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  /** Does the question, or the site it's on, name one of these employers? */
+  function namesEmployer(question, employers, site) {
+    const q = ` ${companyNorm(question)} `;
+    const host = String(site || '').toLowerCase().split('.');
+    return (Array.isArray(employers) ? employers : []).some((e) => {
+      const n = companyNorm(e);
+      if (n.length < 2) return false;
+      if (q.includes(` ${n} `)) return true;
+      const compact = n.replace(/ /g, '');
+      return compact.length >= 4 && host.some((part) => part === compact || part.startsWith(compact));
+    });
+  }
+
+  function previouslyEmployed(answers, ctx) {
+    const employers = Array.isArray(ctx.employers) ? ctx.employers : null;
+    if (employers && ctx.question && namesEmployer(ctx.question, employers, ctx.site)) return { type: 'yesno', value: 'yes' };
+    if (answers.previously_employed === 'no') return { type: 'yesno', value: 'no' };
+    if (answers.previously_employed == null && employers && employers.length > 0 && ctx.question) return { type: 'yesno', value: 'no' };
+    return null;
+  }
+
   function answerFor(kind, answers, ctx) {
     if (!kind || !answers || typeof answers !== 'object') return null;
     ctx = ctx || {};
     const text = (v) => (typeof v === 'string' && v.trim() ? { type: 'text', value: v.trim() } : null);
     const yn = (v) => (v === 'yes' || v === 'no' ? { type: 'yesno', value: v } : null);
     if (kind === 'consent') return answers.agree_to_terms === true ? { type: 'agree' } : null;
+    if (kind === 'previously_employed') return previouslyEmployed(answers, ctx);
     if (YES_NO_KINDS.has(kind)) return yn(answers[kind]);
     if (TEXT_KINDS.has(kind)) return text(answers[kind]);
     if (kind === 'has_preferred_name') {
@@ -242,7 +276,7 @@
     country: 'Country of residence', city: 'City', state: 'State', work_authorized: 'Legally authorized to work in the US',
     needs_sponsorship: 'Needs visa sponsorship now or in the future', earliest_start: 'Earliest full-time start',
     relocate: 'Willing to relocate', travel: 'Willing to travel', open_to_other_locations: 'Open to other locations',
-    previously_employed: 'Has worked at this company before', non_compete: 'Bound by a non-compete', heard_from: 'Heard about the job from',
+    non_compete: 'Bound by a non-compete', heard_from: 'Heard about the job from',
     talent_network: 'Wants to join the talent network', adult: '18 years of age or older',
     onsite: 'Open to working onsite / in the office full time',
   };
@@ -250,7 +284,7 @@
   /** Facts the local model may use to pick an option (never sent anywhere
    *  else): the saved answers that aren't sensitive, "other questions", and
    *  a few plain resume facts. */
-  function answerFacts(answers, flat) {
+  function answerFacts(answers, flat, employers) {
     const facts = [];
     if (answers && typeof answers === 'object') {
       for (const [key, label] of Object.entries(FACT_LABELS)) {
@@ -276,6 +310,9 @@
     pick('Degree', 'edu_degree', 'degree');
     pick('Major', 'edu_major', 'major');
     pick('Current or most recent employer', 'current_company', 'company');
+    // Whether they worked at a company comes from here, not a saved yes/no.
+    const past = (Array.isArray(employers) ? employers : []).filter((e) => typeof e === 'string' && e.trim()).slice(0, 15);
+    if (past.length) facts.push(`Employers on the resume (the only ones they have worked for): ${past.join('; ')}`);
     pick('Current or most recent title', 'current_title', 'title');
     pick('Location', 'location');
     return facts.slice(0, 60);
@@ -290,7 +327,7 @@
     return null;
   }
 
-  const api = { ANSWERS_KEY, FILES_KEY, fileKind, sameText, norm, classify, answerFor, pickOption, answerFlat, answerFacts };
+  const api = { namesEmployer, ANSWERS_KEY, FILES_KEY, fileKind, sameText, norm, classify, answerFor, pickOption, answerFlat, answerFacts };
   global.LandedChoiceAnswers = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

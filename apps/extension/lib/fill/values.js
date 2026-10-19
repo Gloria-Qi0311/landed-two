@@ -96,7 +96,7 @@ function referralFromUrl() {
 }
 
 function applicationAnswerForElement(kind, answers, el, flat, ctx) {
-  let answer = kind && answers ? CA.answerFor(kind, answers, ctx) : null;
+  let answer = kind && answers ? CA.answerFor(kind, answers, { ...(ctx || {}), employers: F.employers, question: getFieldLabel(el), site: location.hostname }) : null;
   if (!answer && kind === 'heard_from') {
     const source = referralFromUrl();
     if (source) answer = { type: 'text', value: source };

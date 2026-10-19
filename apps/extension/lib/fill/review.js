@@ -47,7 +47,9 @@ function neverSent(question) {
 const REPLACEABLE = new Set(['resume', 'model', '']);
 const NOT_REVIEWED = new Set(['entries', 'file']);
 const LONG_TEXT_KEYS = new Set(['job_description', 'project_description', 'summary']);
-const YES_NO_KEYS = ['work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'open_to_other_locations', 'previously_employed', 'non_compete', 'talent_network', 'adult', 'onsite'];
+// Not previously_employed: a saved yes/no can't say it for every company;
+// the resume's employers do (resume.employers).
+const YES_NO_KEYS = ['work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'open_to_other_locations', 'non_compete', 'talent_network', 'adult', 'onsite'];
 
 /** Saved answers and resume values the reviewer may point to, keyed
  *  `answers.<kind>` / `resume.<key>`. Sensitive ones stay out. */
@@ -69,6 +71,7 @@ function reviewFacts(answers, flat) {
     if (key.startsWith('_') || LONG_TEXT_KEYS.has(key) || neverSent(key.replace(/_/g, ' '))) continue;
     put(`resume.${key}`, value);
   }
+  if (Array.isArray(F.employers) && F.employers.length) put('resume.employers', `${F.employers.slice(0, 15).join('; ')} (the only employers they have worked for)`);
   return facts;
 }
 

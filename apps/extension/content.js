@@ -11,6 +11,7 @@
 //   choices   radio buttons and checkboxes
 //   inputs    text fields from the resume
 //   dates     date pickers and multi-entry sections
+//   experience  Work Experience / Education sections: every job and school, one entry each
 //   ai        local-model fallbacks (key or option picks, never invented values)
 //   review    the user's own agent checks the filled form (picks, never writes)
 //   frames    forms in iframes report to the service worker
@@ -21,7 +22,7 @@
 // answers in lib/choice-answers.js. Type-checked via JSDoc + checkJs
 // (tsconfig.json).
 
-const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillField, fillInputBatch, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, tagFilled, tryFillCombobox, tryFillSelect } = window.LandedFill;
+const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, tagFilled, tryFillCombobox, tryFillSelect } = window.LandedFill;
 const { normalize, getFieldLabel, matchResumeKey } = window.ResumeFillerFieldDetect;
 const CL = window.ResumeFillerCrossLingual;
 const CA = window.LandedChoiceAnswers;
@@ -57,6 +58,13 @@ async function handleFill(resumeData, customFields, opts) {
 
   const filled = [];
   const manual = [];
+  // Who they've worked for, from the resume: "Have you worked here before?"
+  // is answered from this (lib/choice-answers.js → previouslyEmployed).
+  const normalized = typeof window.normalizeResume === 'function' ? window.normalizeResume(resumeData) : null;
+  const employers = normalized
+    ? [...normalized.experience, ...normalized.internship].map((e) => e && e.company).filter((c) => typeof c === 'string' && c.trim())
+    : [];
+  window.LandedFill.employers = employers;
   // Saved application answers (null when the user has none): names, address,
   // yes/no questions, EEO — see lib/choice-answers.js. Choice questions they
   // don't answer may go to the local model below.
@@ -84,6 +92,13 @@ async function handleFill(resumeData, customFields, opts) {
   }
   // Where each value came from, for the review at the end (lib/fill/review.js).
   tagFilled('file');
+
+  // Work Experience and Education sections (Workday's "My Experience"): every
+  // job, internship and school as its own entry, with its own location and
+  // dates. They own their fields, so the rules below leave them alone (no
+  // more "Location: <your city>" in a job, or only the current job).
+  const sections = await fillExperienceSections(normalized, filled, manual);
+  for (const el of sections.owned) answered.add(el);
 
   // Phase 0: text fields the answers cover (legal names, address, date of
   // birth, signature, today's date…) — before the resume rules, which would
@@ -119,7 +134,7 @@ async function handleFill(resumeData, customFields, opts) {
 
   // Phase 2：原生 <select> 匹配填值
   for (const el of /** @type {HTMLSelectElement[]} */ (deepAll('select'))) {
-    if (!isRendered(el)) continue;
+    if (!isRendered(el) || sections.owned.has(el)) continue;
     const label = getFieldLabel(el) || el.name || el.id || '下拉选择';
 
     // 年/月 select 交给日期模块处理
@@ -162,7 +177,7 @@ async function handleFill(resumeData, customFields, opts) {
   // Phase 3：combobox / 自定义下拉
   const comboboxes = /** @type {HTMLElement[]} */ (
     deepAll('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"], [data-automation-id]')
-  ).filter(el => isRendered(el) && isCustomComboboxTrigger(el));
+  ).filter(el => isRendered(el) && isCustomComboboxTrigger(el) && !sections.owned.has(el));
 
   let peeked = 0;
   for (const el of comboboxes) {
@@ -220,7 +235,7 @@ async function handleFill(resumeData, customFields, opts) {
   tagFilled('resume');
 
   // Phase 4：富文本 / contenteditable
-  for (const el of deepAll('[contenteditable="true"], [role="textbox"]')) {
+  for (const el of deepAll('[contenteditable="true"], [role="textbox"]').filter((x) => !sections.owned.has(x))) {
     const label = getFieldLabel(el) || '富文本编辑器';
     const match = matchResumeKey(el);
     const key = match && match.key;
@@ -231,7 +246,7 @@ async function handleFill(resumeData, customFields, opts) {
   const resume = typeof window.normalizeResume === 'function'
     ? window.normalizeResume(resumeData)
     : null;
-  if (resume) await fillAllSectionDates(resume, filled);
+  if (resume && !sections.handled) await fillAllSectionDates(resume, filled);
   tagFilled('entries');
 
   // Phase 6: radio buttons and checkboxes. Answered only from the user's
@@ -241,7 +256,7 @@ async function handleFill(resumeData, customFields, opts) {
   // "current/present" boxes are handled above and omitted once selected.
   const choiceInputs = /** @type {HTMLInputElement[]} */ (
     deepAll('input[type="checkbox"], input[type="radio"]')
-  ).filter((el) => isRendered(el));
+  ).filter((el) => isRendered(el) && !sections.owned.has(el));
   for (const group of groupChoices(choiceInputs)) {
     const first = group[0];
     const firstText = optionText(first) || first.parentElement?.textContent?.trim() || first.name || '选择题';
@@ -250,7 +265,7 @@ async function handleFill(resumeData, customFields, opts) {
     const kind = answers ? CA.classify(question) : null;
 
     if (answers && first.type === 'radio') {
-      const answer = kind && CA.answerFor(kind, answers);
+      const answer = kind && CA.answerFor(kind, answers, { employers, question, site: location.hostname });
       const index = answer ? CA.pickOption(answer, group.map(optionText)) : -1;
       if (index >= 0) {
         clickChoice(group[index]);
@@ -304,6 +319,7 @@ async function handleFill(resumeData, customFields, opts) {
   const mappingEntries = Object.entries(labelMappings);
   if (customEntries.length > 0 || mappingEntries.length > 0) {
     for (const el of getVisibleInputs()) {
+      if (sections.owned.has(el)) continue;
       const label = getFieldLabel(el);
       if (!label) continue;
       const norm = normalize(label);

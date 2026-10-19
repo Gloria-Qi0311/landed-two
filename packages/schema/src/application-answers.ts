@@ -159,8 +159,10 @@ export function extractAnswers(reply: string): { text: string; answers: Applicat
   const after = reply.slice(end + 3).trim()
   let answers: ApplicationAnswers | null = null
   try {
-    // An agent's read never turns on the consent switch.
-    answers = { ...parseApplicationAnswers(JSON.parse(reply.slice(bodyStart, end))), agree_to_terms: false }
+    // An agent's read never turns on the consent switch, and a "worked here
+    // before: yes" it read is about that one company, not every company.
+    const read = parseApplicationAnswers(JSON.parse(reply.slice(bodyStart, end)))
+    answers = { ...read, agree_to_terms: false, previously_employed: read.previously_employed === 'yes' ? null : read.previously_employed }
   } catch {
     answers = null
   }

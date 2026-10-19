@@ -114,3 +114,33 @@ describe('for the local model', () => {
     expect(facts).not.toMatch(/Male|Asian|March 3/)
   })
 })
+
+describe('worked here before? — the resume decides, not one saved yes/no', () => {
+  const usBank = 'Have you previously worked as an employee or contractor for U.S. Bank or any of its related companies including any affiliates, subsidiaries, or predecessor organizations such as Elavon, U.S. Bancorp Investments, or Union Bank? If yes, please answer the questions below.'
+  const base = { ...answers, previously_employed: null }
+  const ask = (saved, employers, question = usBank, site = 'usbank.wd1.myworkdayjobs.com') =>
+    CA.answerFor('previously_employed', { ...base, previously_employed: saved }, { employers, question, site })
+
+  test('a company on the resume is Yes, whatever was saved', () => {
+    expect(ask('no', ['Stripe', 'U.S. Bank'])).toEqual({ type: 'yesno', value: 'yes' })
+    expect(ask(null, ['Union Bank, N.A.'])).toEqual({ type: 'yesno', value: 'yes' })
+    expect(ask(null, ['US Bank'], 'Have you worked here before?')).toEqual({ type: 'yesno', value: 'yes' }) // the careers site's host
+    expect(ask(null, ['IBM'], 'Have you ever worked at IBM before?', 'ibm.com')).toEqual({ type: 'yesno', value: 'yes' })
+  })
+
+  test('any other company: No when saved No or nothing; a saved Yes (about some other company) is left to the user', () => {
+    expect(ask('no', ['Stripe'])).toEqual({ type: 'yesno', value: 'no' })
+    expect(ask(null, ['Stripe', 'Globex'])).toEqual({ type: 'yesno', value: 'no' })
+    expect(ask('yes', ['Stripe'])).toBeNull()
+    expect(ask(null, [])).toBeNull()
+    // Short names don't match inside other words or hosts.
+    expect(CA.namesEmployer('Have you worked at Globex?', ['Glo'], 'glo.example')).toBe(false)
+    expect(CA.namesEmployer('Have you worked for Meta or its affiliates?', ['Metaview'], '')).toBe(false)
+  })
+
+  test("the local model's facts carry the resume's employers, not a saved yes/no", () => {
+    const facts = CA.answerFacts({ ...answers, previously_employed: 'yes' }, {}, ['Stripe', 'Globex']).join('\n')
+    expect(facts).not.toMatch(/worked at this company/i)
+    expect(facts).toMatch(/Employers on the resume \(the only ones they have worked for\): Stripe; Globex/)
+  })
+})

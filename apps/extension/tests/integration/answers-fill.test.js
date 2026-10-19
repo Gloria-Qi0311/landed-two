@@ -159,3 +159,25 @@ test('a dialog built as a web component (open shadow root) is filled too', async
   expect(root.getElementById('fn').getAttribute('data-landed-status')).toBe('filled')
   expect(root.getElementById('landed-apply-assist-styles')).not.toBeNull() // outlines show inside the component
 })
+
+test('"worked here before?" follows the resume: a saved Yes no longer makes every company Yes', async () => {
+  const usBank = (name) => `<fieldset><legend>Have you previously worked as an employee or contractor for U.S. Bank or any of its related companies including any affiliates, subsidiaries, or predecessor organizations such as Elavon, U.S. Bancorp Investments, or Union Bank? If yes, please answer the questions below. *</legend>${radio(name, 'y', 'Yes')}${radio(name, 'n', 'No')}</fieldset>`
+  // Saved Yes (from one company's form); the resume shows Stripe, not U.S. Bank.
+  stored = { 'landed:application-answers': { answers: { ...answers, previously_employed: 'yes' } } }
+  document.body.innerHTML = `<form>${usBank('usb')}</form>`
+  await fill()
+  expect(checked('usb')).toBeNull()
+  expect(document.querySelector('input[name="usb"]').getAttribute('data-landed-status')).toBe('review')
+
+  // Nothing saved: not on the resume → No.
+  stored = { 'landed:application-answers': { answers: { ...answers, previously_employed: null } } }
+  document.body.innerHTML = `<form>${usBank('usb2')}</form>`
+  await fill()
+  expect(checked('usb2')).toBe('n')
+
+  // U.S. Bank on the resume → Yes.
+  const withUsBank = { ...resume, experience: [...resume.experience, { company: 'U.S. Bank', title: 'Analyst', start_date: '2019-06', end_date: '2021-05', description: '' }] }
+  document.body.innerHTML = `<form>${usBank('usb3')}</form>`
+  await new Promise((resolve) => onMessageListeners[0]({ action: 'fill', resume: withUsBank, aiTakeover: true }, null, resolve))
+  expect(checked('usb3')).toBe('y')
+})

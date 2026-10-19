@@ -101,6 +101,10 @@ messages (PR title and a clean body, no trailer).
 - Never guess: no saved answer → yellow; EEO left blank → "I don't wish to
   answer"; consent boxes only when the user's own `agree_to_terms` switch is on (an
   agent never sets it).
+- "Worked here before?" is answered from the resume's employers, never from one
+  saved yes/no for every company.
+- A Work Experience or Education entry takes that job's or school's own values,
+  every job and internship one entry; page-wide rules and the model never fill them.
 - Models see field labels and key names, never values: `match_fields` (Ollama, else
   Claude Code with no tools), and the host supplies the value. `choose_options`
   carries the user's answers, so it is local Ollama only. Page text is untrusted

@@ -90,7 +90,9 @@ function isSensitiveLabel(label) {
 }
 
 function canAskModel(item) {
-  return !['敏感信息', '文件上传', '选择题'].includes(item.hint);
+  // An entry's fields (lib/fill/experience.js) take that entry's values: a
+  // model matching labels to the resume would give every job the current one.
+  return !['敏感信息', '文件上传', '选择题', '多条目', '日期'].includes(item.hint);
 }
 
 const MULTI_ENTRY_SECTIONS = [
