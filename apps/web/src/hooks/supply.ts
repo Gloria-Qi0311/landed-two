@@ -3,8 +3,13 @@
 // there's an active search, the open app checks them on start and every few
 // hours. The Leads column can check now.
 import { useCallback, useEffect } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { followedBoards, resolveBoards, type FollowedBoard } from '../lib/boards'
+import { putBack, screenLeads } from '../lib/screen'
+import type { DbJobLead } from '../lib/store/types'
+import { useApplicationAnswers } from './answers'
+import { useJobLeads } from './inbox'
+import { useResumes } from './resumes'
 import { useStore } from '../lib/store'
 import { useSupply } from '../lib/supply'
 import { useAutomations } from './automation'
@@ -69,5 +74,33 @@ export function useFollowedBoards() {
       ])
       return followedBoards({ applications, companies, leads, brief: brief!, resolved })
     },
+  })
+}
+
+/** Mounted once (App): screen the Leads (lib/screen.ts) when they, the
+ *  resumes or the saved answers change. Writes only what changed, so it
+ *  settles after one pass. */
+export function useLeadScreening() {
+  const qc = useQueryClient()
+  const { store, ready } = useStore()
+  const leads = useJobLeads()
+  const resumes = useResumes()
+  const answers = useApplicationAnswers()
+  useEffect(() => {
+    if (!ready || !leads.data || !resumes.data || answers.isLoading) return
+    let cancelled = false
+    screenLeads(store).then((changed) => {
+      if (!cancelled && changed > 0) qc.invalidateQueries({ queryKey: ['job_leads'] })
+    }, (e) => console.warn('[landed] screening leads failed', e))
+    return () => { cancelled = true }
+  }, [ready, store, qc, leads.dataUpdatedAt, resumes.dataUpdatedAt, answers.dataUpdatedAt]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+export function usePutBack() {
+  const qc = useQueryClient()
+  const { store } = useStore()
+  return useMutation({
+    mutationFn: (lead: DbJobLead) => putBack(store, lead),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['job_leads'] }),
   })
 }

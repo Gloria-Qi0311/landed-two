@@ -170,6 +170,33 @@ login (`packages/supply/src/ats.ts`, `apps/web/src/lib/boards.ts`):
   jobs card shows each followed board's page on hover, so a wrong guess (another
   company with the same name) is easy to spot.
 
+## Hard filters (#92)
+
+`screenPosting` (`packages/supply/src/screen.ts`) reads what the posting says
+(title, location, description: the full text for board postings, the
+SimplifyJobs sponsorship label for list ones) against the master resume (else
+the current resume) and the saved answers, and writes `screen`. It runs in the
+browser (`apps/web/src/lib/screen.ts`): after each check of the sources, and
+whenever the leads, resumes or answers change. Only candidates (status `new`,
+open) are screened, and only what changed is written.
+
+| Rule | Filters when | Never when |
+|---|---|---|
+| Graduation | The posting names a graduation window (between X and Y, in / by Y, Y or later, class of Y, Y届, …) and the resume's latest end date is outside it | The resume has no readable end date ("Present") |
+| Sponsorship | The posting says it won't sponsor (unable to sponsor, without sponsorship now or in the future, no visa sponsorship, 不提供签证担保, the "Does Not Offer Sponsorship" label…) and `needs_sponsorship` is yes | It says it sponsors; it only asks the question; "not sponsoring" isn't about visas or applicants in that sentence |
+| Citizenship / clearance | A sentence or bullet requires US citizenship, a US person, or a security clearance (held or eligible for: both need citizenship), and `needs_sponsorship` is yes | That sentence calls it a plus (preferred, beneficial, nice to have) or says it isn't needed (no clearance required, does not require, 不需要); it's another country's clearance (UK, DV, Lithuanian…); the person needs no sponsorship: the answers have no citizenship field, so whether they're a citizen isn't known |
+
+The sponsorship and citizenship rules rest on *US* sponsorship, so a job plainly
+outside the US (its place names another country and not the US) skips them.
+
+Not sure means not filtered: a missed filter costs a glance, a wrong one hides
+a real chance. A rule whose input is missing is skipped; with neither input,
+`screen` stays null. Each failure is one sentence for people ("Says it doesn't
+sponsor visas; you need sponsorship"). Screened-out leads are hidden from the
+Leads column, never deleted; "Filtered out · N" under the column shows them with
+their reasons, and **Put back** sets `screen` to pass with the reason "You put
+this back", which screening then leaves alone.
+
 ## Left for later PRs
 
 - `apply_mode` (manual / assist / auto) and the daily limit, which only matter

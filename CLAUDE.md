@@ -65,6 +65,9 @@ messages (PR title and a clean body, no trailer).
   observation id per posting, so refreshing never adds a source twice.
 - Which companies an account follows (for their job boards) is worked out in the
   browser and never sent to the server.
+- Hard filters only act on what a posting says outright; not sure means not
+  filtered. Filtered leads are hidden, never deleted, and one the user puts back
+  stays back.
 
 ## Agents report; Landed decides
 

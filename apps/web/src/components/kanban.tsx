@@ -304,7 +304,43 @@ type LeadsColumnProps = {
   leads: DbJobLead[]; saved: BoardApp[]; onDismiss?: (id: string) => void; onOpen?: (lead: DbJobLead) => void;
   onOpenApp: (id: string) => void; getCompany: (id: string) => MarkCompany; duplicateIds: Set<string>;
   onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline; refresh?: LeadsRefresh;
+  filtered?: DbJobLead[]; onPutBack?: (lead: DbJobLead) => void;
 };
+
+/** Leads the hard filters hid (#92): folded away under the column, each
+ *  with why, and a way to put it back. */
+function FilteredLeads({ leads, onPutBack }: { leads: DbJobLead[]; onPutBack?: (lead: DbJobLead) => void }) {
+  const [open, setOpen] = useState(false);
+  if (leads.length === 0) return null;
+  return (
+    <div style={{ marginTop: 4 }}>
+      <button type="button" className="btn-ghost" aria-expanded={open} onClick={() => setOpen(!open)}
+        style={{ fontSize: 11.5, color: 'var(--fg-muted)', padding: '4px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={10} />
+        Filtered out · {leads.length}
+      </button>
+      {open && (
+        <div style={{ background: 'var(--surface)', borderRadius: 10, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', flexShrink: 0 }}>
+          {leads.map((lead, i) => (
+            <div key={lead.id} style={{ padding: '9px 12px', borderTop: i ? '1px solid var(--border-subtle)' : 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 550, color: 'var(--fg)', flex: 1, minWidth: 0 }}>
+                  {lead.company_name} · {lead.title}
+                </span>
+                {onPutBack && (
+                  <button type="button" className="btn-ghost" onClick={() => onPutBack(lead)} style={{ fontSize: 11, padding: '1px 6px' }}>Put back</button>
+                )}
+              </div>
+              {(lead.screen?.reasons ?? []).map((r) => (
+                <span key={r} style={{ fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.4 }}>{r}</span>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** "Checked SimplifyJobs and 4 company boards · 3 new" after a check, or what went wrong. */
 function refreshNote(r: LeadsRefresh): string | null {
@@ -323,7 +359,7 @@ function refreshNote(r: LeadsRefresh): string | null {
 // A Leads card: an agent-found job, or an application not applied to yet.
 type LeadItem = { lead: DbJobLead; app?: undefined; deadline: string | null } | { app: BoardApp; lead?: undefined; deadline: string | null };
 
-function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh }: LeadsColumnProps) {
+function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack }: LeadsColumnProps) {
   // Dropping an application here puts it back to "not applied yet".
   const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
   const count = leads.length + saved.length;
@@ -370,6 +406,7 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
             Jobs your agents find land here.<br />Agent → tell it what you're looking for.
           </div>
         )}
+        <FilteredLeads leads={filtered} onPutBack={onPutBack} />
       </div>
     </div>
   );
@@ -383,12 +420,12 @@ type KanbanProps = {
   apps: BoardApp[]; companies: BoardCompany[]; onOpen: (id: string) => void; onMoveCard: (id: string, stage: string) => void;
   leads?: DbJobLead[]; onAddLead?: (lead: DbJobLead, stage: Stage) => void; onDismissLead?: (id: string) => void;
   onOpenLead?: (lead: DbJobLead) => void; onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline;
-  leadsRefresh?: LeadsRefresh;
+  leadsRefresh?: LeadsRefresh; filteredLeads?: DbJobLead[]; onPutBackLead?: (lead: DbJobLead) => void;
 };
 
 const UNKNOWN_COMPANY: MarkCompany = { name: 'Unknown company', hue: null, logo: null };
 
-export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh }: KanbanProps) => {
+export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh, filteredLeads, onPutBackLead }: KanbanProps) => {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -434,7 +471,8 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
       <div style={{ display: 'flex', gap: 12, padding: '16px 28px 24px', overflowX: 'auto', height: '100%', alignItems: 'stretch' }}>
         <LeadsColumn leads={leads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
           onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds}
-          onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} refresh={leadsRefresh} />
+          onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} refresh={leadsRefresh}
+          filtered={filteredLeads} onPutBack={onPutBackLead} />
         {pipelineStages.map(stage => (
           <DroppableColumn
             key={stage.id}

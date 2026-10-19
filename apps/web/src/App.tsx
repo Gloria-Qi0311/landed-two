@@ -11,7 +11,8 @@ import { usePortalRunner } from './hooks/portal';
 import { useResumeTaskRunner } from './hooks/resumes';
 import { useAgentChatRunner } from './hooks/conversations';
 import { useSearchRunner } from './hooks/search';
-import { useAutoSupply, useSupplyRefresh } from './hooks/supply';
+import { useAutoSupply, useLeadScreening, usePutBack, useSupplyRefresh } from './hooks/supply';
+import { screenedOut } from './lib/screen';
 import { useAutomationRunner } from './hooks/automation';
 import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
@@ -137,6 +138,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useObservationProcessor();
   useSearchRunner();
   useAutoSupply();
+  useLeadScreening();
   useAutomationRunner();
   usePortalRunner();
   useResumeTaskRunner();
@@ -345,13 +347,18 @@ function ApplicationsPage({
 
   // Jobs agents and job lists found but the user hasn't acted on — the
   // Kanban's Leads column. Postings that closed leave it (the data stays).
-  const leads = (useJobLeads().data ?? []).filter((l) => l.status === 'new' && !l.closed_at);
+  // The hard filters (#92) hide what plainly can't be applied to; the
+  // column lists those apart, with their reasons and a way back.
+  const open = (useJobLeads().data ?? []).filter((l) => l.status === 'new' && !l.closed_at);
+  const leads = open.filter((l) => !screenedOut(l));
+  const filteredLeads = open.filter(screenedOut);
   const leadsRefresh = useSupplyRefresh();
+  const putBack = usePutBack();
   const leadActions = useLeadActions();
   const updateApplication = useUpdateApplication();
   const recordApplyClick = useRecordApplyClick();
 
-  const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0 && leads.length === 0);
+  const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0 && open.length === 0);
   if (legacyAgent) return <Navigate to={legacyAgent === 'settings' ? '/agent?view=settings' : '/agent'} replace />;
 
   if (showEmpty) {
@@ -413,6 +420,8 @@ function ApplicationsPage({
           onSetLeadDeadline={(id: string, deadline: string | null) => leadActions.setDeadline.mutate({ id, deadline })}
           onSetAppDeadline={(id: string, deadline: string | null) => updateApplication.mutate({ id, patch: { deadline } })}
           leadsRefresh={leadsRefresh}
+          filteredLeads={filteredLeads}
+          onPutBackLead={(lead: DbJobLead) => putBack.mutate(lead)}
         />
       </div>
     </>
