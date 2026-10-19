@@ -197,6 +197,38 @@ Leads column, never deleted; "Filtered out · N" under the column shows them wit
 their reasons, and **Put back** sets `screen` to pass with the reason "You put
 this back", which screening then leaves alone.
 
+## Fit and order (#93)
+
+`scoreFit` (`packages/supply/src/fit.ts`) writes `fit: {score, reasons}` for each
+candidate against the active search and the resume (master, else current), in
+the browser with the hard filters (`apps/web/src/lib/fit.ts`). Deterministic;
+scoring with the user's own agent is a later step.
+
+| Part | Weight | Scores |
+|---|---|---|
+| Title | 0.35 | A role named outright: 0.75, up to 1 the closer the rest of the title is ("Software Engineer" over "Software Engineer, Fraud & Identity"; level words like "New Grad", "1" don't count against it). Otherwise its similarity to the closest role |
+| Skills | 0.3 | The resume's skills the description mentions, 6 is full marks. Whole names only: "go-to-market" isn't Go, "C-level" isn't C, SWIFT isn't Swift, "go deep" isn't Go (English-word skills count only capitalized) |
+| Level | 0.15 | Only for a title that is the role and a search that names a level: 0 for a senior title in an internship or new-grad search |
+| Place | 0.1 | One of the search's places; the reason names the place that matched |
+| Experience | 0.1 | The fewest years the description asks for ("5+ years of …", "four (4) years", "7 or more years", "experience (3+ years)", "3年以上") against full-time years on the resume |
+
+A part without input is left out and the rest are weighed alone. Two or three
+reasons, the telling ones first. Leads come through a role and place filter, so
+those two can't tell them apart; title closeness, level and (with a resume)
+skills and experience do. Both rules were checked against 1,208 real postings
+(Stripe, Palantir, Ramp): the years pattern first read 495 and missed 379, and
+now reads 868 with 22 left unread.
+
+The Leads column sorts by `priority` (highest first, ties by the sooner
+deadline), still grouped by company. A saved application ranks by the lead it
+came from (`application_id`), else by its deadline as an unscored lead. The
+urgency of a lead with a deadline is never below that of a lead with no date
+(0.2), so a far deadline doesn't rank under no deadline at all (review of #102).
+
+The SimplifyJobs lists also drop a senior title in an internship or new-grad
+search (`tooSenior`): the lists carry the odd one ("Principal Software Engineer"
+in New Grad).
+
 ## Left for later PRs
 
 - `apply_mode` (manual / assist / auto) and the daily limit, which only matter

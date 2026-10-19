@@ -6,6 +6,7 @@ import { useCallback, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { followedBoards, resolveBoards, type FollowedBoard } from '../lib/boards'
 import { putBack, screenLeads } from '../lib/screen'
+import { scoreLeads } from '../lib/fit'
 import type { DbJobLead } from '../lib/store/types'
 import { useApplicationAnswers } from './answers'
 import { useJobLeads } from './inbox'
@@ -13,7 +14,7 @@ import { useResumes } from './resumes'
 import { useStore } from '../lib/store'
 import { useSupply } from '../lib/supply'
 import { useAutomations } from './automation'
-import { useActiveSearch } from './search'
+import { useActiveSearch, useJobSearches } from './search'
 
 const REFRESH_MS = 6 * 60 * 60_000
 const SETTLE_MS = 30_000
@@ -77,23 +78,24 @@ export function useFollowedBoards() {
   })
 }
 
-/** Mounted once (App): screen the Leads (lib/screen.ts) when they, the
- *  resumes or the saved answers change. Writes only what changed, so it
- *  settles after one pass. */
+/** Mounted once (App): screen and score the Leads (lib/screen.ts,
+ *  lib/fit.ts) when they, the resumes, the saved answers or the search
+ *  change. Writes only what changed, so it settles after one pass. */
 export function useLeadScreening() {
   const qc = useQueryClient()
   const { store, ready } = useStore()
   const leads = useJobLeads()
   const resumes = useResumes()
   const answers = useApplicationAnswers()
+  const searches = useJobSearches()
   useEffect(() => {
-    if (!ready || !leads.data || !resumes.data || answers.isLoading) return
+    if (!ready || !leads.data || !resumes.data || answers.isLoading || !searches.data) return
     let cancelled = false
-    screenLeads(store).then((changed) => {
+    Promise.all([screenLeads(store), scoreLeads(store)]).then(([screened, scored]) => screened + scored).then((changed) => {
       if (!cancelled && changed > 0) qc.invalidateQueries({ queryKey: ['job_leads'] })
     }, (e) => console.warn('[landed] screening leads failed', e))
     return () => { cancelled = true }
-  }, [ready, store, qc, leads.dataUpdatedAt, resumes.dataUpdatedAt, answers.dataUpdatedAt]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, store, qc, leads.dataUpdatedAt, resumes.dataUpdatedAt, answers.dataUpdatedAt, searches.dataUpdatedAt]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 export function usePutBack() {

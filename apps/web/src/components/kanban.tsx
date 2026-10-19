@@ -23,12 +23,13 @@ import {
   DragOverlay,
 } from '@dnd-kit/core';
 import { currentRound, formatWhen, roundLabel } from '@landed/schema/pipeline';
-import { DeadlineChip, byDeadline } from './deadline-chip';
+import { DeadlineChip } from './deadline-chip';
 import { CompanyMark, Icon, stageColors } from './primitives';
 import { LeadAssistButton } from './apply-assist';
 import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
 import type { SupplyCheck } from '../lib/supply';
+import { byPriority, rankOf } from '../lib/fit';
 import { companyKey } from '@landed/observation-processor';
 
 // ────────────────────────────────────────────────────────────────────────
@@ -305,6 +306,8 @@ type LeadsColumnProps = {
   onOpenApp: (id: string) => void; getCompany: (id: string) => MarkCompany; duplicateIds: Set<string>;
   onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline; refresh?: LeadsRefresh;
   filtered?: DbJobLead[]; onPutBack?: (lead: DbJobLead) => void;
+  /** the lead a saved application came from (its fit ranks the card) */
+  leadForApp?: (appId: string) => DbJobLead | undefined;
 };
 
 /** Leads the hard filters hid (#92): folded away under the column, each
@@ -359,10 +362,11 @@ function refreshNote(r: LeadsRefresh): string | null {
 // A Leads card: an agent-found job, or an application not applied to yet.
 type LeadItem = { lead: DbJobLead; app?: undefined; deadline: string | null } | { app: BoardApp; lead?: undefined; deadline: string | null };
 
-function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack }: LeadsColumnProps) {
+function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack, leadForApp = () => undefined }: LeadsColumnProps) {
   // Dropping an application here puts it back to "not applied yet".
   const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
   const count = leads.length + saved.length;
+  const now = new Date();
   return (
     <div ref={setNodeRef} style={laneStyle(isOver, 'var(--surface-3)')}>
       <div style={{ padding: '12px 14px 8px' }}>
@@ -384,9 +388,12 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
         )}
       </div>
       <div style={{ padding: '2px 8px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: 1 }}>
-        {/* Soonest deadline first; a company's leads and saved applications together. */}
+        {/* Highest priority first (fit × urgency, lib/fit.ts); a company's leads and saved applications together. */}
         {byCompany(
-          [...leads.map((l): LeadItem => ({ lead: l, deadline: l.deadline })), ...saved.map((a): LeadItem => ({ app: a, deadline: a.deadline }))].sort(byDeadline),
+          [...leads.map((l): LeadItem => ({ lead: l, deadline: l.deadline })), ...saved.map((a): LeadItem => ({ app: a, deadline: a.deadline }))]
+            .map((item) => ({ item, rank: rankOf(item.lead ? { lead: item.lead } : { app: { id: item.app!.id, deadline: item.app!.deadline } }, leadForApp, now) }))
+            .sort((a, b) => byPriority(a.rank, b.rank))
+            .map(({ item }) => item),
           (x) => (x.lead ? x.lead.company_name : getCompany(x.app.companyId).name),
         ).map((g) => {
           const card = (x: LeadItem, grouped: boolean) => (x.lead
@@ -421,11 +428,12 @@ type KanbanProps = {
   leads?: DbJobLead[]; onAddLead?: (lead: DbJobLead, stage: Stage) => void; onDismissLead?: (id: string) => void;
   onOpenLead?: (lead: DbJobLead) => void; onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline;
   leadsRefresh?: LeadsRefresh; filteredLeads?: DbJobLead[]; onPutBackLead?: (lead: DbJobLead) => void;
+  leadForApp?: (appId: string) => DbJobLead | undefined;
 };
 
 const UNKNOWN_COMPANY: MarkCompany = { name: 'Unknown company', hue: null, logo: null };
 
-export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh, filteredLeads, onPutBackLead }: KanbanProps) => {
+export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh, filteredLeads, onPutBackLead, leadForApp }: KanbanProps) => {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -472,7 +480,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
         <LeadsColumn leads={leads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
           onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds}
           onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} refresh={leadsRefresh}
-          filtered={filteredLeads} onPutBack={onPutBackLead} />
+          filtered={filteredLeads} onPutBack={onPutBackLead} leadForApp={leadForApp} />
         {pipelineStages.map(stage => (
           <DroppableColumn
             key={stage.id}

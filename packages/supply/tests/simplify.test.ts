@@ -81,6 +81,15 @@ describe('selectForBrief', () => {
     expect(all.map((l) => l.company)).not.toContain('Northrop Grumman')
     expect(all.map((l) => l.company)).not.toContain('CVector') // posted in June
   })
+  test('the odd senior role in a new-grad list stays out; an internship needn\'t say "intern"', () => {
+    const extra = parseSimplifyListings([
+      { ...(raw[0] as Record<string, unknown>), id: 'principal', title: 'Principal Software Engineer - Clinical Analytics', locations: ['Seattle, WA'] },
+      { ...(raw[0] as Record<string, unknown>), id: 'summer', title: 'Summer 2027 Software Engineer', locations: ['Seattle, WA'] },
+    ])
+    expect(selectForBrief(extra, brief({ locations: ['Seattle'] }), now).map((l) => l.id)).toEqual(['summer'])
+    expect(selectForBrief(extra, brief({ seniority: 'intern', locations: ['Seattle'] }), now).map((l) => l.id)).toEqual(['summer'])
+  })
+
   test('excluded companies stay out', () => {
     expect(selectForBrief(listings, brief({ exclude_companies: ['Axon, Inc.'] }), now).map((l) => l.company)).not.toContain('Axon')
   })

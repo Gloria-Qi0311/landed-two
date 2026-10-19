@@ -35,6 +35,14 @@ describe('urgency', () => {
   test('neither: a low default', () => {
     expect(urgency(lead(), now)).toBe(0.2)
   })
+
+  test('a far deadline is never less urgent than no date at all (review of #102)', () => {
+    // 60 days out used to score 0.276 against 0.300 for a lead with no dates.
+    const far = priority(lead({ fit: fit(0.5), deadline: '2026-12-17' }), now)
+    const none = priority(lead({ fit: fit(0.5) }), now)
+    expect(far).toBeGreaterThanOrEqual(none)
+    expect(urgency(lead({ posted_at: '2025-10-18' }), now)).toBe(0.2) // a year-old posting: the floor too
+  })
 })
 
 describe('priority', () => {

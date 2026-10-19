@@ -1,9 +1,10 @@
 // Where a lead sits in the apply queue: fit × urgency (docs/leads-model.md).
-// Computed when shown, never stored. A first version; the fit score and the
-// weights are tuned in #93.
+// Computed when shown, never stored.
 //
-//   urgency  1 on the deadline day, halving about every week before it; a
-//            posting with no deadline counts as less urgent, fading with age
+//   urgency  1 on the deadline day, halving about every week before it, and
+//            never below a lead with no date at all (0.2: a far deadline is
+//            still more known than none); a posting with no deadline counts
+//            as less urgent, fading with age
 //   fit      the lead's fit score, 0.5 while unscored
 //   priority fit × (0.5 + 0.5 × urgency), so fit decides and urgency at most
 //            doubles it. Closed, screened-out and past-deadline leads get
@@ -21,6 +22,8 @@ export const UNRANKED = -1
 const DAY_MS = 86_400_000
 /** fit for a lead nobody has scored yet */
 export const UNSCORED_FIT = 0.5
+/** urgency of a lead with no deadline and no posting date: the floor */
+export const NO_DATE_URGENCY = 0.2
 
 /** Calendar days from `now`'s local date to a "YYYY-MM-DD" date (negative:
  *  it has passed). null when the date doesn't read. */
@@ -35,10 +38,10 @@ export function daysUntil(date: string | null, now: Date): number | null {
 /** 0–1: how soon this lead needs doing. */
 export function urgency(lead: PriorityInput, now: Date): number {
   const due = daysUntil(lead.deadline, now)
-  if (due !== null) return due < 0 ? 0 : 1 / (1 + due / 7)
+  if (due !== null) return due < 0 ? 0 : Math.max(NO_DATE_URGENCY, 1 / (1 + due / 7))
   const posted = daysUntil(lead.posted_at, now)
-  if (posted !== null) return 0.6 / (1 + Math.max(0, -posted) / 7)
-  return 0.2
+  if (posted !== null) return Math.max(NO_DATE_URGENCY, 0.6 / (1 + Math.max(0, -posted) / 7))
+  return NO_DATE_URGENCY
 }
 
 /** 0–1 for leads worth showing, higher first; UNRANKED for closed,

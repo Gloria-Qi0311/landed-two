@@ -9,7 +9,7 @@ import { companyKey } from '@landed/observation-processor'
 import { parsePostedAt } from '@landed/schema/lead-queue'
 import { parseDeadline } from '@landed/schema/pipeline'
 import type { FoundJob, SearchBrief } from '@landed/schema/search-brief'
-import { placeMatches, roleMatches } from './simplify'
+import { levelMatches, placeMatches, roleMatches } from './simplify'
 
 export const ATS = ['greenhouse', 'lever', 'ashby'] as const
 export type Ats = typeof ATS[number]
@@ -236,23 +236,6 @@ export function parseBoard(ats: Ats, raw: unknown): BoardPosting[] {
 
 // ── what fits a search ────────────────────────────────────────────────────
 
-const INTERN = /\bintern(ship)?s?\b|co-?op|实习/
-const ENTRY = /new ?grad|graduate|entry|junior|early career|university|campus|校招|应届/
-const SENIOR = /\b(senior|sr|staff|principal|lead|manager|director|head|distinguished|architect)\b|资深|高级|主管|经理/
-
-/** A board carries every level (the SimplifyJobs lists only one): an
- *  internship search wants intern / co-op titles, a new-grad or entry search
- *  skips senior, staff, lead and manager titles (and internships, unless it
- *  wants those too). A search that names no level takes any. */
-export function levelMatches(brief: SearchBrief, title: string): boolean {
-  const said = [brief.seniority ?? '', ...brief.roles].join(' ').toLowerCase()
-  const t = title.toLowerCase()
-  const intern = INTERN.test(said)
-  const entry = ENTRY.test(said)
-  if (intern && !entry) return INTERN.test(t)
-  if (entry) return !SENIOR.test(t) && (intern || !INTERN.test(t))
-  return true
-}
 
 /** The postings worth a lead: listed, the brief's roles, level and places
  *  (remote when the brief wants remote); newest first, at most MAX_PER_BOARD. A company

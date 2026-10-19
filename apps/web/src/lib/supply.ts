@@ -17,6 +17,7 @@ import {
 import { followedBoards, refreshBoards, resolveBoards } from './boards'
 import { ingestFoundJobs } from './inbox'
 import { screenLeads } from './screen'
+import { scoreLeads } from './fit'
 import type { DataStore, DbJobLead } from './store/types'
 
 export type SupplyResult = {
@@ -57,6 +58,7 @@ export async function refreshSupply(
   const boards = followedBoards({ applications, companies, leads, brief, resolved })
   const b = await refreshBoards(store, brief, boards, opts)
   await screenLeads(store)
+  await scoreLeads(store, opts.now)
   return {
     ...lists,
     found: lists.found + b.found, added: lists.added + b.added, merged: lists.merged + b.merged, closed: lists.closed + b.closed,

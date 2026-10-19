@@ -349,7 +349,9 @@ function ApplicationsPage({
   // Kanban's Leads column. Postings that closed leave it (the data stays).
   // The hard filters (#92) hide what plainly can't be applied to; the
   // column lists those apart, with their reasons and a way back.
-  const open = (useJobLeads().data ?? []).filter((l) => l.status === 'new' && !l.closed_at);
+  const allLeads = useJobLeads().data ?? [];
+  const open = allLeads.filter((l) => l.status === 'new' && !l.closed_at);
+  const leadByApp = new Map(allLeads.filter((l) => l.application_id).map((l) => [l.application_id!, l]));
   const leads = open.filter((l) => !screenedOut(l));
   const filteredLeads = open.filter(screenedOut);
   const leadsRefresh = useSupplyRefresh();
@@ -422,6 +424,7 @@ function ApplicationsPage({
           leadsRefresh={leadsRefresh}
           filteredLeads={filteredLeads}
           onPutBackLead={(lead: DbJobLead) => putBack.mutate(lead)}
+          leadForApp={(id: string) => leadByApp.get(id)}
         />
       </div>
     </>

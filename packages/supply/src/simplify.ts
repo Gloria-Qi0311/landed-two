@@ -128,6 +128,34 @@ const PLACE_ALIASES: Record<string, string[]> = {
   dc: ['washington, dc', 'washington dc', 'washington, d.c.'],
 }
 
+const INTERN = /\bintern(ship)?s?\b|co-?op|实习/
+const ENTRY = /new ?grad|graduate|entry|junior|early career|university|campus|校招|应届/
+const SENIOR = /\b(senior|sr|staff|principal|lead|manager|director|head|distinguished|architect)\b|资深|高级|主管|经理/
+
+/** A posting's level fits the search's. (A board carries every level, and
+ *  a SimplifyJobs list carries the odd senior role too.) An
+ *  internship search wants intern / co-op titles, a new-grad or entry search
+ *  skips senior, staff, lead and manager titles (and internships, unless it
+ *  wants those too). A search that names no level takes any. */
+export function levelMatches(brief: SearchBrief, title: string): boolean {
+  const said = [brief.seniority ?? '', ...brief.roles].join(' ').toLowerCase()
+  const t = title.toLowerCase()
+  const intern = INTERN.test(said)
+  const entry = ENTRY.test(said)
+  if (intern && !entry) return INTERN.test(t)
+  if (entry) return !SENIOR.test(t) && (intern || !INTERN.test(t))
+  return true
+}
+
+/** A senior title in an internship or new-grad search. For the SimplifyJobs
+ *  lists, whose every posting is already an internship or new-grad role
+ *  ("Summer 2027 Software Engineer" needn't say "intern"), this is the only
+ *  level check: the odd senior role that slips into them. */
+export function tooSenior(brief: SearchBrief, title: string): boolean {
+  const said = [brief.seniority ?? '', ...brief.roles].join(' ').toLowerCase()
+  return (INTERN.test(said) || ENTRY.test(said)) && SENIOR.test(title.toLowerCase())
+}
+
 /** Anywhere when the brief names no place; otherwise one of the posting's
  *  places is one of the brief's (or remote, when the brief wants remote). */
 export function placeMatches(brief: SearchBrief, locations: string[]): boolean {
@@ -147,7 +175,7 @@ export function placeMatches(brief: SearchBrief, locations: string[]): boolean {
 }
 
 /** The listings worth a lead for this search: open, posted in the last
- *  MAX_AGE_DAYS, the right role and place, not an excluded company; newest
+ *  MAX_AGE_DAYS, the right role, level and place, not an excluded company; newest
  *  first, at most MAX_PER_LIST. */
 export function selectForBrief(listings: SimplifyListing[], brief: SearchBrief, now: Date): SimplifyListing[] {
   const cutoff = new Date(now.getTime() - MAX_AGE_DAYS * 86_400_000).toISOString().slice(0, 10)
@@ -155,7 +183,7 @@ export function selectForBrief(listings: SimplifyListing[], brief: SearchBrief, 
   return listings
     .filter((l) => l.active && l.posted_at !== null && l.posted_at >= cutoff)
     .filter((l) => !excluded.has(companyKey(l.company)))
-    .filter((l) => roleMatches(brief.roles, l.title) && placeMatches(brief, l.locations))
+    .filter((l) => roleMatches(brief.roles, l.title) && !tooSenior(brief, l.title) && placeMatches(brief, l.locations))
     .sort((a, b) => (b.posted_at ?? '').localeCompare(a.posted_at ?? ''))
     .slice(0, MAX_PER_LIST)
 }
