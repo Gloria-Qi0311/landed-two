@@ -29,8 +29,11 @@
   const LOCAL_ANSWERS_KEY = 'landed:application-answers';
   // Resume / cover letter files from the Landed page, by kind.
   const LOCAL_FILES_KEY = 'landed:application-files';
+  // Questions fills had to leave empty, until the Landed tab takes them to
+  // the Extension page (lib/fill/unanswered.js, bridge 'take-questions').
+  const LOCAL_QUESTIONS_KEY = 'landed:unanswered-questions';
 
-  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY, LOCAL_FILES_KEY };
+  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY, LOCAL_FILES_KEY, LOCAL_QUESTIONS_KEY };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.LandedConfig;
   }

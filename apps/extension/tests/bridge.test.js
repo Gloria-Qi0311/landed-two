@@ -30,6 +30,7 @@ function makeHandler(events = [], openAndFill) {
   const q = memoryQueue(events)
   const saved = {}
   const onQueueChanged = jest.fn()
+  const onAnswersSynced = jest.fn()
   const handle = createBridgeHandler({
     cfg,
     snapshotStore: q.snapshotStore,
@@ -40,8 +41,9 @@ function makeHandler(events = [], openAndFill) {
     onQueueChanged,
     version: '2.2',
     openAndFill,
+    onAnswersSynced,
   })
-  return { handle, q, saved, onQueueChanged }
+  return { handle, q, saved, onQueueChanged, onAnswersSynced }
 }
 
 const applied = (company) => ({
@@ -50,6 +52,21 @@ const applied = (company) => ({
 })
 
 describe('bridge handler', () => {
+  test('take-questions hands the queued questions over once; answers coming back tell open pages', async () => {
+    const { handle, saved, onAnswersSynced } = makeHandler()
+    saved['landed:unanswered-questions'] = [{ question: 'T-shirt size', key: null, options: ['S', 'M'], site: 'jobs.example.com' }]
+    expect(await handle({ type: 'take-questions' }, FROM_WEB)).toEqual({
+      ok: true, data: { questions: [{ question: 'T-shirt size', key: null, options: ['S', 'M'], site: 'jobs.example.com' }] },
+    })
+    expect(await handle({ type: 'take-questions' }, FROM_WEB)).toEqual({ ok: true, data: { questions: [] } })
+    expect(await handle({ type: 'take-questions' }, { origin: 'https://evil.example' })).toMatchObject({ ok: false })
+
+    await handle({ type: 'sync-answers', payload: { answers: null } }, FROM_WEB)
+    expect(onAnswersSynced).not.toHaveBeenCalled()
+    await handle({ type: 'sync-answers', payload: { answers: { city: 'Seattle', custom: [{ question: 'T-shirt size', answer: 'M' }] } } }, FROM_WEB)
+    expect(onAnswersSynced).toHaveBeenCalledTimes(1)
+  })
+
   test('rejects requests from other origins', async () => {
     const { handle, q } = makeHandler([applied('Acme')])
     expect(await handle({ type: 'take-events' }, { origin: 'https://evil.example' }))

@@ -1,7 +1,8 @@
 // The Extension page (sidebar, under My Resume): everything the browser
 // extension fills in for the user, managed in one place — whether it's
-// connected here, which resume it uses, the files it uploads
-// (components/application-files.tsx), the consent switch and the
+// connected here, which resume it uses, the questions forms asked that
+// nothing answered yet (components/pending-questions.tsx), the files it
+// uploads (components/application-files.tsx), the consent switch and the
 // application answers (components/application-answers.tsx). The extension
 // gets them over the page bridge (hooks/extension-bridge.ts).
 import { Link } from 'react-router-dom'
@@ -9,6 +10,7 @@ import { Icon } from './primitives'
 import { PageHeader } from './shell'
 import { ApplicationAnswersPane } from './application-answers'
 import { ApplicationFilesCard } from './application-files'
+import { PendingQuestionsCard } from './pending-questions'
 import { useExtension } from './apply-assist'
 import { useCurrentResume } from '../hooks/resumes'
 import { muted, card } from './ui'
@@ -62,6 +64,7 @@ export function ExtensionPage() {
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 28px 40px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 860 }}>
           <StatusCard />
+          <PendingQuestionsCard />
           <ApplicationFilesCard />
           <ApplicationAnswersPane />
         </div>

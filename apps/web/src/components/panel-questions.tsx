@@ -6,7 +6,9 @@
 //     Chrome now — read-only (the Automation page can also do this on a
 //     schedule);
 //   - "These look like the same application": merge, or keep both
-//     (components/duplicates.tsx).
+//     (components/duplicates.tsx);
+//   - a pointer to the Extension page while application forms have
+//     questions waiting (components/pending-questions.tsx).
 // Each closes itself when an email, a portal check or a manual move answers
 // it (settleQuestions in lib/inbox/questions.ts).
 import { useMemo, type ReactNode } from 'react'
@@ -20,6 +22,7 @@ import { useApplications, useCompanies } from '../hooks/queries'
 import { browserAgent, portalTarget } from '../hooks/portal'
 import { useRuntimes } from '../hooks/runtimes'
 import { DuplicatesReview, useDuplicates } from './duplicates'
+import { PendingQuestionsNotice, usePendingQuestions } from './pending-questions'
 import { muted, danger } from './ui'
 
 type AppShape = {
@@ -70,9 +73,11 @@ export function PanelQuestions() {
   const { click, quiet, dups } = usePanelQuestions()
   const check = usePortalCheck((s) => s.check)
   const recentCheck = check && (check.status === 'running' || Date.now() - Date.parse(check.started_at) < 3_600_000)
-  if (click.length === 0 && quiet.length === 0 && !recentCheck && dups === 0) return null
+  const formQuestions = usePendingQuestions().length
+  if (click.length === 0 && quiet.length === 0 && !recentCheck && dups === 0 && formQuestions === 0) return null
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {formQuestions > 0 && <PendingQuestionsNotice style={cardStyle} />}
       {click.slice(0, 5).map((q) => <ClickQuestion key={q.id} q={q} />)}
       {quiet.length > 0 ? <QuietQuestions quiet={quiet} /> : recentCheck && <div style={cardStyle}><PortalStatus check={check} /></div>}
       {dups > 0 && <DuplicatesReview limit={3} />}

@@ -30,6 +30,7 @@ holds the message listener and `handleFill`.
 | `experience.js` | Work Experience and Education sections on English forms (Workday's "My Experience"): one entry per job and school |
 | `ai.js` | Asking the local model for unknown labels and unanswered choices |
 | `review.js` | Where each value came from; the fill report; the agent review after a fill |
+| `unanswered.js` | Empty questions worth asking the user once; filling them on open pages once answered |
 | `frames.js` | A sub-frame showing a form reports itself to the service worker |
 | `portal.js` | Status detection on candidate portal pages |
 
@@ -77,6 +78,7 @@ Deterministic DOM rules run first. Fields are outlined green (filled) or yellow
 4. **Unknown labels** go to `apps/daemon/src/native-host.ts` → `match_fields`.
 5. **Unanswered choices** go to `native-host.ts` → `choose_options`.
 6. **Review**: the user's own agent checks the filled form → `review_fill` (below).
+7. **Still empty**: the questions worth asking go to the Extension page, once (below).
 
 ### Work Experience and Education sections
 
@@ -166,6 +168,45 @@ about 1.5k tokens a call.
    page itself are only flagged. Changed and flagged fields turn yellow with the
    reason (`data-landed-note`, also the field's tooltip) and join the review list.
    The popup says what the agent changed and how many to look at.
+
+### Questions a fill couldn't answer
+
+Product decision (2026-10-19, #96): what a form asks that nothing answers is
+asked once, on the Extension page, and answered by rule on every form after.
+
+1. **Reported.** After a fill, `unansweredQuestions` (`lib/fill/unanswered.js`)
+   lists the fields still empty and yellow, with the question, the form's options
+   for a choice, the site, and `key`: the saved answer the question is about
+   (`classify`, only answers in `ASKABLE_KEYS`). Never reported: sensitive
+   questions (`neverSent`), files, open-ended text (textareas, answered per job),
+   dates, checkboxes, and fields the resume should hold (`matchResumeKey`).
+2. **Queued.** `fillTab` queues them in `chrome.storage.local`
+   (`landed:unanswered-questions`, one per question per site) and remembers the
+   tab for the session.
+3. **Kept with the answers.** The Landed tab takes them over the page bridge
+   (`take-questions`, once) and adds them to `application_answers.unanswered`
+   with `addUnanswered` (`packages/schema/src/application-answers.ts`): the same
+   question however worded (`sameQuestion`: the same key, or 80% of the
+   meaningful words) is one entry with its sites and a count; nothing already
+   answered, skipped (`skipped`, "Don't ask again") or sensitive is added. It's
+   part of the answers row, so it syncs and backs up with them; saving the
+   answers form keeps the latest list.
+4. **Asked.** The Extension page lists them (`components/pending-questions.tsx`;
+   the sidebar's Extension item counts them, the Agent page points there). An
+   answer goes to its `key` (a yes/no one takes Yes or No), else "other
+   questions" (`answerPending`).
+5. **Answered from then on.** "Other questions" match a field by `sameQuestion`
+   (`customAnswerFor` in `choice-answers.js`, mirroring the schema) for text
+   fields, selects, custom dropdowns and radio groups. When the answers reach the
+   extension (`sync-answers`), the tabs the questions came from get
+   `fill-answers`: only fields still empty and yellow are filled, so nothing the
+   user typed changes.
+
+Questions only the user's answers can answer (`ANSWER_ONLY`: how you heard,
+18+, authorization, sponsorship, relocation, travel, onsite, other locations,
+worked here before, non-compete, talent network) stay yellow when nothing is
+saved, instead of taking a resume field that happens to match ("How did you hear
+about us?" used to get the resume summary).
 
 ## Application answers and the Extension page
 

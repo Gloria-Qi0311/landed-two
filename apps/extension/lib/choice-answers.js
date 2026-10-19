@@ -327,7 +327,61 @@
     return null;
   }
 
-  const api = { namesEmployer, ANSWERS_KEY, FILES_KEY, fileKind, sameText, norm, classify, answerFor, pickOption, answerFlat, answerFacts };
+  // ── "other questions": the same question, however a form words it ──────
+  // Mirrors questionKey / sameQuestion in packages/schema/src/application-answers.ts
+  // (keep the two in step): the Extension page saves an answer under the
+  // question as one form asked it, and every form after that gets it.
+
+  const STOP_WORDS = new Set([
+    'a', 'an', 'the', 'of', 'to', 'in', 'on', 'at', 'for', 'with', 'and', 'or', 'do', 'does', 'did', 'you', 'your', 'are', 'is', 'am',
+    'have', 'has', 'how', 'many', 'what', 'which', 'please', 'we', 'us', 'our', 'this', 'that', 'any', 'be', 'will', 'would', 'if', 'can',
+    'select', 'enter', 'provide', 'required', 'optional', 'yes', 'no', 'currently', 'company',
+  ]);
+
+  function questionKey(question) {
+    return String(question || '').toLowerCase().replace(/\((?:required|optional)\)|\*/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  }
+
+  function sameQuestion(a, b) {
+    const ka = questionKey(a);
+    const kb = questionKey(b);
+    if (!ka || !kb) return false;
+    if (ka === kb) return true;
+    const words = (k) => new Set(k.split(' ').filter((w) => w.length >= 2 && !STOP_WORDS.has(w)));
+    const wa = words(ka);
+    const wb = words(kb);
+    if (wa.size < 2 || wb.size < 2) return false;
+    let both = 0;
+    for (const w of wa) if (wb.has(w)) both++;
+    return both / (wa.size + wb.size - both) >= 0.8;
+  }
+
+  /** The saved "other question" this label asks, as a text answer; null when none. */
+  function customAnswerFor(label, answers) {
+    if (!label || !answers || !Array.isArray(answers.custom)) return null;
+    const hit = answers.custom.find((c) => c && typeof c.question === 'string' && typeof c.answer === 'string' && c.answer.trim() && sameQuestion(c.question, label));
+    return hit ? { type: 'text', value: hit.answer.trim() } : null;
+  }
+
+  /** Answers a pending question can be saved to on the Extension page
+   *  (ANSWER_KEYS in application-answers.ts, without the sensitive ones).
+   *  Not previously_employed: that follows the resume, one company at a time. */
+  const ASKABLE_KEYS = new Set([
+    'legal_first_name', 'legal_middle_name', 'legal_last_name', 'preferred_first_name', 'preferred_last_name',
+    'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'country', 'earliest_start', 'heard_from', 'linkedin', 'github', 'website',
+    'adult', 'onsite', 'work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'open_to_other_locations',
+    'non_compete', 'talent_network',
+  ]);
+
+  /** Questions only the user's answers can answer: with none saved, a fill
+   *  leaves them for the user instead of a resume field that happens to
+   *  match ("How did you hear about us?" once got the resume summary). */
+  const ANSWER_ONLY = new Set([
+    'heard_from', 'adult', 'onsite', 'work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'open_to_other_locations',
+    'previously_employed', 'non_compete', 'talent_network',
+  ]);
+
+  const api = { namesEmployer, ANSWERS_KEY, FILES_KEY, fileKind, sameText, norm, classify, answerFor, pickOption, answerFlat, answerFacts, questionKey, sameQuestion, customAnswerFor, ASKABLE_KEYS, ANSWER_ONLY };
   global.LandedChoiceAnswers = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

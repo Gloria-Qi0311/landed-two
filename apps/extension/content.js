@@ -14,6 +14,7 @@
 //   experience  Work Experience / Education sections: every job and school, one entry each
 //   ai        local-model fallbacks (key or option picks, never invented values)
 //   review    the user's own agent checks the filled form (picks, never writes)
+//   unanswered  empty fields worth asking the user about, once; filling them when answered
 //   frames    forms in iframes report to the service worker
 //   portal    portal confirmation pages → events
 //
@@ -22,7 +23,7 @@
 // answers in lib/choice-answers.js. Type-checked via JSDoc + checkJs
 // (tsconfig.json).
 
-const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, tagFilled, tryFillCombobox, tryFillSelect } = window.LandedFill;
+const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, fillPendingFromAnswers, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, tagFilled, tryFillCombobox, tryFillSelect, unansweredQuestions } = window.LandedFill;
 const { normalize, getFieldLabel, matchResumeKey } = window.ResumeFillerFieldDetect;
 const CL = window.ResumeFillerCrossLingual;
 const CA = window.LandedChoiceAnswers;
@@ -32,6 +33,12 @@ const CA = window.LandedChoiceAnswers;
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'fill') {
     handleFill(msg.resume, msg.customFields || {}, { aiTakeover: !!msg.aiTakeover }).then(sendResponse);
+    return true;
+  }
+  // The user answered questions on the Extension page: fill the fields still
+  // empty that the answers now cover (lib/fill/unanswered.js).
+  if (msg.action === 'fill-answers') {
+    loadApplicationAnswers().then(fillPendingFromAnswers).then((filled) => sendResponse({ filled }), () => sendResponse({ filled: 0 }));
     return true;
   }
   if (msg.action === 'ping') {
@@ -125,6 +132,15 @@ async function handleFill(resumeData, customFields, opts) {
       filled.push('answer:' + kind);
       answered.add(el);
     }
+  }
+  // Questions only the user's answers can answer stay theirs: never a resume
+  // field that happens to match.
+  for (const el of getVisibleInputs()) {
+    if (answered.has(el) || (el instanceof HTMLInputElement && el.type === 'file')) continue;
+    const label = getFieldLabel(el) || '';
+    if (!CA.ANSWER_ONLY.has(answerKindForElement(el, label))) continue;
+    answered.add(el);
+    addManual(manual, el, label, '需要申请资料', null);
   }
   tagFilled('answers');
 
@@ -265,7 +281,7 @@ async function handleFill(resumeData, customFields, opts) {
     const kind = answers ? CA.classify(question) : null;
 
     if (answers && first.type === 'radio') {
-      const answer = kind && CA.answerFor(kind, answers, { employers, question, site: location.hostname });
+      const answer = (kind && CA.answerFor(kind, answers, { employers, question, site: location.hostname })) || (!kind ? CA.customAnswerFor(question, answers) : null);
       const index = answer ? CA.pickOption(answer, group.map(optionText)) : -1;
       if (index >= 0) {
         clickChoice(group[index]);
@@ -387,5 +403,8 @@ async function handleFill(resumeData, customFields, opts) {
   // their Claude Code). Changed fields turn yellow; sensitive ones aren't sent.
   const review = opts.aiTakeover ? await runFillReview(manual, answers, flat) : null;
 
-  return { filled, manual, missing_files: Array.from(missingFiles), review };
+  // What's still empty and worth asking the user once (the Extension page).
+  const unanswered = unansweredQuestions(manual);
+
+  return { filled, manual, missing_files: Array.from(missingFiles), review, unanswered };
 }

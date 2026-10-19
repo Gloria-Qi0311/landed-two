@@ -7,7 +7,7 @@
 // answer". Consent is ticked only with its own switch on; Submit is never
 // clicked.
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { answeredCount, EMPTY_ANSWERS, type ApplicationAnswers, type YesNo } from '@landed/schema/application-answers'
+import { answeredCount, EMPTY_ANSWERS, prunePending, type ApplicationAnswers, type YesNo } from '@landed/schema/application-answers'
 import { Icon } from './primitives'
 import { useApplicationAnswers, useSaveApplicationAnswers } from '../hooks/answers'
 import { muted, card as baseCard } from './ui'
@@ -84,11 +84,16 @@ export function ApplicationAnswersPane() {
       }} />
   )
   const onSave = async () => {
-    await save.mutateAsync({
+    // Questions the extension reported while this was being edited stay;
+    // the ones these answers now cover go.
+    const latest = stored.data?.answers
+    await save.mutateAsync(prunePending({
       ...draft,
       preferred_locations: draft.preferred_locations.map((l) => l?.trim()).filter(Boolean),
       custom: draft.custom.filter((c) => c.question.trim() && c.answer.trim()),
-    })
+      unanswered: latest?.unanswered ?? draft.unanswered,
+      skipped: latest?.skipped ?? draft.skipped,
+    }))
     setDirty(false)
   }
 

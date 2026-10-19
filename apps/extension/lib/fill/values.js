@@ -101,6 +101,9 @@ function applicationAnswerForElement(kind, answers, el, flat, ctx) {
     const source = referralFromUrl();
     if (source) answer = { type: 'text', value: source };
   }
+  // A question the user answered on the Extension page ("other questions"),
+  // however this form words it.
+  if (!answer && answers && !kind) answer = CA.customAnswerFor(getFieldLabel(el), answers);
   if (answer && answer.type === 'text' && suspiciousApplicationAnswer(kind, answer.value, answers, flat)) return null;
   return answer;
 }

@@ -17,7 +17,7 @@
 // chrome.runtime.onStartup re-arms on browser restart in case the
 // onInstalled handler never ran.
 
-importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js', 'lib/bridge-handler.js', 'lib/apply-assist-bridge.js', 'lib/resume-pick.js')
+importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js', 'lib/bridge-handler.js', 'lib/apply-assist-bridge.js', 'lib/resume-pick.js', 'lib/choice-answers.js')
 
 // Every read-modify-write of the pending-event queue (ingest, Cloud push,
 // web-bridge take) runs under this lock so none of them clobbers another —
@@ -430,8 +430,85 @@ async function fillTab(tabId, resume) {
   const count = (key) => answered.reduce((sum, r) => sum + (Array.isArray(r[key]) ? r[key].length : 0), 0)
   const attached = new Set(answered.flatMap((r) => (Array.isArray(r.filled) ? r.filled : [])).filter((f) => String(f).startsWith('file:')).map((f) => String(f).slice(5)))
   const missing = [...new Set(answered.flatMap((r) => (Array.isArray(r.missing_files) ? r.missing_files : [])))].filter((kind) => !attached.has(kind))
-  return { tabId, filled: count('filled'), review: count('manual'), missing_files: missing, frames: answered.length, agent_review: addReviews(answered) }
+  const unanswered = answered.flatMap((r) => (Array.isArray(r.unanswered) ? r.unanswered : []))
+  await queueQuestions(tabId, unanswered)
+  return {
+    tabId, filled: count('filled'), review: count('manual'), missing_files: missing, frames: answered.length, agent_review: addReviews(answered),
+    unanswered: unanswered.length,
+  }
 }
+
+// ── questions a fill had to leave empty (lib/fill/unanswered.js) ──────────
+// Queued in local storage until the open Landed tab takes them to the
+// Extension page (bridge 'take-questions'). The tabs they came from are
+// remembered for the session: when the answers come back ('sync-answers'),
+// those pages fill the fields the answers now cover.
+
+const QUESTION_TABS_KEY = 'landed:question-tabs'
+const MAX_QUEUED_QUESTIONS = 60
+
+function readArea(area, key) {
+  return new Promise((resolve) => {
+    try { area.get(key, (v) => resolve((v && v[key]) ?? null)) } catch { resolve(null) }
+  })
+}
+function writeArea(area, values) {
+  return new Promise((resolve) => {
+    try { area.set(values, resolve) } catch { resolve() }
+  })
+}
+
+async function queueQuestions(tabId, questions) {
+  const CA = self.LandedChoiceAnswers
+  const text = (v, max) => (typeof v === 'string' && v.trim() ? v.replace(/\s+/g, ' ').trim().slice(0, max) : null)
+  const list = questions.flatMap((q) => {
+    const question = q && text(q.question, 300)
+    if (!question) return []
+    return [{
+      question,
+      key: text(q.key, 40),
+      options: (Array.isArray(q.options) ? q.options : []).map((o) => text(o, 200)).filter(Boolean).slice(0, 20),
+      site: text(q.site, 120),
+    }]
+  })
+  if (list.length === 0) return
+  const key = self.LandedConfig.LOCAL_QUESTIONS_KEY
+  await withQueueLock(async () => {
+    const queued = (await readArea(chrome.storage.local, key)) || []
+    // One entry per question per site until the Landed tab takes them.
+    const id = (q) => `${CA.questionKey(q.question)}@${q.site || ''}`
+    const have = new Set(queued.map(id))
+    for (const q of list) if (!have.has(id(q))) queued.unshift(q)
+    await writeArea(chrome.storage.local, { [key]: queued.slice(0, MAX_QUEUED_QUESTIONS) })
+  })
+  if (Number.isInteger(tabId)) {
+    const tabs = (await readArea(tabArea(), QUESTION_TABS_KEY)) || {}
+    tabs[tabId] = Date.now()
+    await writeArea(tabArea(), { [QUESTION_TABS_KEY]: tabs })
+  }
+}
+
+/** The answers changed: pages that had empty questions fill what they now cover. */
+async function fillAnsweredTabs() {
+  const tabs = (await readArea(tabArea(), QUESTION_TABS_KEY)) || {}
+  const frames = await loadFormFrames()
+  for (const tabId of Object.keys(tabs).map(Number)) {
+    for (const frameId of [0, ...(frames[tabId] || []).filter((id) => id !== 0)]) {
+      try {
+        chrome.tabs.sendMessage(tabId, { action: 'fill-answers' }, { frameId }, () => { void chrome.runtime.lastError })
+      } catch { /* the tab is gone */ }
+    }
+  }
+}
+
+try {
+  chrome.tabs.onRemoved.addListener(async (tabId) => {
+    const tabs = (await readArea(tabArea(), QUESTION_TABS_KEY)) || {}
+    if (!(tabId in tabs)) return
+    delete tabs[tabId]
+    await writeArea(tabArea(), { [QUESTION_TABS_KEY]: tabs })
+  })
+} catch { /* tabs API unavailable */ }
 
 /** The agent review of each frame (lib/fill/review.js), added up. */
 function addReviews(responses) {
@@ -687,6 +764,7 @@ const handleBridge = self.LandedBridge.createBridgeHandler({
   onQueueChanged: () => refreshBadge(),
   version: chrome.runtime.getManifest().version,
   openAndFill,
+  onAnswersSynced: () => { void fillAnsweredTabs() },
 })
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

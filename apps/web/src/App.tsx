@@ -6,6 +6,7 @@ import { useExtensionBridge } from './hooks/extension-bridge';
 import { useAgentRelay, useCloudBriefing } from './hooks/agents';
 import { useJobLeads, useLeadActions, useObservationProcessor, useRecordApplyClick } from './hooks/inbox';
 import { usePanelQuestions } from './components/panel-questions';
+import { usePendingQuestions } from './components/pending-questions';
 import { usePortalRunner } from './hooks/portal';
 import { useResumeTaskRunner } from './hooks/resumes';
 import { useAgentChatRunner } from './hooks/conversations';
@@ -141,7 +142,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useResumeTaskRunner();
   useAgentChatRunner();
   // Badges: updates waiting on Applications; Landed's questions on the Agent page.
-  const sidebarCounts = { applications: usePendingUpdateCount(), agent: usePanelQuestions().count };
+  const sidebarCounts = { applications: usePendingUpdateCount(), agent: usePanelQuestions().count, extension: usePendingQuestions().length };
   const recordApplyClick = useRecordApplyClick();
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();

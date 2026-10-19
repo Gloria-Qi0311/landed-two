@@ -6,6 +6,9 @@
 //     reaches the user's data at all
 //   - turns the submissions the extension saw ("thanks for applying"
 //     pages) into applications — lib/inbox/confirmations.ts → ingestPortalConfirmations
+//   - takes the questions fills had to leave empty and keeps them with the
+//     application answers, for the Extension page to ask the user once
+//     (packages/schema/src/application-answers.ts → addUnanswered)
 //   - hands the user's resumes to the extension so the side panel can
 //     autofill without a Cloud account, the application answers (Extension
 //     page) so fills can answer choice questions, and the files it uploads
@@ -18,6 +21,7 @@ import { ingestPortalConfirmations } from '../lib/inbox'
 import { useResumes } from './resumes'
 import { useApplicationAnswers, useApplicationFiles } from './answers'
 import { FILE_KINDS } from '@landed/schema/application-files'
+import { addUnanswered, EMPTY_ANSWERS, type ReportedQuestion } from '@landed/schema/application-answers'
 
 const PULL_INTERVAL_MS = 60_000
 
@@ -39,6 +43,15 @@ export function useExtensionBridge() {
         if (res?.rows?.length) {
           await store.addPortalEvents(res.rows)
           qc.invalidateQueries({ queryKey: ['portal_events'] })
+        }
+        const asked = await bridgeRequest<{ questions: ReportedQuestion[] }>('take-questions')
+        if (asked?.questions?.length) {
+          const current = (await store.getApplicationAnswers())?.answers ?? EMPTY_ANSWERS
+          const next = addUnanswered(current, asked.questions, new Date().toISOString())
+          if (JSON.stringify(next.unanswered) !== JSON.stringify(current.unanswered)) {
+            await store.saveApplicationAnswers(next)
+            qc.invalidateQueries({ queryKey: ['application_answers'] })
+          }
         }
       } catch (e) {
         console.warn('[landed] could not store events from the extension', e)

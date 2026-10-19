@@ -110,7 +110,7 @@
   }
 
   function createBridgeHandler(deps) {
-    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill } = deps
+    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, onAnswersSynced } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
 
     return async function handle(msg, sender) {
@@ -162,7 +162,22 @@
           await chromeLocal.set({
             [cfg.LOCAL_ANSWERS_KEY || 'landed:application-answers']: { answers, synced_at: new Date().toISOString() },
           })
+          // Pages still open may have fields these answers now cover.
+          if (answers && onAnswersSynced) onAnswersSynced()
           return { ok: true, data: { saved: !!answers } }
+        }
+
+        // Questions fills had to leave empty (lib/fill/unanswered.js), taken
+        // once: the Landed tab keeps them with the answers.
+        case 'take-questions': {
+          const key = cfg.LOCAL_QUESTIONS_KEY || 'landed:unanswered-questions'
+          const questions = await withLock(async () => {
+            const queued = (await readLocal(chromeLocal, key))[key]
+            if (!Array.isArray(queued) || queued.length === 0) return []
+            await chromeLocal.set({ [key]: [] })
+            return queued
+          })
+          return { ok: true, data: { questions } }
         }
 
         case 'file-ids': {

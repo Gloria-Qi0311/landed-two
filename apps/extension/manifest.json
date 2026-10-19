@@ -22,7 +22,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["schema.js", "lib/field-detect.js", "lib/value-match.js", "lib/cross-lingual.js", "lib/llm-providers.js", "lib/llm-match.js", "lib/portal-parsers/greenhouse.js", "lib/portal-parsers/lever.js", "lib/portal-parsers/workday.js", "lib/portal-parsers/ashby.js", "lib/choice-answers.js", "lib/fill/core.js", "lib/fill/selects.js", "lib/fill/values.js", "lib/fill/combobox.js", "lib/fill/files.js", "lib/fill/choices.js", "lib/fill/inputs.js", "lib/fill/dates.js", "lib/fill/experience.js", "lib/fill/ai.js", "lib/fill/review.js", "lib/fill/frames.js", "lib/fill/portal.js", "content.js"],
+      "js": ["schema.js", "lib/field-detect.js", "lib/value-match.js", "lib/cross-lingual.js", "lib/llm-providers.js", "lib/llm-match.js", "lib/portal-parsers/greenhouse.js", "lib/portal-parsers/lever.js", "lib/portal-parsers/workday.js", "lib/portal-parsers/ashby.js", "lib/choice-answers.js", "lib/fill/core.js", "lib/fill/selects.js", "lib/fill/values.js", "lib/fill/combobox.js", "lib/fill/files.js", "lib/fill/choices.js", "lib/fill/inputs.js", "lib/fill/dates.js", "lib/fill/experience.js", "lib/fill/ai.js", "lib/fill/review.js", "lib/fill/unanswered.js", "lib/fill/frames.js", "lib/fill/portal.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": true,
       "match_about_blank": true

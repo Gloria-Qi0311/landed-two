@@ -117,6 +117,7 @@ content scripts (lib/fill/*): rules → saved answers → files → dropdowns/ra
       (sensitive questions left out; picks a fact or an option, never writes text)
    ▼
 fields outlined green (filled) or yellow (needs you) → the user submits
+   ├─ still empty → Extension page asks once → every form after answers by rule
    ▼
 "thanks for applying" page → portal event → lib/inbox/confirmations.ts → Applied
 ```
