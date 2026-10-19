@@ -93,6 +93,9 @@ messages (PR title and a clean body, no trailer).
 - Email and portal tasks that never called their tool end in an error, not an
   empty success.
 - Never pair a computer without the native confirm dialog (`apps/daemon/src/mac.ts`).
+- The chat agent is told what Landed knows about the user (resume gist, the answers
+  that shape a search, the search), never contact details, address, date of birth or
+  EEO answers.
 - Agents propose; the user acts. Reported applications, answers read from a form
   and duplicate merges happen only when the user clicks.
 - Resume tailoring never invents facts.

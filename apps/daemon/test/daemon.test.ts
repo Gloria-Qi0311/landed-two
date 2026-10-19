@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  CHROME_READ_TOOLS, chatImages, chatWithHistory, claudeImageMessage, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
+  CHROME_READ_TOOLS, chatImages, chatWithContext, chatWithHistory, contextToSend, claudeImageMessage, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
   initHasServer, isReadOnlyTool, parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
@@ -191,4 +191,17 @@ test('screenshots in a chat: one stream-json user message with image blocks; no 
   })
   // The chat's tools stay the web ones: images arrive in the message, not as files.
   assert.ok(!claudeChatArgs(crypto.randomUUID(), false).includes('Read'))
+})
+
+test('chat: what Landed knows about the user goes to a new session, and again only when it changes', () => {
+  const ctx = 'From their master resume:\n- Education: MS, Information Management — University of Washington'
+  assert.equal(contextToSend('c-1', ctx, true), ctx, 'a new session gets it')
+  assert.equal(contextToSend('c-1', ctx, false), null, 'a resumed session already has it')
+  assert.equal(contextToSend('c-1', `${ctx}\n- Skills: SQL`, false), `${ctx}\n- Skills: SQL`, 'changed: sent again')
+  assert.equal(contextToSend('c-2', '   ', true), null)
+  assert.equal(contextToSend('c-3', { not: 'text' }, true), null)
+  const text = chatWithContext(ctx, 'set up a search for me')
+  assert.match(text, /^\(What Landed knows about the user/)
+  assert.ok(text.endsWith('set up a search for me'))
+  assert.equal(chatWithContext(null, 'hi'), 'hi')
 })

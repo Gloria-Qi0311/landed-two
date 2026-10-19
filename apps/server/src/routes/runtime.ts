@@ -25,7 +25,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { parseEmailCheckInput, parseEmailFindings } from '@landed/schema/email-check'
 import { parseLooseResume, parseMasterResume, parseResumeParseInput, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
 import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'
-import { MAX_CHAT_IMAGES, parseChatHistory, parseChatImages } from '@landed/schema/conversation'
+import { MAX_CHAT_IMAGES, parseChatContext, parseChatHistory, parseChatImages } from '@landed/schema/conversation'
 import { parseSyncInput, parseSyncOutput } from '@landed/schema/automation'
 import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { Hono, type Context } from 'hono'
@@ -114,7 +114,9 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
         fail(400, 'input.conversation_id must be a uuid')
       }
       // Recent turns, for a computer that doesn't have this conversation's session.
-      input = { message: raw.message, conversation_id: raw.conversation_id, history: parseChatHistory(raw.history), ...(images.length ? { images } : {}) }
+      // What Landed knows about the user (resume gist, saved answers, the search), as text.
+      const context = parseChatContext(raw.context)
+      input = { message: raw.message, conversation_id: raw.conversation_id, history: parseChatHistory(raw.history), ...(images.length ? { images } : {}), ...(context ? { context } : {}) }
     } else if (body.kind === 'automation_sync') {
       const sync = parseSyncInput(raw)
       if (!sync) fail(400, 'input needs runtime_id, automations and context')

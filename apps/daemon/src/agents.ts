@@ -283,6 +283,11 @@ const CHAT_SYSTEM_PROMPT = [
   'questions at a time, keep replies short, and use web search when it helps (company or market facts).',
   "Reply in the user's language.",
   '',
+  'Landed may start a message with what it knows about the user: their master resume (education, jobs, skills,',
+  'where they are), the answers they saved (work authorization, sponsorship, preferred places, start date) and',
+  'their current search. Use it. When they ask you to set up a search, propose a direction from it right away',
+  '(roles that fit their experience and level, places from their answers) and ask only about what it leaves open.',
+  '',
   'Once you know enough to search (at least the kind of role, and where), summarize the direction in a',
   'sentence or two, ask the user to confirm, and end that reply with a search brief: a fenced code block',
   'tagged landed-brief containing only JSON, like this:',
@@ -340,6 +345,30 @@ const CHAT_SYSTEM_PROMPT = [
 
 /** Arguments for one `claude -p` chat turn. The conversation id doubles as
  *  the Claude Code session id, so later turns resume the same session. */
+/** What Landed knows about the user, ahead of the message: when the agent
+ *  starts a session, or when it changed since it last saw it. */
+export function chatWithContext(context: string | null, text: string): string {
+  if (!context) return text
+  return [
+    "(What Landed knows about the user, from their master resume and the answers they saved in Landed. Use it: don't ask for what it already says; propose from it, and ask only about what's missing.)",
+    context,
+    '',
+    text,
+  ].join('\n\n')
+}
+
+/** Per conversation, the context the agent last saw (this run of the daemon). */
+const contextSeen = new Map<string, string>()
+
+/** The context to send with this turn, if the agent hasn't seen it. */
+export function contextToSend(conversationId: string, context: unknown, freshSession: boolean): string | null {
+  const c = typeof context === 'string' && context.trim() ? context.trim() : null
+  if (!c) return null
+  if (!freshSession && contextSeen.get(conversationId) === c) return null
+  contextSeen.set(conversationId, c)
+  return c
+}
+
 /** The message, preceded by the earlier turns when the agent hasn't seen them. */
 export function chatWithHistory(history: { role: string; text: string }[], message: string): string {
   if (history.length === 0) return message
@@ -989,7 +1018,8 @@ export function specFor(task: Task): Spec | string {
     if (!message) return 'Bad chat task.'
     // A fresh session every turn: the agent gets the conversation so far.
     const history = Array.isArray(input.history) ? (input.history as { role: string; text: string }[]) : []
-    const spec: Spec = { kind: 'chat', system: CHAT_SYSTEM_PROMPT, prompt: chatWithHistory(history, message), schema: null, web: 'search', timeoutMs: CHAT_TIMEOUT_MS }
+    const context = contextToSend(String(input.conversation_id ?? task.id), input.context, true)
+    const spec: Spec = { kind: 'chat', system: CHAT_SYSTEM_PROMPT, prompt: chatWithContext(context, chatWithHistory(history, message)), schema: null, web: 'search', timeoutMs: CHAT_TIMEOUT_MS }
     if (images.length) {
       // Codex takes image files (-i), ACP agents get them inline from the files.
       const dir = join(workspace(), 'uploads', task.id.replace(/[^a-zA-Z0-9-]/g, ''))
@@ -1071,7 +1101,8 @@ function runClaudeTask(task: Task, emit: (e: TaskEvent) => void): Promise<void> 
     const history = Array.isArray(task.input.history) ? (task.input.history as { role: string; text: string }[]) : []
     // New session for an old conversation (another computer, or the session
     // is gone): give the agent the conversation so far.
-    const text = resume ? message : chatWithHistory(history, message)
+    const context = contextToSend(conversationId, task.input.context, !resume)
+    const text = chatWithContext(context, resume ? message : chatWithHistory(history, message))
     return runClaude({
       // Screenshots go in the message itself (stream-json input), so the
       // agent needs no file access to see them.

@@ -1507,6 +1507,16 @@ describe('agent chat history (Cloud)', () => {
     assert.deepEqual(withImage.input.images, [{ type: 'image/png', data_base64: png }])
     assert.equal((await post({ message: 'x', images: [{ type: 'text/html', data_base64: png }] })).status, 400)
     assert.equal((await post({ message: '' })).status, 400)
+
+    // What Landed knows about the user rides along as bounded text; anything else is dropped.
+    buf = ''
+    assert.equal((await post({ message: 'set up a search', context: `From their master resume:\n- Job: Analyst${'x'.repeat(9000)}` })).status, 202)
+    const withContext = JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
+    assert.ok(withContext.input.context.startsWith('From their master resume:'))
+    assert.equal(withContext.input.context.length, 8000)
+    buf = ''
+    assert.equal((await post({ message: 'hi', context: { resume: 'object' } })).status, 202)
+    assert.equal(JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0]).input.context, undefined)
     reader.cancel().catch(() => {})
     abort.abort()
   })

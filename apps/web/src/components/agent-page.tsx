@@ -27,6 +27,10 @@ import { imagesFrom, MAX_CHAT_IMAGES, prepareImage, type Attachment } from '../l
 import { useAuth } from '../lib/auth'
 import { formatRelative } from '../lib/time'
 import { deleteConversation, renameConversation, useAgentChat, type Turn } from '../lib/agent-chat'
+import { chatContext } from '../lib/chat-context'
+import { useResumes } from '../hooks/resumes'
+import { useApplicationAnswers } from '../hooks/answers'
+import { useActiveSearch } from '../hooks/search'
 import type { DbConversation } from '../lib/store'
 import { useConversations } from '../hooks/conversations'
 import { canRun, useRuntimes, type Runtime, type RuntimeAgent } from '../hooks/runtimes'
@@ -298,6 +302,12 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
   const activeId = useAgentChat((s) => s.activeId)
   const live = useAgentChat((s) => (s.activeId ? s.live[s.activeId] : undefined))
   const send = useAgentChat((s) => s.send)
+  // What Landed knows about the user goes with each message, so the agent
+  // proposes from the resume instead of asking for it (lib/chat-context.ts).
+  const resumes = useResumes().data
+  const answers = useApplicationAnswers().data?.answers ?? null
+  const search = useActiveSearch()?.brief ?? null
+  const context = useMemo(() => chatContext({ resumes: resumes ?? [], answers, search }), [resumes, answers, search])
   const turns: Turn[] = live?.turns ?? saved?.turns ?? []
   const title = live?.title ?? saved?.title
   const [draft, setDraft] = useState('')
@@ -323,7 +333,7 @@ function Chat({ runtime, agentId, agentLabel, saved }: {
     setDraft('')
     setAttachments([])
     setAttachError(null)
-    void send(runtime.id, agentId, text, saved, attachments)
+    void send(runtime.id, agentId, text, saved, attachments, context)
   }
   // Screenshots: the paperclip, paste (⌘V) or drop.
   const attach = async (files: File[]) => {

@@ -114,3 +114,20 @@ export function parseChatHistory(raw: unknown): { role: 'user' | 'agent'; text: 
   }
   return out
 }
+
+// ── what Landed knows about the user, for the chat agent ──────────────────
+// The master resume's gist (education, jobs, skills, where they are), the
+// saved answers that shape a search (work authorization, sponsorship,
+// places, start date) and the active search: so the agent proposes a
+// direction from what it already knows instead of asking for the resume.
+// Plain text, built in the browser (apps/web/src/lib/chat-context.ts);
+// never contact details, address, date of birth or EEO answers. It goes to
+// the user's own agent, like resume parsing and tailoring.
+
+export const MAX_CHAT_CONTEXT = 8_000
+
+export function parseChatContext(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const t = raw.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  return t ? t.slice(0, MAX_CHAT_CONTEXT) : null
+}

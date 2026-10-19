@@ -183,6 +183,19 @@ Settings has "Chat with" when the computer has several (remembered on this
 device). Which agents search for jobs is not chosen here; it's Find new jobs →
 Search with (below).
 
+- **What the agent knows about the user** (fix, 2026-10-19: asked to set up a
+  search, the agent asked the user to paste their resume). Each chat message
+  carries `context`, plain text built in the browser (`lib/chat-context.ts`):
+  the master resume's gist (else the current resume's): where they live,
+  education, jobs and internships with their first two bullets, projects,
+  skills, languages; the saved answers that shape a search (work authorization,
+  sponsorship, preferred places, other places, relocation, onsite, start date);
+  and the active search. Never contact details, address, date of birth or EEO
+  answers. The server bounds it (`parseChatContext`, 8,000 characters); the
+  daemon puts it ahead of the message when a session starts, and again only
+  when it changed (`contextToSend`), and the chat prompt says to propose from
+  it and ask only what it leaves open. It goes to the user's own agent, like
+  resume parsing and tailoring.
 - **Chat history**: conversations live in the data store (`agent_conversations`;
   Dexie v7, migration 0014), and the Agent page lists them on its left. A
   conversation's id doubles as its Claude Code session id, so continuing a chat

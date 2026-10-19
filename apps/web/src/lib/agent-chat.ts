@@ -26,7 +26,8 @@ type ChatState = {
   bind: (userId: string, binding: Binding) => void
   open: (conv: DbConversation) => void
   newChat: () => void
-  send: (runtimeId: string, agentId: string, message: string, saved?: DbConversation, images?: Attachment[]) => Promise<void>
+  /** `context`: what Landed knows about the user (lib/chat-context.ts) */
+  send: (runtimeId: string, agentId: string, message: string, saved?: DbConversation, images?: Attachment[], context?: string | null) => Promise<void>
 }
 
 let binding: Binding | null = null
@@ -86,7 +87,7 @@ export const useAgentChat = create<ChatState>((set, get) => {
       set({ activeId: null })
     },
 
-    async send(runtimeId, agentId, message, saved, images = []) {
+    async send(runtimeId, agentId, message, saved, images = [], context = null) {
       const text = message.trim()
       if (!text && images.length === 0) return
       const id = get().activeId ?? crypto.randomUUID()
@@ -118,7 +119,7 @@ export const useAgentChat = create<ChatState>((set, get) => {
           return { live: { ...s.live, [id]: { ...conv, turns: conv.turns.map((t, i) => (i === conv.turns.length - 1 ? fn(t) : t)) } } }
         })
       const sent = images.map(({ type, data_base64 }) => ({ type, data_base64 }))
-      await runOnComputer(runtimeId, agentId, 'chat', { conversation_id: id, message: text, history, ...(sent.length ? { images: sent } : {}) }, (e) => {
+      await runOnComputer(runtimeId, agentId, 'chat', { conversation_id: id, message: text, history, ...(sent.length ? { images: sent } : {}), ...(context ? { context } : {}) }, (e) => {
         if (e.type === 'delta') update((t) => ({ ...t, text: t.text + e.text }))
         if (e.type === 'tool') update((t) => ({ ...t, tools: [...(t.tools ?? []), e.name] }))
         if (e.type === 'done') {
