@@ -346,11 +346,14 @@ function ApplicationsPage({
   );
 
   // Jobs agents and job lists found but the user hasn't acted on — the
-  // Kanban's Leads column. Postings that closed leave it (the data stays).
-  // The hard filters (#92) hide what plainly can't be applied to; the
-  // column lists those apart, with their reasons and a way back.
+  // Kanban's Leads column. Postings that closed leave it (the data stays;
+  // the column folds them away under "Closed", newest first). The hard
+  // filters (#92) hide what plainly can't be applied to; the column lists
+  // those apart, with their reasons and a way back.
   const allLeads = useJobLeads().data ?? [];
   const open = allLeads.filter((l) => l.status === 'new' && !l.closed_at);
+  const closedLeads = allLeads.filter((l) => l.status === 'new' && l.closed_at)
+    .sort((a, b) => b.closed_at!.localeCompare(a.closed_at!));
   const leadByApp = new Map(allLeads.filter((l) => l.application_id).map((l) => [l.application_id!, l]));
   const leads = open.filter((l) => !screenedOut(l));
   const filteredLeads = open.filter(screenedOut);
@@ -424,7 +427,10 @@ function ApplicationsPage({
           leadsRefresh={leadsRefresh}
           filteredLeads={filteredLeads}
           onPutBackLead={(lead: DbJobLead) => putBack.mutate(lead)}
+          closedLeads={closedLeads}
           leadForApp={(id: string) => leadByApp.get(id)}
+          onApproveLeads={(picked: DbJobLead[]) => leadActions.approve.mutateAsync(picked)}
+          onUndoApprove={(approvals) => leadActions.undoApprove.mutateAsync(approvals)}
         />
       </div>
     </>

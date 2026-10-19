@@ -139,6 +139,8 @@ messages (PR title and a clean body, no trailer).
   rounds. Never write `phone` / `onsite`. Columns go through `columnOf()`
   (`apps/web/src/data.ts`).
 - Cards are grouped by company in every column.
+- Approving leads (one or many) is `addLeadToPipeline(lead, 'saved')`: no
+  "approved" state, and it can be undone.
 - The Applications page holds the board, Leads and "Needs your input". The Agent
   page holds chat (one agent), agent questions and setup. Automation is exactly
   three automations (When / Looks at / Then). Extension content is managed on

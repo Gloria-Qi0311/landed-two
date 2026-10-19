@@ -7,8 +7,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import {
-  acceptSuggestion, addLeadToPipeline, dismissLead, flagQuietApplications, processPending, recordApplyClick, rejectSuggestion,
-  repairRoundOrder, restoreLead, settleQuestions, undoSuggestion, type ClickTarget,
+  acceptSuggestion, addLeadToPipeline, approveLeads, dismissLead, flagQuietApplications, processPending, recordApplyClick, rejectSuggestion,
+  repairRoundOrder, restoreLead, settleQuestions, undoApprovals, undoSuggestion, type Approval, type ClickTarget,
 } from '../lib/inbox'
 import { useStore, type DbJobLead, type DbSuggestion } from '../lib/store'
 import type { Stage } from '@landed/observation-processor'
@@ -102,7 +102,7 @@ export function useObservationProcessor() {
   }, [store, ready, autoApply, qc])
 }
 
-function useInvalidating<T>(fn: (input: T) => Promise<unknown>) {
+function useInvalidating<T, R>(fn: (input: T) => Promise<R>) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: fn,
@@ -116,6 +116,8 @@ export function useLeadActions() {
   const { store } = useStore()
   return {
     add: useInvalidating(({ lead, stage }: { lead: DbJobLead; stage: Stage }) => addLeadToPipeline(store, lead, stage)),
+    approve: useInvalidating((leads: DbJobLead[]) => approveLeads(store, leads)),
+    undoApprove: useInvalidating((approvals: Approval[]) => undoApprovals(store, approvals)),
     dismiss: useInvalidating((id: string) => dismissLead(store, id)),
     restore: useInvalidating((id: string) => restoreLead(store, id)),
     setDeadline: useInvalidating(({ id, deadline }: { id: string; deadline: string | null }) => store.updateJobLead(id, { deadline })),

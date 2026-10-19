@@ -215,7 +215,9 @@ scoring with the user's own agent is a later step.
 A part without input is left out and the rest are weighed alone. Two or three
 reasons, the telling ones first. Leads come through a role and place filter, so
 those two can't tell them apart; title closeness, level and (with a resume)
-skills and experience do. Both rules were checked against 1,208 real postings
+skills and experience do. So a title or place that matches comes last among
+the reasons, and the card's one reason is a skills match, a gap or a mismatch
+(#94: "Title matches" first on every card said nothing). Both rules were checked against 1,208 real postings
 (Stripe, Palantir, Ramp): the years pattern first read 495 and missed 379, and
 now reads 868 with 22 left unread.
 
@@ -228,6 +230,34 @@ urgency of a lead with a deadline is never below that of a lead with no date
 The SimplifyJobs lists also drop a senior title in an internship or new-grad
 search (`tooSenior`): the lists carry the odd one ("Principal Software Engineer"
 in New Grad).
+
+## The Leads column (#94)
+
+`components/kanban.tsx` and `components/leads.tsx`:
+
+- **Each lead card** shows its fit ("86% fit", green from 80%) and its first
+  reason, and the footer says who found it and when it was posted. "Details"
+  unfolds every reason, the hard filters' result (nothing rules you out, you put
+  this back, not checked yet), each source with when it was seen, and the posting
+  date.
+- **Approve N.** Each lead card has a checkbox; with one or more ticked, the
+  header shows "Approve N", "Select all" and "Clear" (Escape clears too).
+  Approving calls `approveLeads` (`lib/inbox/leads.ts`): `addLeadToPipeline(lead,
+  'saved')` for each, one after another, so two leads at a new company make one
+  company. No new state. "Undo" in the note that follows calls `undoApprovals`:
+  each application still in `saved` is deleted and its lead is `new` again; one
+  the user has moved on (applied, say) is left alone.
+- **Order** is `priority`, grouped by company (as #93).
+- **Folded under the column**: "Filtered out · N" (with reasons and Put back) and
+  "Closed · N" (postings gone from their list or board, newest first, with
+  Dismiss and a link to the posting). Closed leads are kept, never deleted.
+- **Keyboard**: checkboxes, Details, the posting link, Dismiss and the apply-by
+  chip keep Space / Enter to themselves, so they don't pick the card up to drag
+  it (dnd-kit's keyboard drag listens on the whole card).
+- Two postings on job boards with different ids are never "Possible duplicate"
+  (`lib/duplicates.ts`), however alike their titles: approving "Software
+  Engineer, New Grad" and "Software Engineer, Platform (New Grad)" at one company
+  badged both before.
 
 ## Left for later PRs
 

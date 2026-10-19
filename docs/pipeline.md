@@ -51,7 +51,8 @@ browser. Never write them again.
 
 `lib/duplicates.ts` and `components/duplicates.tsx` find groups with the
 processor's matching (company key, then the same ATS/link or a ≥ 0.8 title match
-with brackets kept) and ask on the Agent page, one card per group. The user picks
+with brackets kept; two different job-board postings never match, whatever their
+titles) and ask on the Agent page, one card per group. The user picks
 the one to keep (furthest stage by default) and merges it: blanks filled, notes
 and interview rounds combined, earliest applied date, leads and resolved
 suggestions re-pointed, the rest deleted. Or the user says "they're different",

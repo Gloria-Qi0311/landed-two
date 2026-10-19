@@ -1,7 +1,8 @@
 // Kanban view with drag-and-drop between stages (optimistic update on drop).
 // Columns: Leads → Applied → OA / Test → Interview → Offer → Rejected.
 // Leads holds what you haven't applied to yet: jobs your agents found
-// (dashed; ✕ dismisses) and jobs you saved for later (stage `saved`).
+// (✕ dismisses; tick some and "Approve N" saves them for later, undoably)
+// and jobs you saved for later (stage `saved`), highest priority first.
 // Dragging either into a stage adds/moves it. Ghosted applications sit in
 // Rejected with a tag; Interview cards show their latest round. In every
 // column, a company's cards sit together under its name (same company by
@@ -30,7 +31,9 @@ import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
 import type { SupplyCheck } from '../lib/supply';
 import { byPriority, rankOf } from '../lib/fit';
+import type { Approval } from '../lib/inbox';
 import { companyKey } from '@landed/observation-processor';
+import { ago, agoShort, FitLine, FoldedLeads, FoldedRow, insideCard, LeadDetails, sourceOn } from './leads';
 
 // ────────────────────────────────────────────────────────────────────────
 // Pure card markup (shared between sortable card + DragOverlay preview).
@@ -220,21 +223,26 @@ function DroppableColumn({ stage, items, c, getCompany, onOpen, duplicateIds }: 
 // application ids.
 // ────────────────────────────────────────────────────────────────────────
 const LEAD_PREFIX = 'lead:';
-const PROVIDER_LABELS: Record<string, string> = { meta_muse: 'Muse', claude: 'Claude', codex: 'Codex' };
-
 
 const leadMark = (lead: DbJobLead): MarkCompany => ({ name: lead.company_name, hue: null, logo: null });
 
 type LeadProps = {
   lead: DbJobLead; onDismiss?: (id: string) => void; onOpen?: (lead: DbJobLead) => void; onSetDeadline?: SetDeadline; grouped?: boolean;
+  /** picked for "Approve N" */
+  selected?: boolean; onSelect?: (id: string, on: boolean) => void;
 };
 
-function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }: LeadProps) {
-  const agents = [...new Set(lead.sources.map((s) => (s.provider ? PROVIDER_LABELS[s.provider] ?? s.provider : 'agent')))];
+function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped, selected, onSelect, details }: LeadProps & { details?: { open: boolean; toggle: () => void } }) {
+  const agents = [...new Set(lead.sources.map((s) => sourceOn(lead, s.provider)))];
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+  const detailsId = `lead-details-${lead.id}`;
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {onSelect && (
+          <input type="checkbox" checked={!!selected} onChange={(e) => onSelect(lead.id, e.target.checked)} {...insideCard} onClick={stop}
+            aria-label={`Select ${lead.company_name} · ${lead.title}`} style={{ margin: 0, flexShrink: 0, alignSelf: grouped ? 'flex-start' : 'center', marginTop: grouped ? 3 : 0 }} />
+        )}
         {grouped ? (
           // In a company group: the title leads, the group header names the company.
           <div style={{ minWidth: 0, flex: 1 }}>
@@ -248,7 +256,7 @@ function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }: Le
           </>
         )}
         {lead.job_url && (
-          <a href={lead.job_url} target="_blank" rel="noopener noreferrer" title="Open job posting" onPointerDown={stop}
+          <a href={lead.job_url} target="_blank" rel="noopener noreferrer" title="Open job posting" {...insideCard}
             onClick={(e) => { stop(e); onOpen?.(lead); }}
             style={{ color: 'var(--fg-muted)', display: 'flex', padding: 2 }}>
             <Icon name="external" size={11} />
@@ -256,7 +264,7 @@ function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }: Le
         )}
         <LeadAssistButton lead={lead} />
         {onDismiss && (
-          <button type="button" title="Not interested" aria-label="Dismiss lead" onPointerDown={stop}
+          <button type="button" title="Not interested" aria-label="Dismiss lead" {...insideCard}
             onClick={(e) => { stop(e); onDismiss(lead.id); }}
             style={{ background: 'transparent', border: 'none', color: 'var(--fg-muted)', cursor: 'pointer', padding: 2, display: 'flex' }}>
             <Icon name="x" size={12} />
@@ -270,10 +278,21 @@ function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped }: Le
         </div>
       )}
       {onSetDeadline && <DeadlineChip compact deadline={lead.deadline} onSave={(d) => onSetDeadline(lead.id, d)} />}
+      <FitLine lead={lead} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--fg-muted)' }}>
         <Icon name="wand" size={10} />
-        <span>found by {agents.join(', ')}{lead.sources.length > 1 ? ` · ${lead.sources.length}×` : ''}</span>
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          found by {agents.join(', ')}{lead.sources.length > 1 ? ` · ${lead.sources.length}×` : ''}{lead.posted_at ? ` · posted ${agoShort(lead.posted_at)}` : ''}
+        </span>
+        {details && (
+          <button type="button" className="btn-ghost" aria-expanded={details.open} aria-controls={detailsId} {...insideCard}
+            onClick={(e) => { stop(e); details.toggle(); }}
+            style={{ fontSize: 10.5, color: 'var(--fg-muted)', padding: '1px 4px', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+            Details <Icon name={details.open ? 'chevronDown' : 'chevronRight'} size={9} />
+          </button>
+        )}
       </div>
+      {details?.open && <LeadDetails lead={lead} id={detailsId} />}
     </>
   );
 }
@@ -286,13 +305,17 @@ const leadCardStyle: CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 9,
 };
 
-function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline, grouped }: LeadProps) {
+function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline, grouped, selected, onSelect }: LeadProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: LEAD_PREFIX + lead.id });
+  const [open, setOpen] = useState(false);
+  // A picked card is marked: an accent ring on a card, a tint on a row.
+  const picked: CSSProperties = selected ? (grouped ? { background: 'var(--accent-soft)' } : { boxShadow: '0 0 0 1.5px var(--accent), var(--shadow-sm)' }) : {};
   return (
     <div ref={setNodeRef} {...attributes} {...listeners} className={grouped ? 'kanban-row' : 'kanban-card'}
-      title={lead.description || undefined}
-      style={{ ...(grouped ? { padding: '9px 12px 10px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 6 } : leadCardStyle), cursor: isDragging ? 'grabbing' : 'grab', visibility: isDragging ? 'hidden' : 'visible' }}>
-      <LeadCardContent lead={lead} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetDeadline} grouped={grouped} />
+      title={open ? undefined : lead.description || undefined}
+      style={{ ...(grouped ? { padding: '9px 12px 10px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 6 } : leadCardStyle), ...picked, cursor: isDragging ? 'grabbing' : 'grab', visibility: isDragging ? 'hidden' : 'visible' }}>
+      <LeadCardContent lead={lead} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetDeadline} grouped={grouped}
+        selected={selected} onSelect={onSelect} details={{ open, toggle: () => setOpen(!open) }} />
     </div>
   );
 }
@@ -306,41 +329,27 @@ type LeadsColumnProps = {
   onOpenApp: (id: string) => void; getCompany: (id: string) => MarkCompany; duplicateIds: Set<string>;
   onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline; refresh?: LeadsRefresh;
   filtered?: DbJobLead[]; onPutBack?: (lead: DbJobLead) => void;
+  /** leads whose posting is gone from its source */
+  closed?: DbJobLead[];
   /** the lead a saved application came from (its fit ranks the card) */
   leadForApp?: (appId: string) => DbJobLead | undefined;
+  onApprove?: (leads: DbJobLead[]) => Promise<{ approved: Approval[]; failed: string[] }>; onUndoApprove?: (approvals: Approval[]) => Promise<number>;
 };
 
-/** Leads the hard filters hid (#92): folded away under the column, each
- *  with why, and a way to put it back. */
-function FilteredLeads({ leads, onPutBack }: { leads: DbJobLead[]; onPutBack?: (lead: DbJobLead) => void }) {
-  const [open, setOpen] = useState(false);
-  if (leads.length === 0) return null;
+const smallBtn: CSSProperties = { fontSize: 11.5, padding: '4px 9px' };
+
+/** Picked leads → "Approve N"; afterwards, what happened and a way back. */
+function ApproveBar({ count, total, onApprove, onSelectAll, onClear, busy }: {
+  count: number; total: number; onApprove: () => void; onSelectAll: () => void; onClear: () => void; busy: boolean;
+}) {
   return (
-    <div style={{ marginTop: 4 }}>
-      <button type="button" className="btn-ghost" aria-expanded={open} onClick={() => setOpen(!open)}
-        style={{ fontSize: 11.5, color: 'var(--fg-muted)', padding: '4px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={10} />
-        Filtered out · {leads.length}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+      <button type="button" className="btn-primary" disabled={busy} onClick={onApprove} style={smallBtn}
+        title="Save them for later: each becomes an application you haven't applied to yet, in this column">
+        Approve {count}
       </button>
-      {open && (
-        <div style={{ background: 'var(--surface)', borderRadius: 10, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', flexShrink: 0 }}>
-          {leads.map((lead, i) => (
-            <div key={lead.id} style={{ padding: '9px 12px', borderTop: i ? '1px solid var(--border-subtle)' : 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 550, color: 'var(--fg)', flex: 1, minWidth: 0 }}>
-                  {lead.company_name} · {lead.title}
-                </span>
-                {onPutBack && (
-                  <button type="button" className="btn-ghost" onClick={() => onPutBack(lead)} style={{ fontSize: 11, padding: '1px 6px' }}>Put back</button>
-                )}
-              </div>
-              {(lead.screen?.reasons ?? []).map((r) => (
-                <span key={r} style={{ fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.4 }}>{r}</span>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
+      {count < total && <button type="button" className="btn-ghost" onClick={onSelectAll} style={smallBtn}>Select all {total}</button>}
+      <button type="button" className="btn-ghost" onClick={onClear} style={smallBtn}>Clear</button>
     </div>
   );
 }
@@ -362,13 +371,54 @@ function refreshNote(r: LeadsRefresh): string | null {
 // A Leads card: an agent-found job, or an application not applied to yet.
 type LeadItem = { lead: DbJobLead; app?: undefined; deadline: string | null } | { app: BoardApp; lead?: undefined; deadline: string | null };
 
-function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack, leadForApp = () => undefined }: LeadsColumnProps) {
+function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack, closed = [], leadForApp = () => undefined, onApprove, onUndoApprove }: LeadsColumnProps) {
   // Dropping an application here puts it back to "not applied yet".
   const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
   const count = leads.length + saved.length;
   const now = new Date();
+  // Picked leads (only those still here count), and the last approval, undoable.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const selected = leads.filter((l) => picked.has(l.id));
+  const [approved, setApproved] = useState<Approval[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const select = (id: string, on: boolean) => setPicked((p) => {
+    const next = new Set(p);
+    if (on) next.add(id); else next.delete(id);
+    return next;
+  });
+  const approve = async () => {
+    if (!onApprove || selected.length === 0) return;
+    setBusy(true); setNote(null);
+    try {
+      const { approved: done, failed } = await onApprove(selected);
+      // Ones that failed stay picked, to try again.
+      setApproved(done.length ? done : null); setPicked(new Set(failed));
+      setNote([done.length && `Approved ${done.length} · saved for later`, failed.length && `${failed.length} couldn't be saved`].filter(Boolean).join(' · '));
+    } catch (e) {
+      setNote(`Couldn't approve: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const undo = async () => {
+    if (!onUndoApprove || !approved) return;
+    setBusy(true);
+    try {
+      const undone = await onUndoApprove(approved);
+      setApproved(null);
+      // One applied to since stays where the user put it.
+      const kept = approved.length - undone;
+      setNote(`Moved ${undone} back to leads${kept ? ` · ${kept} already moved on, left as is` : ''}`);
+    } catch (e) {
+      setNote(`Couldn't undo: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <div ref={setNodeRef} style={laneStyle(isOver, 'var(--surface-3)')}>
+    <div ref={setNodeRef} style={laneStyle(isOver, 'var(--surface-3)')}
+      onKeyDown={(e) => { if (e.key === 'Escape' && picked.size > 0) setPicked(new Set()); }}>
       <div style={{ padding: '12px 14px 8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name="wand" size={12} />
@@ -386,6 +436,22 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
         {refresh && refreshNote(refresh) && (
           <div role="status" style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>{refreshNote(refresh)}</div>
         )}
+        {onApprove && selected.length > 0 && (
+          <ApproveBar count={selected.length} total={leads.length} busy={busy} onApprove={approve}
+            onSelectAll={() => setPicked(new Set(leads.map((l) => l.id)))} onClear={() => setPicked(new Set())} />
+        )}
+        {/* Always there, so a screen reader hears the note when it appears. */}
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--fg)', marginTop: note ? 8 : 0 }}>
+          {note && (
+            <>
+              <span style={{ flex: 1, minWidth: 0 }}>{note}</span>
+              {approved && onUndoApprove && <button type="button" className="btn-secondary" disabled={busy} onClick={undo} style={smallBtn}>Undo</button>}
+              <button type="button" className="btn-ghost" aria-label="Dismiss note" onClick={() => { setNote(null); setApproved(null); }} style={{ padding: 2, display: 'flex', color: 'var(--fg-muted)' }}>
+                <Icon name="x" size={11} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
       <div style={{ padding: '2px 8px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: 1 }}>
         {/* Highest priority first (fit × urgency, lib/fit.ts); a company's leads and saved applications together. */}
@@ -397,7 +463,8 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
           (x) => (x.lead ? x.lead.company_name : getCompany(x.app.companyId).name),
         ).map((g) => {
           const card = (x: LeadItem, grouped: boolean) => (x.lead
-            ? <DraggableLeadCard key={x.lead.id} lead={x.lead} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetLeadDeadline} grouped={grouped} />
+            ? <DraggableLeadCard key={x.lead.id} lead={x.lead} onDismiss={onDismiss} onOpen={onOpen} onSetDeadline={onSetLeadDeadline} grouped={grouped}
+              selected={picked.has(x.lead.id)} onSelect={onApprove ? select : undefined} />
             : <DraggableCard key={x.app.id} app={x.app} comp={getCompany(x.app.companyId)} c={stageColors.saved} onOpen={onOpenApp} isDuplicate={duplicateIds.has(x.app.id)} onSetDeadline={onSetAppDeadline} grouped={grouped} />);
           if (g.items.length === 1) return card(g.items[0], false);
           const first = g.items.find((x) => x.app) ?? g.items[0];
@@ -413,7 +480,33 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
             Jobs your agents find land here.<br />Agent → tell it what you're looking for.
           </div>
         )}
-        <FilteredLeads leads={filtered} onPutBack={onPutBack} />
+        {/* Hidden by the hard filters (#92), each with why and a way back. */}
+        <FoldedLeads label="Filtered out" leads={filtered}>
+          {(lead) => (
+            <>
+              <FoldedRow lead={lead}>
+                {onPutBack && <button type="button" className="btn-ghost" onClick={() => onPutBack(lead)} style={{ fontSize: 11, padding: '1px 6px' }}>Put back</button>}
+              </FoldedRow>
+              {(lead.screen?.reasons ?? []).map((r) => (
+                <span key={r} style={{ fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.4 }}>{r}</span>
+              ))}
+            </>
+          )}
+        </FoldedLeads>
+        {/* Postings gone from their list or board: kept, out of the way. */}
+        <FoldedLeads label="Closed" leads={closed}>
+          {(lead) => (
+            <>
+              <FoldedRow lead={lead}>
+                {onDismiss && <button type="button" className="btn-ghost" onClick={() => onDismiss(lead.id)} style={{ fontSize: 11, padding: '1px 6px' }}>Dismiss</button>}
+              </FoldedRow>
+              <span style={{ fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.4 }}>
+                Gone from {sourceOn(lead, lead.sources[0]?.provider)} {ago(lead.closed_at!)}
+                {lead.job_url && <> · <a href={lead.job_url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>posting</a></>}
+              </span>
+            </>
+          )}
+        </FoldedLeads>
       </div>
     </div>
   );
@@ -427,13 +520,14 @@ type KanbanProps = {
   apps: BoardApp[]; companies: BoardCompany[]; onOpen: (id: string) => void; onMoveCard: (id: string, stage: string) => void;
   leads?: DbJobLead[]; onAddLead?: (lead: DbJobLead, stage: Stage) => void; onDismissLead?: (id: string) => void;
   onOpenLead?: (lead: DbJobLead) => void; onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline;
-  leadsRefresh?: LeadsRefresh; filteredLeads?: DbJobLead[]; onPutBackLead?: (lead: DbJobLead) => void;
+  leadsRefresh?: LeadsRefresh; filteredLeads?: DbJobLead[]; onPutBackLead?: (lead: DbJobLead) => void; closedLeads?: DbJobLead[];
   leadForApp?: (appId: string) => DbJobLead | undefined;
+  onApproveLeads?: (leads: DbJobLead[]) => Promise<{ approved: Approval[]; failed: string[] }>; onUndoApprove?: (approvals: Approval[]) => Promise<number>;
 };
 
 const UNKNOWN_COMPANY: MarkCompany = { name: 'Unknown company', hue: null, logo: null };
 
-export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh, filteredLeads, onPutBackLead, leadForApp }: KanbanProps) => {
+export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh, filteredLeads, onPutBackLead, closedLeads, leadForApp, onApproveLeads, onUndoApprove }: KanbanProps) => {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -480,7 +574,8 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
         <LeadsColumn leads={leads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
           onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds}
           onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} refresh={leadsRefresh}
-          filtered={filteredLeads} onPutBack={onPutBackLead} leadForApp={leadForApp} />
+          filtered={filteredLeads} onPutBack={onPutBackLead} closed={closedLeads} leadForApp={leadForApp}
+          onApprove={onApproveLeads} onUndoApprove={onUndoApprove} />
         {pipelineStages.map(stage => (
           <DroppableColumn
             key={stage.id}

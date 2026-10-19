@@ -56,7 +56,7 @@ export function DeadlineChip({ deadline, onSave, compact = false }: {
   const open = (e: SyntheticEvent) => { e.stopPropagation(); setEditing(true) }
   if (!deadline) {
     return (
-      <button type="button" className={compact ? 'deadline-add' : undefined} onPointerDown={stop} onClick={open}
+      <button type="button" className={compact ? 'deadline-add' : undefined} onPointerDown={stop} onKeyDown={stop} onClick={open}
         style={{ fontSize: 10.5, color: 'var(--fg-muted)', background: 'transparent', border: '0.5px dashed var(--border)', borderRadius: 4, padding: '1px 6px', cursor: 'pointer', fontFamily: 'inherit', width: 'fit-content' }}>
         + Apply-by date
       </button>
@@ -65,7 +65,7 @@ export function DeadlineChip({ deadline, onSave, compact = false }: {
   const { text, tone } = describe(deadline)
   const t = TONES[tone]
   return (
-    <button type="button" title={`Apply by ${deadline} — click to change`} onPointerDown={stop} onClick={open}
+    <button type="button" title={`Apply by ${deadline} — click to change`} onPointerDown={stop} onKeyDown={stop} onClick={open}
       style={{
         fontSize: 10.5, color: t.color, background: t.background, border: `0.5px solid ${t.border}`, borderRadius: 4,
         padding: '1px 6px', cursor: 'pointer', fontFamily: 'inherit', width: 'fit-content', display: 'inline-flex', alignItems: 'center', gap: 4,

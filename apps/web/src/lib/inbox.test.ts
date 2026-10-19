@@ -3,8 +3,8 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, test } from 'vitest'
 import {
-  acceptSuggestion, addLeadToPipeline, canUndo, dismissLead, ingestEmailFindings, flagQuietApplications, ingestFoundJobs, ingestPortalResults, openPanelQuestions, processPending, quietDays,
-  recordApplyClick, rejectSuggestion, settleQuestions, undoSuggestion,
+  acceptSuggestion, addLeadToPipeline, approveLeads, canUndo, dismissLead, ingestEmailFindings, flagQuietApplications, ingestFoundJobs, ingestPortalResults, openPanelQuestions, processPending, quietDays,
+  recordApplyClick, rejectSuggestion, settleQuestions, undoApprovals, undoSuggestion,
 } from './inbox'
 import { createLocalStore, type LocalStore } from './store/local'
 import type { DbAgentObservation } from './store/types'
@@ -178,6 +178,75 @@ describe('lead actions', () => {
     expect((await store.listJobLeads()).filter((l) => l.company_name === 'Figma')).toEqual([
       expect.objectContaining({ status: 'dismissed', location: 'Remote' }),
     ])
+  })
+
+  test('approve N saves each for later; undo puts them back as leads', async () => {
+    const store = fresh()
+    await deliver(store,
+      observation('job_discovered', { title: 'Software Engineer, New Grad', company: 'Northwind Robotics', job_url: 'https://jobs.lever.co/northwindrobotics/1' }),
+      observation('job_discovered', { title: 'Software Engineer, Platform', company: 'Northwind Robotics', job_url: 'https://jobs.lever.co/northwindrobotics/2' }),
+      observation('job_discovered', { title: 'Data Engineer', company: 'Bluefin Analytics' }),
+    )
+    await processPending(store, settings)
+    const leads = (await store.listJobLeads()).sort((x, y) => x.title.localeCompare(y.title))
+    const picked = leads.filter((l) => l.company_name === 'Northwind Robotics')
+    const { approved: approvals, failed } = await approveLeads(store, picked)
+
+    expect(approvals).toHaveLength(2)
+    expect(failed).toEqual([])
+    const apps = await store.listApplications()
+    expect(apps.map((a) => [a.role, a.stage]).sort()).toEqual([['Software Engineer, New Grad', 'saved'], ['Software Engineer, Platform', 'saved']])
+    // two leads at a new company make one company
+    expect((await store.listCompanies()).filter((c) => c.name === 'Northwind Robotics')).toHaveLength(1)
+    for (const a of approvals) {
+      expect((await store.listJobLeads()).find((l) => l.id === a.lead_id)).toMatchObject({ status: 'saved', application_id: a.application_id })
+    }
+
+    // Undo: the applications go, the leads are leads again; the other lead is untouched.
+    expect(await undoApprovals(store, approvals)).toBe(2)
+    expect(await store.listApplications()).toEqual([])
+    const after = await store.listJobLeads()
+    expect(after.map((l) => [l.title, l.status, l.application_id]).sort()).toEqual([
+      ['Data Engineer', 'new', null], ['Software Engineer, New Grad', 'new', null], ['Software Engineer, Platform', 'new', null],
+    ])
+  })
+
+  test("undo leaves an approval the user has moved on from (applied since)", async () => {
+    const store = fresh()
+    await deliver(store,
+      observation('job_discovered', { title: 'Backend Engineer', company: 'Kestrel Pay' }),
+      observation('job_discovered', { title: 'Frontend Engineer', company: 'Kestrel Pay' }),
+    )
+    await processPending(store, settings)
+    const { approved: approvals } = await approveLeads(store, await store.listJobLeads())
+    await store.updateApplication(approvals[0].application_id, { stage: 'applied' })
+
+    expect(await undoApprovals(store, approvals)).toBe(1)
+    const apps = await store.listApplications()
+    expect(apps.map((a) => a.id)).toEqual([approvals[0].application_id])
+    const leads = await store.listJobLeads()
+    expect(leads.find((l) => l.id === approvals[0].lead_id)).toMatchObject({ status: 'saved', application_id: approvals[0].application_id })
+    expect(leads.find((l) => l.id === approvals[1].lead_id)).toMatchObject({ status: 'new', application_id: null })
+  })
+
+  test('one approval that fails doesn\'t stop the rest, and those done are undoable', async () => {
+    const store = fresh()
+    await deliver(store,
+      observation('job_discovered', { title: 'Backend Engineer', company: 'Kestrel Pay' }),
+      observation('job_discovered', { title: 'Data Engineer', company: 'Bluefin Analytics' }),
+      observation('job_discovered', { title: 'Mobile Engineer', company: 'Northwind Robotics' }),
+    )
+    await processPending(store, settings)
+    const leads = (await store.listJobLeads()).sort((x, y) => x.title.localeCompare(y.title))
+    const flaky: typeof store = Object.create(store)
+    flaky.addApplication = (company, app) => (app.role === 'Data Engineer' ? Promise.reject(new Error('offline')) : store.addApplication(company, app))
+
+    const { approved, failed } = await approveLeads(flaky, leads)
+    expect(failed).toEqual([leads.find((l) => l.title === 'Data Engineer')!.id])
+    expect(approved).toHaveLength(2)
+    expect((await store.listApplications()).map((a) => a.role).sort()).toEqual(['Backend Engineer', 'Mobile Engineer'])
+    expect(await undoApprovals(store, approved)).toBe(2)
+    expect(await store.listApplications()).toEqual([])
   })
 
   test('leads and suggestions travel in snapshots', async () => {

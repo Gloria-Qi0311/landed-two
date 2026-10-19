@@ -84,5 +84,43 @@ export async function addLeadToPipeline(store: DataStore, lead: DbJobLead, stage
   return app
 }
 
+/** One approved lead: the application it became. */
+export type Approval = { lead_id: string; application_id: string }
+
+/** Approve leads from the Leads column (#94): each becomes an application
+ *  saved for later, as dragging it there would. One after another, so two
+ *  leads at the same new company make one company. One that fails doesn't
+ *  stop the rest, and those done stay undoable. */
+export async function approveLeads(store: DataStore, leads: DbJobLead[]): Promise<{ approved: Approval[]; failed: string[] }> {
+  const approved: Approval[] = []
+  const failed: string[] = []
+  for (const lead of leads) {
+    try {
+      const app = await addLeadToPipeline(store, lead, 'saved')
+      approved.push({ lead_id: lead.id, application_id: app.id })
+    } catch (e) {
+      console.warn('[landed] approving a lead failed', e)
+      failed.push(lead.id)
+    }
+  }
+  return { approved, failed }
+}
+
+/** Undo an approval: the application goes (unless it has moved on from
+ *  saved since, which is the user's work) and the lead is a lead again.
+ *  Returns how many were undone. */
+export async function undoApprovals(store: DataStore, approvals: Approval[]): Promise<number> {
+  const apps = new Map((await store.listApplications()).map((a) => [a.id, a]))
+  let undone = 0
+  for (const { lead_id, application_id } of approvals) {
+    const app = apps.get(application_id)
+    if (app && app.stage !== 'saved') continue
+    if (app) await store.deleteApplication(application_id)
+    await store.updateJobLead(lead_id, { status: 'new', application_id: null })
+    undone++
+  }
+  return undone
+}
+
 export const dismissLead = (store: DataStore, id: string) => store.updateJobLead(id, { status: 'dismissed' })
 export const restoreLead = (store: DataStore, id: string) => store.updateJobLead(id, { status: 'new' })

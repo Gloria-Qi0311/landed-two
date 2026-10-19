@@ -9,7 +9,7 @@
 // One file per flow; this index keeps `lib/inbox` imports working.
 export { processPending } from './process'
 export { ingestEmailFindings, type EmailIngestResult } from './email'
-export { ingestFoundJobs, addLeadToPipeline, dismissLead, restoreLead, type IngestResult } from './leads'
+export { ingestFoundJobs, addLeadToPipeline, approveLeads, undoApprovals, dismissLead, restoreLead, type Approval, type IngestResult } from './leads'
 export { isClickQuestion, isQuietQuestion, isPanelQuestion, recordApplyClick, QUIET_DAYS, IN_PROGRESS, lastSignal, quietDays, flagQuietApplications, openPanelQuestions, settleQuestions, type ClickTarget } from './questions'
 export { ingestPortalResults, type PortalIngestResult } from './portal'
 export { acceptSuggestion, rejectSuggestion, undoSuggestion, canUndo } from './review'

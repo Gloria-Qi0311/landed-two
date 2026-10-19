@@ -83,8 +83,17 @@ describe('scoreFit', () => {
     }, now)!
     expect(fit.score).toBeGreaterThan(0.85)
     expect(fit.reasons).toHaveLength(3)
-    expect(fit.reasons[0]).toBe('Title matches "Software Engineer"')
-    expect(fit.reasons).toContain('Mentions 5 of your skills: Python, TypeScript, SQL, AWS…')
+    // Every lead's title matches (that's how it got here): the skills say more, so they lead.
+    expect(fit.reasons[0]).toBe('Mentions 5 of your skills: Python, TypeScript, SQL, AWS…')
+    expect(fit.reasons).toContain('Title matches "Software Engineer"')
+  })
+
+  test('the first reason is the one that tells leads apart, not the title every lead matches', () => {
+    const at = (description: string) => scoreFit({ title: 'Software Engineer', location: 'Seattle, WA', description, brief: brief(), resume: resume() }, now)!.reasons[0]
+    expect(at(job(['Build services in Rust and Elixir.']))).toBe("Mentions none of your resume's skills")
+    expect(at(job(['Python and SQL.', '5+ years of experience.']))).toBe('Asks for 5+ years; you have about 0')
+    expect(scoreFit({ title: 'Senior Software Engineer', location: 'Seattle, WA', description: null, brief: brief(), resume: resume() }, now)!.reasons[0])
+      .toBe('Looks senior for a new grad search')
   })
 
   test('the wrong place and a big experience ask pull it down, and say so', () => {

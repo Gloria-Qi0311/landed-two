@@ -19,7 +19,11 @@ export const isDupQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) => s.dedupe_k
 
 function samePosting(a: AppLike, b: AppLike): boolean {
   const ats = atsJobKey(a.portal_application_url)
-  if (ats && ats === atsJobKey(b.portal_application_url)) return true
+  const other = atsJobKey(b.portal_application_url)
+  // Two postings on job boards are one application only if they're the same
+  // posting: "Software Engineer, New Grad" and "…, Platform (New Grad)" at
+  // one company are two (approving both from Leads isn't a duplicate).
+  if (ats && other) return ats === other
   const url = canonicalUrl(a.portal_application_url)
   if (url && url === canonicalUrl(b.portal_application_url)) return true
   return titleSimilarity(a.role, b.role, { keepBrackets: true }) >= SAME_ROLE

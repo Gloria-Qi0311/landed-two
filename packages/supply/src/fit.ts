@@ -33,6 +33,9 @@ export type FitInput = {
   resume: Resume | null
 }
 
+// strength: how telling a reason is, which orders them (a card shows the
+// first). A title or place that matches is expected (leads came through
+// those filters), so it says least; a mismatch or a skills match says more.
 type Part = { weight: number; score: number; reason: string; strength: number }
 
 const round = (n: number) => Math.round(n * 100) / 100
@@ -47,7 +50,7 @@ function titlePart(title: string, roles: string[]): Part | null {
     const role = roles.find((r) => roleMatches([r], title))!
     // Named outright: 0.75, up to 1 the closer the rest of the title is.
     const close = Math.max(...roles.filter((r) => roleMatches([r], title)).map((r) => titleSimilarity(core(r), core(title))))
-    return { weight: 0.35, score: round(0.75 + 0.25 * close), reason: `Title matches "${role}"`, strength: 3 }
+    return { weight: 0.35, score: round(0.75 + 0.25 * close), reason: `Title matches "${role}"`, strength: 0.5 }
   }
   const best = Math.max(...roles.map((r) => titleSimilarity(r, title)))
   if (best >= 0.4) return { weight: 0.35, score: best, reason: `Title is close to what you're looking for`, strength: 1 }
@@ -118,7 +121,7 @@ function placePart(brief: SearchBrief, location: string | null): Part | null {
   // Name the place that matched, not just the first one listed.
   const match = places.find((p) => placeMatches(brief, [p]))
   return match
-    ? { weight: 0.1, score: 1, reason: `In ${match}${places.length > 1 ? ` (+${places.length - 1})` : ''}`, strength: 1 }
+    ? { weight: 0.1, score: 1, reason: `In ${match}${places.length > 1 ? ` (+${places.length - 1})` : ''}`, strength: 0.5 }
     : { weight: 0.1, score: 0, reason: 'Not in the places you want', strength: 2 }
 }
 

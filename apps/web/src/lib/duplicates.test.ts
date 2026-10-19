@@ -21,6 +21,16 @@ describe('finding them', () => {
     expect(groups.map((g) => g.sort())).toEqual([['a1', 'a2'], ['x1', 'x2']])
   })
 
+  test('two different postings on job boards are two applications, however alike the titles', () => {
+    const lever = (id: string) => `https://jobs.lever.co/acme/${id}`
+    const l1 = app('l1', 'acme', 'Software Engineer, New Grad', lever('1b2c3d4e-0000-4000-8000-000000000001'))
+    const l2 = app('l2', 'acme', 'Software Engineer, Platform (New Grad)', lever('1b2c3d4e-0000-4000-8000-000000000002'))
+    const l3 = app('l3', 'acme', 'Software Engineer, New Grad', lever('1b2c3d4e-0000-4000-8000-000000000001')) // the first one again
+    expect(duplicateGroups([l1, l2, l3], companies).map((g) => g.sort())).toEqual([['l1', 'l3']])
+    // One from an email has no link: matched by its title, as before.
+    expect(duplicateGroups([l1, app('e1', 'acme', 'Software Engineer, New Grad')], companies).map((g) => g.sort())).toEqual([['e1', 'l1']])
+  })
+
   test('"they\'re different" is remembered for that group', () => {
     const apps = [app('a1', 'ant', 'AI产品工程师'), app('a2', 'ant', 'AI产品工程师')]
     expect(duplicateGroups(apps, companies, new Set(['dup:a1+a2']))).toEqual([])
