@@ -119,6 +119,8 @@ messages (PR title and a clean body, no trailer).
   open-ended text or resume fields); the Extension page asks each once, and the
   answer fills every form after that, on pages still open only fields still empty.
   Questions only the user's answers can answer never take a resume value.
+- A tailored version's one-page PDF is derived: made in the browser from its
+  `parsed_json`, never stored, never shrunk below 9.5 pt to fit.
 - Fill code lives in `apps/extension/lib/fill/*.js`, each module registered on
   `window.LandedFill` and listed in `manifest.json` before `content.js`.
 - Every read-modify-write of the extension's pending queue goes through

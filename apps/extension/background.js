@@ -409,6 +409,8 @@ function fillFrame(tabId, frameId, resume) {
       chrome.tabs.sendMessage(tabId, {
         action: 'fill',
         resume: resume.parsed_json,
+        // A tailored version's own PDF goes into the resume upload (lib/fill/files.js).
+        resumeId: typeof resume.id === 'string' ? resume.id : null,
         aiTakeover: true,
       }, { frameId }, (response) => {
         const error = chrome.runtime.lastError
@@ -531,7 +533,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ error: 'invalid fill request' })
     return true
   }
-  fillTab(msg.tabId, { parsed_json: msg.resume }).then(sendResponse, (error) => sendResponse({ error: String(error) }))
+  fillTab(msg.tabId, { parsed_json: msg.resume, id: typeof msg.resume_id === 'string' ? msg.resume_id : null }).then(sendResponse, (error) => sendResponse({ error: String(error) }))
   return true
 })
 

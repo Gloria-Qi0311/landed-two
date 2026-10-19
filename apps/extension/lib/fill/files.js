@@ -1,6 +1,7 @@
 // @ts-check
 // lib/fill/files.js — the resume / cover letter files saved on the Extension page,
-// attached to upload fields.
+// attached to upload fields. A fill with a tailored version uploads that
+// version's one-page PDF as the resume, when it has one.
 //
 // Part of the autofill content script: manifest content_scripts loads
 // lib/fill/* in order, then content.js. Helpers are shared through
@@ -12,18 +13,29 @@ const CA = global.LandedChoiceAnswers;
 
 // ─── files to upload (Landed → Extension page) ─────────────────────────────
 
-function loadApplicationFiles() {
+const VERSION_PDFS_KEY = 'landed:version-pdfs';
+
+function readLocal(key) {
   return new Promise((resolve) => {
     try {
-      chrome.storage.local.get(CA.FILES_KEY, (res) => {
+      chrome.storage.local.get(key, (res) => {
         void chrome.runtime.lastError;
-        const stored = res && res[CA.FILES_KEY];
+        const stored = res && res[key];
         resolve(stored && typeof stored === 'object' ? stored : {});
       });
     } catch {
       resolve({});
     }
   });
+}
+
+/** The files to upload: the Extension page's, with the resume replaced by
+ *  `resumeId`'s one-page PDF when that tailored version has one. */
+async function loadApplicationFiles(resumeId) {
+  const files = await readLocal(CA.FILES_KEY);
+  if (!resumeId) return files;
+  const version = (await readLocal(VERSION_PDFS_KEY))[resumeId];
+  return version && version.file ? { ...files, resume: version.file } : files;
 }
 
 /** Does the input take this file? (`accept` lists types or extensions.) */

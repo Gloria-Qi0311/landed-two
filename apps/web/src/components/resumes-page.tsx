@@ -24,7 +24,7 @@ import {
 import { ResumeSchema, emptyResume, safeNormalize, isResumeFilled, type Resume } from '@landed/schema'
 import { masterStats } from '@landed/schema/master-resume'
 import { PageHeader } from './shell'
-import { MasterPane, NewVersionPane, UploadPane, VersionNotes } from './my-resume'
+import { MasterPane, NewVersionPane, UploadPane, VersionNotes, VersionPdfCard } from './my-resume'
 import { ResumeEditor } from './resume-editor'
 import { Icon } from './primitives'
 import {
@@ -116,6 +116,7 @@ export function ResumesPage() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {activeResume.kind === 'version' && <VersionNotes resume={activeResume} />}
+              {activeResume.kind === 'version' && <VersionPdfCard resume={activeResume} />}
               <ResumeView
                 resume={activeResume}
                 onReplace={async (parsed) => {

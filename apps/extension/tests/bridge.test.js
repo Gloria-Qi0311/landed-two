@@ -52,6 +52,23 @@ const applied = (company) => ({
 })
 
 describe('bridge handler', () => {
+  test('version PDFs: the ids it has, one in, a null for a version that has none, one out', async () => {
+    const { handle } = makeHandler()
+    const V = '11111111-2222-4333-8444-555555555555'
+    const W = '22222222-2222-4333-8444-555555555555'
+    expect(await handle({ type: 'version-pdf-ids' }, FROM_WEB)).toEqual({ ok: true, data: {} })
+    const file = { id: V, name: 'Alex Chen Resume.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.7').toString('base64') }
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file } }, FROM_WEB)).toEqual({ ok: true, data: { saved: true } })
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: W, hash: 'eeeeffff00001111', file: null } }, FROM_WEB)).toEqual({ ok: true, data: { saved: false } })
+    expect(await handle({ type: 'version-pdf-ids' }, FROM_WEB)).toEqual({ ok: true, data: { [V]: 'aaaabbbbccccdddd', [W]: 'eeeeffff00001111' } })
+    // Not a PDF, no hash, not a Landed id: refused.
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file: { ...file, name: 'cv.docx' } } }, FROM_WEB)).toMatchObject({ ok: false })
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, file } }, FROM_WEB)).toMatchObject({ ok: false })
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: '../x', hash: 'aaaabbbbccccdddd', file } }, FROM_WEB)).toMatchObject({ ok: false })
+    await handle({ type: 'sync-version-pdf', payload: { resume_id: V, remove: true } }, FROM_WEB)
+    expect(await handle({ type: 'version-pdf-ids' }, FROM_WEB)).toEqual({ ok: true, data: { [W]: 'eeeeffff00001111' } })
+  })
+
   test('take-questions hands the queued questions over once; answers coming back tell open pages', async () => {
     const { handle, saved, onAnswersSynced } = makeHandler()
     saved['landed:unanswered-questions'] = [{ question: 'T-shirt size', key: null, options: ['S', 'M'], site: 'jobs.example.com' }]

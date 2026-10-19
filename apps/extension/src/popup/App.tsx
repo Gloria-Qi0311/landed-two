@@ -456,7 +456,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
         }
         // The service worker fills the page and any frame holding a form
         // (embedded application forms, dialogs) and adds them up.
-        chrome.runtime.sendMessage({ action: 'fill-tab', tabId: tab.id, resume: pick.resume.parsed_json }, (response) => {
+        chrome.runtime.sendMessage({ action: 'fill-tab', tabId: tab.id, resume: pick.resume.parsed_json, resume_id: pick.resume.id }, (response) => {
           const runtimeError = chrome.runtime.lastError
           if (runtimeError || !response || response.error) {
             resolve({ tabId: tab.id, title: tab.title, kind: 'error', error: runtimeError?.message || response?.error || 'No response from page' })

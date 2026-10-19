@@ -29,11 +29,14 @@
   const LOCAL_ANSWERS_KEY = 'landed:application-answers';
   // Resume / cover letter files from the Landed page, by kind.
   const LOCAL_FILES_KEY = 'landed:application-files';
+  // One-page PDFs of tailored resume versions, by version id (made by the
+  // Landed tab, bridge 'sync-version-pdf'); a fill with that version uploads it.
+  const LOCAL_VERSION_PDFS_KEY = 'landed:version-pdfs';
   // Questions fills had to leave empty, until the Landed tab takes them to
   // the Extension page (lib/fill/unanswered.js, bridge 'take-questions').
   const LOCAL_QUESTIONS_KEY = 'landed:unanswered-questions';
 
-  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY, LOCAL_FILES_KEY, LOCAL_QUESTIONS_KEY };
+  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY, LOCAL_FILES_KEY, LOCAL_VERSION_PDFS_KEY, LOCAL_QUESTIONS_KEY };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.LandedConfig;
   }

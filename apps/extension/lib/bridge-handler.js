@@ -201,6 +201,45 @@
           return { ok: true, data: { kind: p.kind, saved: !!file } }
         }
 
+        // Tailored versions' one-page PDFs (apps/web/src/lib/resume-pdf.ts):
+        // which ones the extension has, and one at a time in or out. A
+        // version that can't have one (too long, CJK text) is kept as null,
+        // so the page doesn't make it again until the version changes.
+        case 'version-pdf-ids': {
+          const key = cfg.LOCAL_VERSION_PDFS_KEY || 'landed:version-pdfs'
+          const stored = (await readLocal(chromeLocal, key))[key] || {}
+          const ids = {}
+          for (const [id, entry] of Object.entries(stored)) if (entry && typeof entry.hash === 'string') ids[id] = entry.hash
+          return { ok: true, data: ids }
+        }
+
+        case 'sync-version-pdf': {
+          const p = msg.payload || {}
+          const id = landedId(p.resume_id)
+          if (!id) return { ok: false, error: 'resume_id must be a Landed id' }
+          const key = cfg.LOCAL_VERSION_PDFS_KEY || 'landed:version-pdfs'
+          if (p.remove === true) {
+            await withLock(async () => {
+              const stored = (await readLocal(chromeLocal, key))[key] || {}
+              delete stored[id]
+              await chromeLocal.set({ [key]: stored })
+            })
+            return { ok: true, data: { removed: true } }
+          }
+          const hash = typeof p.hash === 'string' && /^[0-9a-f]{16,64}$/.test(p.hash) ? p.hash : null
+          if (!hash) return { ok: false, error: 'hash is required' }
+          const file = p.file === null ? null : sanitizeFile(p.file)
+          if (p.file !== null && (!file || !/\.pdf$/i.test(file.name))) return { ok: false, error: 'not a PDF the extension can upload' }
+          await withLock(async () => {
+            const stored = (await readLocal(chromeLocal, key))[key] || {}
+            stored[id] = { hash, file, synced_at: new Date().toISOString() }
+            // The newest 20 versions are plenty for the jobs in flight.
+            const keep = Object.entries(stored).sort((a, b) => String(b[1].synced_at).localeCompare(String(a[1].synced_at))).slice(0, 20)
+            await chromeLocal.set({ [key]: Object.fromEntries(keep) })
+          })
+          return { ok: true, data: { saved: !!file } }
+        }
+
         case 'assist-open': {
           const p = msg.payload || {}
           const url = postingUrl(p.url)

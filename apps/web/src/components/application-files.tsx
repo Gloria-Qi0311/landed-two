@@ -12,7 +12,7 @@ import { muted, danger, card } from './ui'
 
 
 const SLOTS: { kind: FileKind; title: string; help: string }[] = [
-  { kind: 'resume', title: 'Resume / CV', help: 'Goes into “Resume”, “CV” and “Attach resume” upload fields. The newest file you add on My Resume lands here too.' },
+  { kind: 'resume', title: 'Resume / CV', help: 'Goes into “Resume”, “CV” and “Attach resume” upload fields. The newest file you add on My Resume lands here too. A fill with a tailored version uploads that version’s one-page PDF instead.' },
   { kind: 'cover_letter', title: 'Cover letter', help: 'Optional. A general one for “Cover letter” fields; leave empty to write them yourself.' },
 ]
 

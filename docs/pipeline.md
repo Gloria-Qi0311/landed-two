@@ -83,7 +83,8 @@ badge uses the same groups.
 - **Versions** are tailored from the master for a role (`resume_tailor`). The
   agent picks the most relevant experience and the best-fitting phrasing, and
   **never invents facts**. Each version stores its target and "why these" notes in
-  `target_json`.
+  `target_json`. Its one-page PDF is made in the browser whenever it changes and
+  is what the extension uploads for that job ([apply-assist.md](apply-assist.md#files-to-upload)).
 - `parsed_json` is always a canonical `Resume`, and for the master it's the
   flattened form. That's what extension autofill reads.
 - Both tasks are text-only: no MCP, no tools, except that tailoring may WebFetch

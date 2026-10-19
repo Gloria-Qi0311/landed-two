@@ -32,7 +32,7 @@ const CA = window.LandedChoiceAnswers;
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'fill') {
-    handleFill(msg.resume, msg.customFields || {}, { aiTakeover: !!msg.aiTakeover }).then(sendResponse);
+    handleFill(msg.resume, msg.customFields || {}, { aiTakeover: !!msg.aiTakeover, resumeId: typeof msg.resumeId === 'string' ? msg.resumeId : null }).then(sendResponse);
     return true;
   }
   // The user answered questions on the Extension page: fill the fields still
@@ -83,7 +83,7 @@ async function handleFill(resumeData, customFields, opts) {
   // fields with nothing saved) stay yellow. Hidden inputs behind an
   // "Attach" button count too.
   const fileInputs = /** @type {HTMLInputElement[]} */ (deepAll('input[type="file"]'));
-  const files = fileInputs.length ? await loadApplicationFiles() : {};
+  const files = fileInputs.length ? await loadApplicationFiles(opts.resumeId) : {};
   const answered = /** @type {Set<Element>} */ (new Set(fileInputs));
   const missingFiles = new Set();
   for (const el of fileInputs) {

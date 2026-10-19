@@ -14,6 +14,7 @@ import { agentFor, useRuntimes, type TaskKind } from '../hooks/runtimes'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { useJobLeads } from '../hooks/inbox'
 import { mutedLarge as muted, danger } from './ui'
+import type { ResumePdf } from '../lib/resume-pdf'
 
 const card = { background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', borderRadius: 12, padding: 18 } as const
 const KIND_LABEL = { experience: 'Experience', internship: 'Internships', project: 'Projects' } as const
@@ -534,6 +535,64 @@ export function VersionNotes({ resume }: { resume: DbResume }) {
             </ul>
           )}
         </div>
+      )}
+    </div>
+  )
+}
+
+/** A tailored version's one-page PDF (lib/resume-pdf.ts): what the extension
+ *  uploads for this job, or why there isn't one. Made in the browser each
+ *  time the version changes; never stored. */
+export function VersionPdfCard({ resume }: { resume: DbResume }) {
+  const [pdf, setPdf] = useState<ResumePdf | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    setPdf(null)
+    void (async () => {
+      const [{ makeResumePdf }, { normalizeResume }] = await Promise.all([import('../lib/resume-pdf'), import('@landed/schema')])
+      let made: ResumePdf
+      try {
+        made = await makeResumePdf(normalizeResume(resume.parsed_json))
+      } catch {
+        made = { ok: false, reason: 'empty' }
+      }
+      if (!cancelled) setPdf(made)
+    })()
+    return () => { cancelled = true }
+  }, [resume.parsed_json])
+
+  const download = () => {
+    if (!pdf?.ok) return
+    const url = URL.createObjectURL(new Blob([pdf.bytes.slice()], { type: 'application/pdf' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = pdf.name
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  if (pdf && !pdf.ok && pdf.reason === 'empty') return null
+  return (
+    <div style={{ ...card, padding: 12, maxWidth: 760, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <Icon name="doc" size={14} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 500 }}>
+          {!pdf ? 'Making the PDF…' : pdf.ok ? `One-page PDF · ${pdf.name}` : pdf.reason === 'too_long' ? 'Too long for one page' : 'No PDF for this version yet'}
+        </div>
+        {pdf && (
+          <div style={muted}>
+            {pdf.ok
+              ? 'When the extension fills an application with this version, this PDF goes into the resume upload.'
+              : pdf.reason === 'too_long'
+                ? `About ${pdf.overLines} line${pdf.overLines === 1 ? '' : 's'} too many. Shorten it below (fewer or shorter bullets) and the PDF is made again; until then the extension uploads your resume file.`
+                : `The PDF can't show Chinese, Japanese or Korean text yet (like “${pdf.reason === 'characters' ? pdf.sample : ''}”), so the extension uploads your resume file for this job.`}
+          </div>
+        )}
+      </div>
+      {pdf?.ok && (
+        <button type="button" className="btn-secondary" onClick={download} style={{ flexShrink: 0 }}>
+          <Icon name="download" size={12} /> Download
+        </button>
       )}
     </div>
   )

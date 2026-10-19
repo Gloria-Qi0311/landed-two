@@ -188,6 +188,32 @@ test('dropdowns get a real option; nothing typed is left behind; files are attac
   expect(submitted).toBe(false)
 }, 20_000)
 
+test("a fill with a tailored version uploads that version's one-page PDF; without one, the saved file", async () => {
+  const VERSION = '11111111-2222-4333-8444-555555555555'
+  const versionPdf = Buffer.from('%PDF-1.7 tailored').toString('base64')
+  stored['landed:version-pdfs'] = {
+    [VERSION]: { hash: 'abc123abc123abc1', file: { id: VERSION, name: 'Alex Chen Resume.pdf', mime: 'application/pdf', data: versionPdf } },
+    '99999999-2222-4333-8444-555555555555': { hash: 'def456def456def4', file: null },
+  }
+  const fillWith = (resumeId) => new Promise((resolve) => onMessageListeners[0]({ action: 'fill', resume, resumeId, aiTakeover: false }, null, resolve))
+  // Told apart by size (jsdom's File can't be read back).
+  const uploaded = async () => $('#resume').files[0]?.size ?? null
+  const setForm = () => {
+    document.body.innerHTML = '<form><label for="resume">Resume/CV</label><input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx"></form>'
+    let files = []
+    Object.defineProperty($('#resume'), 'files', { configurable: true, get: () => files, set: (v) => { files = v } })
+  }
+  setForm()
+  await fillWith(VERSION)
+  expect(await uploaded()).toBe(Buffer.from(versionPdf, 'base64').length)
+
+  for (const resumeId of ['99999999-2222-4333-8444-555555555555', null]) {
+    setForm()
+    await fillWith(resumeId)
+    expect(await uploaded()).toBe(Buffer.from(pdf, 'base64').length)
+  }
+}, 20_000)
+
 test('no saved resume file: reported, so the popup can say where to add it', async () => {
   for (const id of ['school', 'degree', 'country', 'city', 'auth', 'discipline', 'adult', 'onsite5']) wire(id, ['Yes', 'No'])
   stored['landed:application-files'] = {}

@@ -265,6 +265,21 @@ The newest PDF or Word file uploaded on My Resume becomes the resume file
 migration 0020, stored as base64 text so snapshots carry them; the list is
 metadata, bytes one file at a time).
 
+**A tailored version uploads its own one-page PDF** (product decision
+2026-10-19, #97). `apps/web/src/lib/resume-pdf.ts` (pdf-lib) makes it in the
+browser from the version's `parsed_json`: one column, real text in reading order,
+standard section names (education first for students and new grads), US Letter,
+body 10.5 pt stepping down to 9.5 pt at most. A version that doesn't fit on one
+page gets no PDF; My Resume says about how many lines to cut
+(`VersionPdfCard`). Text the built-in fonts can't show is swapped or dropped, and
+a version with Chinese, Japanese or Korean text gets no PDF until a CJK font is
+embedded. The PDF is derived, so it's never stored: the page bridge fingerprints
+each of the 20 newest versions (`versionHash`), asks which ones the extension
+has (`version-pdf-ids`) and sends the missing or changed ones (`sync-version-pdf`;
+`null` for a version that can't have one). A fill carries the resume's id
+(`resumeId`), and `loadApplicationFiles(resumeId)` puts that version's PDF in
+place of the saved resume file; otherwise the saved file goes in as before.
+
 The bridge asks the extension which file ids it has (`file-ids`) and sends only
 missing or changed ones (`sync-file`). `lib/fill/files.js` puts them into upload
 fields by label (`fileKind` in `choice-answers.js`: resume/CV vs cover letter,

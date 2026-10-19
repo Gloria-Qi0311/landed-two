@@ -9,6 +9,9 @@
 //   - takes the questions fills had to leave empty and keeps them with the
 //     application answers, for the Extension page to ask the user once
 //     (packages/schema/src/application-answers.ts → addUnanswered)
+//   - makes each tailored version's one-page PDF (lib/resume-pdf.ts) and
+//     hands the extension the ones it doesn't have, so a fill with that
+//     version uploads it
 //   - hands the user's resumes to the extension so the side panel can
 //     autofill without a Cloud account, the application answers (Extension
 //     page) so fills can answer choice questions, and the files it uploads
@@ -149,5 +152,47 @@ export function useExtensionBridge() {
     })
     send()
     return onExtensionReady(send)
+  }, [resumes])
+
+  // Tailored versions' PDFs: only the ones the extension lacks or that
+  // changed. Made here, in the browser; never stored.
+  useEffect(() => {
+    if (!resumes) return
+    let cancelled = false
+    const versions = resumes
+      .filter((r) => r.kind === 'version' && r.parsed_json)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 20)
+    const sync = async () => {
+      const have = await bridgeRequest<Record<string, string>>('version-pdf-ids')
+      if (!have || cancelled) return // no extension here
+      const { makeResumePdf, toBase64, versionHash } = await import('../lib/resume-pdf')
+      const { normalizeResume } = await import('@landed/schema')
+      for (const v of versions) {
+        const hash = await versionHash(v.parsed_json)
+        if (have[v.id] === hash) continue
+        let pdf: Awaited<ReturnType<typeof makeResumePdf>> | null = null
+        try {
+          pdf = await makeResumePdf(normalizeResume(v.parsed_json))
+        } catch (e) {
+          console.warn('[landed] could not make the PDF for', v.name, e)
+        }
+        if (cancelled) return
+        await bridgeRequest('sync-version-pdf', {
+          resume_id: v.id, hash,
+          file: pdf?.ok ? { id: v.id, name: pdf.name, mime: 'application/pdf', data: toBase64(pdf.bytes) } : null,
+        }, 15_000)
+      }
+      const keep = new Set(versions.map((v) => v.id))
+      for (const id of Object.keys(have)) {
+        if (!keep.has(id) && !cancelled) await bridgeRequest('sync-version-pdf', { resume_id: id, remove: true })
+      }
+    }
+    void sync().catch((e) => console.warn('[landed] could not hand version PDFs to the extension', e))
+    const off = onExtensionReady(() => void sync().catch(() => {}))
+    return () => {
+      cancelled = true
+      off()
+    }
   }, [resumes])
 }
