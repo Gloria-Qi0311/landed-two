@@ -8,6 +8,23 @@ private let safariExtensionIdentifier = "dev.landed.connector.SafariExtension"
 /// Fill each page with the resume picked for it (tailored version, else current).
 private let autoResume = "auto"
 
+// The daemon writes JavaScript's toISOString(), with milliseconds
+// ("2026-10-20T10:17:58.767Z"). ISO8601DateFormatter rejects those unless
+// told to accept fractional seconds, and a session whose last_seen didn't
+// parse was dropped: the menu said "No browser pages available" while the
+// browser was checking in every few seconds.
+private let isoWithMillis: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+}()
+private let isoPlain = ISO8601DateFormatter()
+
+/// A timestamp from the daemon, with or without milliseconds.
+func parseTimestamp(_ s: String) -> Date? {
+    isoWithMillis.date(from: s) ?? isoPlain.date(from: s)
+}
+
 struct AssistTab: Codable, Identifiable, Hashable {
     let id: Int
     let title: String
@@ -133,7 +150,6 @@ final class AssistModel: NSObject, ObservableObject {
     func reload() {
         let decoder = JSONDecoder()
         let now = Date()
-        let iso = ISO8601DateFormatter()
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: sessionsDirectory,
             includingPropertiesForKeys: nil,
@@ -143,7 +159,7 @@ final class AssistModel: NSObject, ObservableObject {
             guard url.pathExtension == "json",
                   let data = try? Data(contentsOf: url),
                   let session = try? decoder.decode(AssistSession.self, from: data),
-                  let seen = iso.date(from: session.lastSeen),
+                  let seen = parseTimestamp(session.lastSeen),
                   now.timeIntervalSince(seen) < 15 else { return nil }
             return session
         }.sorted { $0.browser.localizedCaseInsensitiveCompare($1.browser) == .orderedAscending }
@@ -189,9 +205,8 @@ final class AssistModel: NSObject, ObservableObject {
     }
 
     var latestResult: AssistResult? {
-        let iso = ISO8601DateFormatter()
         return sessions.compactMap(\.lastResult).max {
-            (iso.date(from: $0.completedAt) ?? .distantPast) < (iso.date(from: $1.completedAt) ?? .distantPast)
+            (parseTimestamp($0.completedAt) ?? .distantPast) < (parseTimestamp($1.completedAt) ?? .distantPast)
         }
     }
 
