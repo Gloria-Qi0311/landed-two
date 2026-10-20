@@ -107,6 +107,10 @@ messages (PR title and a clean body, no trailer).
 - Never guess: no saved answer → yellow; EEO left blank → "I don't wish to
   answer"; consent boxes only when the user's own `agree_to_terms` switch is on (an
   agent never sets it).
+- Application answers the resume and the active search state outright (name, links,
+  city, start date, preferred places, sponsorship) are filled in on their own: blanks
+  only, each question once (`prefilled`), marked on the Extension page with Undo;
+  never date of birth, street address, work authorization, EEO or consent.
 - "Worked here before?" is answered from the resume's employers, never from one
   saved yes/no for every company.
 - A Work Experience or Education entry takes that job's or school's own values,

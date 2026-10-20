@@ -219,6 +219,32 @@ voluntary EEO, LinkedIn / GitHub / website links, "18 or older", "onsite N days 
 week", plus free "other questions" (`packages/schema/src/application-answers.ts`,
 `parseApplicationAnswers`).
 
+**What Landed already knows is filled in on its own** (product decision
+2026-10-19). Many of these questions are answered by the resume (master, else
+current) or the active job search. `useKnownAnswers` (`apps/web/src/hooks/answers.ts`,
+mounted once in the app) fills the blank ones with `suggestAnswers`
+(`apps/web/src/lib/answer-suggestions.ts`) and saves them, so the extension has
+them at once. The Extension page says so in a card above the answers ("10
+answers are already filled in from your resume and job search… if one isn't
+right, just change it"), marks each one "From your resume" / "From your job
+search" while it's as written, and has **Undo** (saved at once, like the fill).
+
+| Answer | From |
+|---|---|
+| Legal first and last name | the resume's name, only when it has both a first and a last part (one word, or a Chinese name, can't say which part is which) |
+| LinkedIn, GitHub, website | the resume's links, made full `https://` links; text that isn't a link is skipped |
+| City, state, country | the resume's location ("Seattle, WA" → Seattle / Washington / United States; Canadian provinces; "City, Country"), only when all three are blank, so a half-typed address isn't mixed with it. Marked "where you live now": a permanent address may differ |
+| Earliest start | the latest school end date still ahead ("June 2027") |
+| Preferred locations | the search's places (not "Remote"), up to three |
+| Sponsorship | the search's `needs_sponsorship`, when it said |
+
+Only blanks are filled, never an answer the user gave. Each question is filled
+in **once**: `application_answers.prefilled` notes what was written and from
+where (validated by `parseApplicationAnswers`, kept by `mergeAnswers`), so one the
+user cleared, changed or undid isn't filled in again. Never filled in: date of
+birth, street address, work authorization, "18 or older", EEO and consent. The
+never-guessed rules below still hold for everything else.
+
 One row per account in the data store (`application_answers`, Dexie v11,
 migration 0019, in snapshots, deleted server-side when Cloud is turned off). The
 page bridge hands them to the extension (`sync-answers` →

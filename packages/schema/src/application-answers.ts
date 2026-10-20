@@ -10,6 +10,17 @@
 
 export type YesNo = 'yes' | 'no'
 
+/** Questions Landed fills in on its own from the resume and the active
+ *  search (apps/web/src/lib/answer-suggestions.ts). Never date of birth,
+ *  street address, work authorization, EEO or consent. */
+export const PREFILLABLE = [
+  'legal_first_name', 'legal_last_name', 'linkedin', 'github', 'website', 'city', 'state', 'country', 'earliest_start',
+  'preferred_locations', 'needs_sponsorship',
+] as const
+export type Prefillable = typeof PREFILLABLE[number]
+/** What was filled in on its own, as written, and from where. */
+export type Prefilled = { value: string | string[]; from: 'resume' | 'search' }
+
 export type ApplicationAnswers = {
   // names — legal ones go to "First/Last name", preferred ones to "Preferred…"
   legal_first_name: string | null
@@ -77,6 +88,10 @@ export type ApplicationAnswers = {
   unanswered: PendingQuestion[]
   /** questions the user said not to ask again (questionKey) */
   skipped: string[]
+  /** answers Landed filled in on its own: the Extension page marks them
+   *  while they're as written, and a question here is never filled in again
+   *  (so one the user cleared stays clear) */
+  prefilled: Partial<Record<Prefillable, Prefilled>>
 }
 
 export const EMPTY_ANSWERS: ApplicationAnswers = {
@@ -85,7 +100,7 @@ export const EMPTY_ANSWERS: ApplicationAnswers = {
   work_authorized: null, needs_sponsorship: null, earliest_start: null, relocate: null, travel: null, preferred_locations: [],
   open_to_other_locations: null, previously_employed: null, non_compete: null, heard_from: null, talent_network: null,
   gender: null, hispanic_latino: null, race: null, veteran: null, disability: null, agree_to_terms: false, custom: [],
-  unanswered: [], skipped: [],
+  unanswered: [], skipped: [], prefilled: {},
 }
 
 export const MAX_CUSTOM_ANSWERS = 40
@@ -108,7 +123,7 @@ const yesNo = (v: unknown): YesNo | null => (v === 'yes' || v === 'no' ? v : nul
  *  yes/no or nothing. Anything else becomes "not answered". */
 export function parseApplicationAnswers(raw: unknown): ApplicationAnswers {
   const r = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
-  const out: ApplicationAnswers = { ...EMPTY_ANSWERS, preferred_locations: [], custom: [], unanswered: [], skipped: [] }
+  const out: ApplicationAnswers = { ...EMPTY_ANSWERS, preferred_locations: [], custom: [], unanswered: [], skipped: [], prefilled: {} }
   for (const [key, max] of Object.entries(TEXT_FIELDS)) (out as Record<string, unknown>)[key] = text(r[key], max)
   for (const key of YES_NO_FIELDS) out[key] = yesNo(r[key])
   out.agree_to_terms = r.agree_to_terms === true
@@ -127,6 +142,15 @@ export function parseApplicationAnswers(raw: unknown): ApplicationAnswers {
     return p ? [p] : []
   }).slice(0, MAX_PENDING)
   out.skipped = [...new Set((Array.isArray(r.skipped) ? r.skipped : []).map((k) => text(k, 300)).filter((k): k is string => !!k))].slice(0, MAX_SKIPPED)
+  const pre = (r.prefilled && typeof r.prefilled === 'object' && !Array.isArray(r.prefilled) ? r.prefilled : {}) as Record<string, unknown>
+  for (const key of PREFILLABLE) {
+    const p = pre[key] as { value?: unknown; from?: unknown } | undefined
+    if (!p || (p.from !== 'resume' && p.from !== 'search')) continue
+    const value = Array.isArray(p.value)
+      ? p.value.map((v) => text(v, 100)).filter((v): v is string => !!v).slice(0, MAX_PREFERRED_LOCATIONS)
+      : text(p.value, 300)
+    if (value !== null) out.prefilled[key] = { value, from: p.from }
+  }
   return out
 }
 
@@ -137,7 +161,7 @@ export function parseApplicationAnswers(raw: unknown): ApplicationAnswers {
 export function mergeAnswers(base: ApplicationAnswers, next: ApplicationAnswers): ApplicationAnswers {
   const out: ApplicationAnswers = { ...base }
   for (const [key, value] of Object.entries(next) as [keyof ApplicationAnswers, unknown][]) {
-    if (['custom', 'preferred_locations', 'agree_to_terms', 'unanswered', 'skipped'].includes(key)) continue
+    if (['custom', 'preferred_locations', 'agree_to_terms', 'unanswered', 'skipped', 'prefilled'].includes(key)) continue
     if (value !== null) (out as Record<string, unknown>)[key] = value
   }
   if (next.preferred_locations.length) out.preferred_locations = next.preferred_locations
@@ -151,7 +175,7 @@ export function mergeAnswers(base: ApplicationAnswers, next: ApplicationAnswers)
 
 /** How many questions are answered, for "18 answered". */
 export function answeredCount(a: ApplicationAnswers): number {
-  const { custom, preferred_locations, agree_to_terms: _, unanswered: _u, skipped: _s, ...rest } = a
+  const { custom, preferred_locations, agree_to_terms: _, unanswered: _u, skipped: _s, prefilled: _p, ...rest } = a
   return Object.values(rest).filter((v) => v !== null).length + (preferred_locations.length ? 1 : 0) + custom.length
 }
 

@@ -1,7 +1,7 @@
 // Application answers: validation, the agent's ```landed-answers block, and
 // saving what it read over what the user had.
 import { describe, expect, test } from 'vitest'
-import { addUnanswered, answerPending, EMPTY_ANSWERS, extractAnswers, mergeAnswers, parseApplicationAnswers, questionKey, sameQuestion, skipPending } from '@landed/schema/application-answers'
+import { addUnanswered, answerPending, answeredCount, EMPTY_ANSWERS, extractAnswers, mergeAnswers, parseApplicationAnswers, questionKey, sameQuestion, skipPending } from '@landed/schema/application-answers'
 
 const reply = (json: string) => `I read your IBM form.\n\n\`\`\`landed-answers\n${json}\n\`\`\`\n\nAnything to change?`
 
@@ -120,4 +120,24 @@ test('a "worked here before: yes" read from one form is not saved for every comp
   const block = (body: string) => '```landed-answers\n' + body + '\n```'
   expect(extractAnswers(block('{"legal_first_name":"Alex","previously_employed":"yes"}')).answers?.previously_employed).toBeNull()
   expect(extractAnswers(block('{"legal_first_name":"Alex","previously_employed":"no"}')).answers?.previously_employed).toBe('no')
+})
+
+test('what was filled in on its own is kept, validated, and survives an agent\'s read', () => {
+  const parsed = parseApplicationAnswers({
+    city: 'Seattle',
+    prefilled: {
+      city: { value: 'Seattle', from: 'resume' },
+      preferred_locations: { value: ['Seattle', ' ', 'New York', 'Boston', 'Austin'], from: 'search' },
+      date_of_birth: { value: 'October 30', from: 'resume' }, // never filled in on its own
+      github: { value: 'https://github.com/x', from: 'somewhere' },
+      linkedin: { value: 42, from: 'resume' },
+    },
+  })
+  expect(parsed.prefilled).toEqual({
+    city: { value: 'Seattle', from: 'resume' },
+    preferred_locations: { value: ['Seattle', 'New York', 'Boston'], from: 'search' },
+  })
+  expect(answeredCount(parsed)).toBe(1)
+  expect(mergeAnswers(parsed, parseApplicationAnswers({ github: 'https://github.com/alexrivera-example' })).prefilled).toEqual(parsed.prefilled)
+  expect(parseApplicationAnswers({ prefilled: [1, 2] }).prefilled).toEqual({})
 })
