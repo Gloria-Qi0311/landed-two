@@ -99,6 +99,9 @@ messages (PR title and a clean body, no trailer).
 - Agents propose; the user acts. Reported applications, answers read from a form
   and duplicate merges happen only when the user clicks.
 - Resume tailoring never invents facts.
+- A resume uploads without a computer: the browser reads only name, email, phone
+  and links, keeps the file, and the agent reads the rest once one is connected
+  (`resumes.file_path` marks it waiting).
 
 ## Apply Assist never submits
 

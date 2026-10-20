@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../lib/auth'
 import { useResumeTask } from '../lib/resume-tasks'
+import { agentFor, useRuntimes } from './runtimes'
 import { useStore, type DbResume, type ResumeInput } from '../lib/store'
 import type { Resume } from '@landed/schema'
 
@@ -109,4 +110,15 @@ export function useResumeTaskRunner() {
       },
     })
   }, [ready, userId, store, qc])
+
+  // A resume uploaded without a computer is read in full as soon as one is
+  // connected, wherever the user is (lib/resume-tasks.ts, readWaiting).
+  const resumes = useResumes().data
+  const reader = agentFor(useRuntimes().data, 'resume_parse')
+  useEffect(() => {
+    if (!ready || !userId || !reader.agent) return
+    for (const r of resumes ?? []) {
+      if (r.kind === 'source' && r.file_path) void useResumeTask.getState().readWaiting({ runtime: reader.runtime, agent: reader.agent }, r)
+    }
+  }, [ready, userId, resumes, reader.runtime, reader.agent])
 }

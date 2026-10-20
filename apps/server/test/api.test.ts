@@ -546,6 +546,13 @@ describe('data isolation + CRUD', () => {
     const renamed = await call('PATCH', `/api/resumes/${a.body.id}`, { token: alice, body: { name: 'A2' } })
     assert.equal(renamed.body.name, 'A2')
     assert.deepEqual(renamed.body.parsed_json, { basic: { name: 'Alice' } })
+    // Uploaded without a computer: the file it still has to be read from, then null.
+    const waiting = await call('POST', '/api/resumes', { token: alice, body: { name: 'W', parsed_json: null, file_path: 'Alice Resume.pdf' } })
+    assert.equal(waiting.body.file_path, 'Alice Resume.pdf')
+    assert.equal((await call('PATCH', `/api/resumes/${waiting.body.id}`, { token: alice, body: { file_path: null } })).body.file_path, null)
+    assert.equal((await call('PATCH', `/api/resumes/${waiting.body.id}`, { token: alice, body: { file_path: 42 } })).status, 400)
+    assert.equal((await call('POST', '/api/resumes', { token: alice, body: { name: 'X', file_path: 'x'.repeat(256) } })).status, 400)
+    await call('DELETE', `/api/resumes/${waiting.body.id}`, { token: alice })
     assert.equal((await call('DELETE', `/api/resumes/${a.body.id}`, { token: bob })).status, 404)
     assert.equal((await call('DELETE', `/api/resumes/${a.body.id}`, { token: alice })).status, 204)
   })

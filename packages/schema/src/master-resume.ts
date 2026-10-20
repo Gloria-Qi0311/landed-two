@@ -262,6 +262,18 @@ export const PARSE_FILE_TYPES: Record<string, string> = {
   'application/pdf': 'pdf', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
 }
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+
+/** A resume uploaded without a computer (docs/agents.md, "Resume upload"):
+ *  the browser read its name, email, phone and links; the rest waits for
+ *  the user's agent. `resumes.file_path` holds the name of the file to read
+ *  it from (the resume file kept for the extension), null once read in full.
+ *  Text up to 255 characters or null; anything else is invalid (undefined). */
+export function parseWaitingFile(v: unknown): string | null | undefined {
+  if (v === null) return null
+  if (typeof v !== 'string') return undefined
+  const t = v.trim()
+  return t && t.length <= 255 ? t : undefined
+}
 const MAX_UPLOAD_TEXT = 60_000
 
 export type ParseInput = { name: string; file: { type: string; data_base64: string } | null; text: string | null }

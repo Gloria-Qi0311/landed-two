@@ -3,13 +3,15 @@
 // way each bullet was phrased) and versions tailored to a role from it.
 // Data + rules: packages/schema/src/master-resume.ts; tasks: lib/resume-tasks.ts.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { masterStats, parseTarget, type Bullet, type MasterEducation, type MasterEntry, type MasterResume } from '@landed/schema/master-resume'
 import { Icon } from './primitives'
 import { EditableList, EditableText } from './editable'
 import { formatRelative } from '../lib/time'
 import { flattenMaster, useResumeTask } from '../lib/resume-tasks'
 import type { DbResume } from '../lib/store'
-import { useResumeGroups, useUpdateResume } from '../hooks/resumes'
+import { useResumeGroups, useResumes, useUpdateResume } from '../hooks/resumes'
+import { basicsFound } from '../lib/resume-basics'
 import { agentFor, useRuntimes, type TaskKind } from '../hooks/runtimes'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { useJobLeads } from '../hooks/inbox'
@@ -50,10 +52,60 @@ function TaskStatus({ kind, running }: { kind: 'resume_merge' | 'resume_tailor';
 
 // ── upload ────────────────────────────────────────────────────────────────
 
+/** No computer yet: upload anyway, and what happens with the rest. */
+function ConnectLater() {
+  const navigate = useNavigate()
+  return (
+    <div style={{ ...muted, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+      <span style={{ flex: 1 }}>
+        No computer connected yet? Upload anyway. Your name, email, phone and links are read right here, and the file is kept for
+        the extension. Your experience, education and skills are read by your own AI on your computer: connect it once and that
+        happens on its own, nothing to upload again.
+      </span>
+      <button type="button" className="btn-secondary" onClick={() => navigate('/agent')} style={{ flexShrink: 0, fontSize: 12 }}>
+        Connect your computer
+      </button>
+    </div>
+  )
+}
+
+/** After an upload without a computer: what's done, and what's still to come. */
+function WhatsNext({ item }: { item: { name: string; result_id?: string } }) {
+  const navigate = useNavigate()
+  const row = useResumes().data?.find((r) => r.id === item.result_id)
+  const found = basicsFound(row?.parsed_json ?? null)
+  const done = <span style={{ color: 'oklch(0.45 0.13 155)', display: 'flex' }}><Icon name="check" size={12} /></span>
+  const step = { display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 0', fontSize: 12.5 } as const
+  return (
+    <div style={{ ...card, padding: '6px 16px' }}>
+      <div style={step}>
+        {done}
+        <span>
+          <strong style={{ fontWeight: 600 }}>{item.name}</strong> is saved.{' '}
+          <span style={muted}>{found.length ? `Read so far: ${found.join(' · ')}.` : "No text could be read here (a scanned PDF?) — your computer will read it."}</span>
+        </span>
+      </div>
+      <div style={{ ...step, borderTop: '0.5px solid var(--border-subtle)' }}>
+        {done}
+        <span>The file is kept for the extension to attach to applications.</span>
+      </div>
+      <div style={{ ...step, borderTop: '0.5px solid var(--border-subtle)', alignItems: 'center' }}>
+        <span style={{ color: 'var(--fg-muted)', display: 'flex' }}><Icon name="device" size={12} /></span>
+        <span style={{ flex: 1 }}>
+          Experience, education and skills: read when your computer is connected.{' '}
+          <span style={muted}>It starts on its own, wherever you are in Landed.</span>
+        </span>
+        <button type="button" className="btn-primary" onClick={() => navigate('/agent')} style={{ fontSize: 12 }}>Connect your computer</button>
+      </div>
+    </div>
+  )
+}
+
 export function UploadPane({ manual, onOpenMaster }: { manual: ReactNode; onOpenMaster: () => void }) {
   const target = agentFor(useRuntimes().data, 'resume_parse')
   const uploads = useResumeTask((s) => s.uploads)
   const upload = useResumeTask((s) => s.upload)
+  const uploadWaiting = useResumeTask((s) => s.uploadWaiting)
   const clear = useResumeTask((s) => s.clearUploads)
   const task = useResumeTask((s) => s.task)
   const [over, setOver] = useState(false)
@@ -64,8 +116,12 @@ export function UploadPane({ manual, onOpenMaster }: { manual: ReactNode; onOpen
 
   const send = (files: FileList | File[] | null) => {
     const list = Array.from(files ?? [])
-    if (list.length && target.agent) void upload({ runtime: target.runtime, agent: target.agent }, list)
+    if (!list.length) return
+    if (target.agent) void upload({ runtime: target.runtime, agent: target.agent }, list)
+    // Without a computer: one file, read here as far as it can be.
+    else void uploadWaiting(list[0])
   }
+  const waiting = [...uploads].reverse().find((u) => u.status === 'waiting')
 
   return (
     <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -79,23 +135,25 @@ export function UploadPane({ manual, onOpenMaster }: { manual: ReactNode; onOpen
 
       <div
         role="button" tabIndex={0}
-        onClick={() => target.agent && picker.current?.click()}
-        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && target.agent) picker.current?.click() }}
+        onClick={() => picker.current?.click()}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') picker.current?.click() }}
         onDragOver={(e) => { e.preventDefault(); setOver(true) }}
         onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); send(e.dataTransfer.files) }}
         style={{
           border: `1.5px dashed ${over ? 'var(--accent)' : 'var(--border-strong)'}`, borderRadius: 12, padding: '34px 20px',
-          background: over ? 'var(--surface-2)' : 'var(--surface)', textAlign: 'center', cursor: target.agent ? 'pointer' : 'default',
-          opacity: target.agent ? 1 : 0.6,
+          background: over ? 'var(--surface-2)' : 'var(--surface)', textAlign: 'center', cursor: 'pointer',
         }}>
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8, color: 'var(--fg-muted)' }}><Icon name="download" size={22} /></div>
-        <div style={{ fontSize: 13.5, fontWeight: 500 }}>Drop resumes here, or click to choose</div>
-        <div style={{ ...muted, fontSize: 11.5, marginTop: 4 }}>PDF, Word (.docx), photo or text · several at once · up to 8 MB each</div>
-        <input ref={picker} type="file" multiple hidden accept=".pdf,.docx,.png,.jpg,.jpeg,.webp,.txt,.md"
+        <div style={{ fontSize: 13.5, fontWeight: 500 }}>{target.agent ? 'Drop resumes here, or click to choose' : 'Drop your resume here, or click to choose'}</div>
+        <div style={{ ...muted, fontSize: 11.5, marginTop: 4 }}>
+          {target.agent ? 'PDF, Word (.docx), photo or text · several at once · up to 8 MB each' : 'PDF or Word (.docx) · up to 3 MB · one at a time until your computer is connected'}
+        </div>
+        <input ref={picker} type="file" multiple={!!target.agent} hidden accept={target.agent ? '.pdf,.docx,.png,.jpg,.jpeg,.webp,.txt,.md' : '.pdf,.docx'}
           onChange={(e) => { send(e.target.files); e.target.value = '' }} />
       </div>
-      <AgentLine kind="resume_parse" />
+      {target.agent || target.outdated ? <AgentLine kind="resume_parse" /> : !waiting && <ConnectLater />}
+      {waiting && !target.agent && <WhatsNext item={waiting} />}
 
       {uploads.length > 0 && (
         <div style={{ ...card, padding: 10, display: 'flex', flexDirection: 'column' }}>
@@ -104,7 +162,9 @@ export function UploadPane({ manual, onOpenMaster }: { manual: ReactNode; onOpen
               <Icon name="doc" size={12} />
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
               {u.status === 'saved'
-                ? <span style={{ fontSize: 11.5, color: 'oklch(0.45 0.13 155)', display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="check" size={11} /> Added</span>
+                ? <span style={{ fontSize: 11.5, color: 'oklch(0.45 0.13 155)', display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="check" size={11} /> {u.replace_id ? 'Read in full' : 'Added'}</span>
+                : u.status === 'waiting'
+                  ? <span style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Basics read · the rest when your computer connects</span>
                 : u.status === 'error'
                   ? <span title={u.error} style={{ fontSize: 11.5, color: danger, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.error}</span>
                   : <span style={{ fontSize: 11.5, color: 'var(--fg-muted)', animation: 'pulse 1.6s ease-in-out infinite' }}>{u.status === 'preparing' ? 'Preparing…' : 'Reading…'}</span>}
@@ -122,7 +182,7 @@ export function UploadPane({ manual, onOpenMaster }: { manual: ReactNode; onOpen
 
       <div>
         <button type="button" className="btn-secondary" style={{ fontSize: 11.5 }} onClick={() => setShowManual(!showManual)}>
-          {showManual ? 'Hide' : 'No computer connected? Paste from ChatGPT, Claude or Gemini instead'}
+          {showManual ? 'Hide' : target.agent ? 'Or paste it from ChatGPT, Claude or Gemini' : 'Or have ChatGPT, Claude or Gemini read it all now, and paste it back'}
         </button>
       </div>
       {showManual && manual}
@@ -140,7 +200,8 @@ export function MasterPane({ onUpload }: { onUpload: () => void }) {
   const target = agentFor(runtimes.data, 'resume_merge')
   const merging = task?.kind === 'resume_merge' && task.status === 'running'
   const m = master?.master_json ?? null
-  const usable = sources.filter((s) => s.parsed_json)
+  // A resume still waiting for a computer has only its basics: merged once read.
+  const usable = sources.filter((s) => s.parsed_json && !s.file_path)
   const fresh = m ? usable.filter((s) => !m.sources.some((x) => x.id === s.id)) : usable
 
   const build = () => target.agent && void merge({ runtime: target.runtime, agent: target.agent }, usable, master)

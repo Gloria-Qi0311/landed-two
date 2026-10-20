@@ -14,6 +14,8 @@
 // gets the loop's pace + keeps this PR reviewable. "Replace from JSON"
 // (re-paste the whole thing) is the v1 mutation path.
 import React, { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useResumeTask } from '../lib/resume-tasks'
 import {
   generatePrompt,
   launchAI,
@@ -37,7 +39,14 @@ import {
   type ResumeRow,
 } from '../hooks/resumes'
 
+/** Resumes uploaded without a computer that it's reading in full right now. */
+function useReadingIds(): Set<string> {
+  const uploads = useResumeTask((s) => s.uploads)
+  return new Set(uploads.filter((u) => u.replace_id && (u.status === 'preparing' || u.status === 'reading')).map((u) => u.replace_id!))
+}
+
 export function ResumesPage() {
+  const reading = useReadingIds()
   const resumesQuery = useResumes()
   const addResume = useAddResume()
   const deleteResume = useDeleteResume()
@@ -119,6 +128,7 @@ export function ResumesPage() {
               {activeResume.kind === 'version' && <VersionPdfCard resume={activeResume} />}
               <ResumeView
                 resume={activeResume}
+                waiting={activeResume.file_path ? (reading.has(activeResume.id) ? 'reading' : 'waiting') : null}
                 onReplace={async (parsed) => {
                   await updateResume.mutateAsync({ id: activeResume.id, patch: { parsed_json: parsed } })
                 }}
@@ -157,6 +167,7 @@ function ResumesList({
   onSetCurrent: (id: string) => void
   onDelete: (id: string) => void
 }) {
+  const reading = useReadingIds()
   const stats = master?.master_json ? masterStats(master.master_json) : null
   return (
     <aside style={{ width: 250, flexShrink: 0, borderRight: '0.5px solid var(--border)', background: 'var(--surface-2)', padding: 10, overflowY: 'auto' }}>
@@ -195,6 +206,7 @@ function ResumesList({
       {sources.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', padding: '0 10px 6px', lineHeight: 1.5 }}>Upload every resume you have — each adds to your master.</div>}
       {sources.map((r) => (
         <RailItem key={r.id} active={activeId === r.id} icon="doc" title={r.name} current={r.is_current} onClick={() => onSelect(r.id)}
+          subtitle={r.file_path ? (reading.has(r.id) ? 'Reading the rest…' : 'Waiting for your computer') : undefined}
           actions={activeId === r.id ? { onSetCurrent: r.is_current ? undefined : () => onSetCurrent(r.id), onDelete: () => onDelete(r.id) } : undefined} />
       ))}
     </aside>
@@ -455,10 +467,13 @@ function UploadFlow({
 
 function ResumeView({
   resume,
+  waiting,
   onReplace,
   onRename,
 }: {
   resume: ResumeRow
+  /** uploaded without a computer: still waiting for it, or being read now */
+  waiting: 'waiting' | 'reading' | null
   onReplace: (parsed: Resume) => Promise<void>
   onRename: (name: string) => Promise<void>
 }) {
@@ -555,7 +570,7 @@ function ResumeView({
         </div>
       )}
 
-      {!filled && (
+      {waiting ? <WaitingNote reading={waiting === 'reading'} /> : !filled && (
         <div style={{ fontSize: 12, color: 'var(--fg-muted)', padding: 12, background: 'var(--surface-2)', border: '0.5px dashed var(--border)', borderRadius: 8 }}>
           This resume is empty. Click any field below to fill it in.
         </div>
@@ -563,6 +578,22 @@ function ResumeView({
 
       {/* Click any text to edit it; saved as you go. */}
       <ResumeEditor resume={parsed ?? emptyResume()} onChange={(next) => void onReplace(next)} />
+    </div>
+  )
+}
+
+/** A resume uploaded without a computer: only its basics so far. */
+function WaitingNote({ reading }: { reading: boolean }) {
+  const navigate = useNavigate()
+  return (
+    <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5, padding: '10px 12px', background: 'var(--accent-soft)', borderRadius: 8 }}>
+      <span style={{ color: 'var(--accent)', display: 'flex', animation: reading ? 'pulse 1.6s ease-in-out infinite' : undefined }}><Icon name={reading ? 'sparkle' : 'device'} size={14} /></span>
+      <span style={{ flex: 1 }}>
+        {reading
+          ? 'Your computer is reading the rest of this resume: experience, education and skills. It fills in below when done.'
+          : "Only the basics so far: name, email, phone and links. Your experience, education and skills are read when your computer is connected; that starts on its own."}
+      </span>
+      {!reading && <button type="button" className="btn-secondary" onClick={() => navigate('/agent')} style={{ fontSize: 12, flexShrink: 0 }}>Connect your computer</button>}
     </div>
   )
 }

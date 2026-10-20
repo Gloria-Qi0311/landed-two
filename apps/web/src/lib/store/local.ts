@@ -9,7 +9,7 @@ import Dexie, { type Table } from 'dexie'
 import { parseConversation } from '@landed/schema/conversation'
 import { parseApplicationAnswers } from '@landed/schema/application-answers'
 import { parseApplicationFile } from '@landed/schema/application-files'
-import { parseMasterResume, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
+import { parseMasterResume, parseTailorNotes, parseTarget, parseWaitingFile } from '@landed/schema/master-resume'
 import { leadQueueDefaults, readLeadQueueFields } from '@landed/schema/lead-queue'
 import { normalizeStage, orderRounds, parseDeadline, parseInterviews, sortRounds, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
@@ -179,8 +179,13 @@ function leadQueueOf(input: Record<string, unknown>) {
 }
 
 /** master_json / target_json validated like the server does (null clears). */
-function resumeExtras(input: { master_json?: unknown; target_json?: unknown }) {
-  const out: Partial<Pick<DbResume, 'master_json' | 'target_json'>> = {}
+function resumeExtras(input: { master_json?: unknown; target_json?: unknown; file_path?: unknown }) {
+  const out: Partial<Pick<DbResume, 'master_json' | 'target_json' | 'file_path'>> = {}
+  if (input.file_path !== undefined) {
+    const f = parseWaitingFile(input.file_path)
+    if (f === undefined) throw new LocalStoreError(400, 'file_path must be a file name (up to 255 characters) or null')
+    out.file_path = f
+  }
   if (input.master_json !== undefined) {
     const m = input.master_json === null ? null : parseMasterResume(input.master_json)
     if (input.master_json !== null && !m) throw new LocalStoreError(400, 'master_json is not a master resume')

@@ -64,6 +64,8 @@ export type DbResume = {
   id: string
   user_id: string
   name: string
+  /** a source uploaded without a computer: the name of the file it still has
+   *  to be read from in full (parseWaitingFile); null otherwise */
   file_path: string | null
   parsed_json: Resume | null
   is_current: boolean
@@ -81,6 +83,8 @@ export type ResumeInput = {
   kind?: ResumeKind
   master_json?: MasterResume | null
   target_json?: (ResumeTarget & { notes?: TailorNotes }) | null
+  /** uploaded without a computer: the file still to be read in full (parseWaitingFile) */
+  file_path?: string | null
 }
 
 export type PortalProvider =
@@ -291,7 +295,7 @@ export interface DataStore {
   listResumes(): Promise<DbResume[]> // created_at desc
   /** At most one `master` per account (a second is a 409). */
   addResume(input: ResumeInput): Promise<DbResume>
-  updateResume(id: string, patch: Partial<Pick<DbResume, 'name' | 'parsed_json' | 'master_json' | 'target_json'>>): Promise<DbResume>
+  updateResume(id: string, patch: Partial<Pick<DbResume, 'name' | 'parsed_json' | 'master_json' | 'target_json' | 'file_path'>>): Promise<DbResume>
   deleteResume(id: string): Promise<void>
   /** Promotes one resume and demotes the previous current one atomically. */
   setCurrentResume(id: string): Promise<DbResume>

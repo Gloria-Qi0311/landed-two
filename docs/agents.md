@@ -235,6 +235,39 @@ Search with (below).
     (`flagQuietApplications`). Answers: ghosted (undoable), wait (asks again in
     21 days), or look at its portal.
 
+## Resume upload
+
+My Resume reads each uploaded file with the user's agent (`resume_parse`), then
+updates the master (`resume_merge`; `apps/web/src/lib/resume-tasks.ts`).
+
+**No computer connected is not a dead end** (product decision 2026-10-19). The
+upload area stays open and says what happens:
+
+1. **Upload now.** One PDF or Word (.docx) file, up to 3 MB (`uploadWaiting`).
+   The file is kept as the extension's resume file (Extension page), and the
+   browser reads its text (pdf.js, mammoth) for what a resume says plainly:
+   name (only a first line that plainly is one: two to four words, not a heading
+   or a job title), email, phone (not a date range), LinkedIn, GitHub
+   (`lib/resume-basics.ts`). It's saved as an uploaded resume with only those,
+   the current one if it's the first, so the extension and the Extension page
+   have them at once. Nothing leaves the browser.
+2. **It waits.** `resumes.file_path` holds the kept file's name
+   (`parseWaitingFile`: text up to 255 characters or null; the column existed
+   and was never used). My Resume says "Waiting for your computer" in the list
+   and on the resume, with "Connect your computer" (→ Agent page), and a
+   "what happens next" card after the upload. A resume still waiting isn't
+   merged into the master.
+3. **Read in full on its own.** Once an agent that can run `resume_parse` is
+   online, `readWaiting` (from `useResumeTaskRunner`, wherever the user is)
+   sends the kept file, replaces the resume's contents with the full read,
+   clears `file_path` and updates the master. Once per resume per session, so a
+   failed read isn't retried in a loop. If the kept file was replaced on the
+   Extension page in the meantime, it says so and reads nothing.
+
+Photos, text files and files over 3 MB still need the computer: they can't be
+kept as the extension's resume file to read later. Pasting from ChatGPT, Claude
+or Gemini stays as the other way.
+
 ## Job search
 
 The chat agent ends a reply with a ```` ```landed-brief ```` JSON block once the

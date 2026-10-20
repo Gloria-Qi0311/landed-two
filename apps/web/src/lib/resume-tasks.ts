@@ -2,6 +2,11 @@
 //   - upload: each resume file → the canonical shape (`resume_parse`; PDFs
 //     and images are read by the agent itself, Word files are turned into
 //     text here first). When a batch is done, the master is updated.
+//   - upload without a computer (`uploadWaiting`): the file is kept for the
+//     extension, the browser reads name, email, phone and links
+//     (lib/resume-basics.ts), and the resume waits (`file_path`). Once a
+//     computer is connected, `readWaiting` reads the kept file in full and
+//     the master is updated — the user does nothing (hooks/resumes.ts).
 //   - merge: every uploaded resume (+ the current master, so edits carry
 //     over) → one master resume, every phrasing of every bullet kept;
 //   - tailor: master + a target role → a version aimed at it, with notes
@@ -16,6 +21,7 @@ import {
 } from '@landed/schema/master-resume'
 import { MAX_FILE_BYTES } from '@landed/schema/application-files'
 import { ApiError } from './api'
+import { READABLE_HERE, readBasics, resumeText } from './resume-basics'
 import type { DataStore, DbResume } from './store/types'
 import { followJob, startJob, type Runtime, type RuntimeAgent } from '../hooks/runtimes'
 
@@ -35,15 +41,18 @@ export type ResumeTask = {
   error?: string
 }
 
-/** One file being read by the agent. */
+/** One file being read by the agent (or, without one, waiting for it). */
 export type UploadItem = {
   id: string
   name: string
-  status: 'preparing' | 'reading' | 'saved' | 'error'
+  /** waiting: saved with what the browser read; the rest when a computer is connected */
+  status: 'preparing' | 'reading' | 'saved' | 'waiting' | 'error'
   job_id: string | null
   /** uploads started together; the master is updated when a batch is done */
   batch: string
   result_id?: string
+  /** reading a waiting resume in full: the resume it fills in */
+  replace_id?: string
   error?: string
 }
 
@@ -56,6 +65,10 @@ type State = {
   uploads: UploadItem[]
   /** Read these files with the agent, save them as uploads, then update the master. */
   upload: (target: Target, files: File[]) => Promise<void>
+  /** No computer: keep the file, save what the browser reads, the rest waits. */
+  uploadWaiting: (file: File) => Promise<void>
+  /** A computer is connected: read a waiting resume's kept file in full. */
+  readWaiting: (target: Target, resume: DbResume) => Promise<void>
   clearUploads: () => void
   bind: (userId: string, binding: Binding) => void
   merge: (target: Target, sources: DbResume[], master: DbResume | null) => Promise<void>
@@ -122,6 +135,20 @@ async function keepResumeFile(files: File[]) {
   binding?.onData()
 }
 
+const fromBase64 = (data: string) => Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
+
+/** A kept file → what the agent gets, as `prepare` does for a picked one. */
+async function prepareKept(name: string, data: string): Promise<{ file: { type: string; data_base64: string } | null; text: string | null }> {
+  if (/\.pdf$/i.test(name)) return { file: { type: 'application/pdf', data_base64: data }, text: null }
+  if (/\.docx$/i.test(name)) {
+    const bytes = fromBase64(data)
+    const mammoth = await import('mammoth')
+    const { value } = await mammoth.extractRawText({ arrayBuffer: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer })
+    return { file: null, text: value }
+  }
+  throw new Error('Only a PDF or Word file can be read later.')
+}
+
 /** The flattened master as a canonical resume (auto-fill uses parsed_json). */
 export function flattenMaster(m: MasterResume) {
   const n = safeNormalize(masterToResume(m))
@@ -167,9 +194,15 @@ export const useResumeTask = create<State>((set, get) => {
           if (!parsed.ok || !binding) updateUpload(item.id, { status: 'error', error: "The agent couldn't make sense of that file." })
           else {
             try {
-              // The first resume becomes the one auto-fill uses.
-              const first = !(await binding.store.listResumes()).some((r) => r.is_current)
-              const row = await binding.store.addResume({ name: item.name, kind: 'source', parsed_json: parsed.resume, set_current: first })
+              let row: DbResume
+              if (item.replace_id) {
+                // A waiting resume, read in full: it's no longer waiting.
+                row = await binding.store.updateResume(item.replace_id, { parsed_json: parsed.resume, file_path: null })
+              } else {
+                // The first resume becomes the one auto-fill uses.
+                const first = !(await binding.store.listResumes()).some((r) => r.is_current)
+                row = await binding.store.addResume({ name: item.name, kind: 'source', parsed_json: parsed.resume, set_current: first })
+              }
               updateUpload(item.id, { status: 'saved', result_id: row.id })
               binding.onData()
             } catch (err) {
@@ -270,6 +303,48 @@ export const useResumeTask = create<State>((set, get) => {
           await finishBatch(batch)
         }
       }))
+    },
+
+    async uploadWaiting(file) {
+      const item: UploadItem = { id: crypto.randomUUID(), name: baseName(file), status: 'preparing', job_id: null, batch: crypto.randomUUID() }
+      set((s) => ({ uploads: [...s.uploads.filter((u) => u.status === 'preparing' || u.status === 'reading'), item] }))
+      try {
+        if (!binding) throw new Error('Not signed in.')
+        // The kept file (the extension's resume file: PDF or Word) is what the
+        // agent reads later, so only a file that can be kept can wait.
+        if (!READABLE_HERE.test(file.name)) {
+          throw new Error('Without your computer, upload a PDF or Word (.docx) file. Photos and other files are read once it\'s connected.')
+        }
+        if (file.size > MAX_FILE_BYTES) throw new Error('Over 3 MB: connect your computer to read it, or upload a smaller PDF.')
+        await keepResumeFile([file])
+        const basics = readBasics(await resumeText(file).catch(() => ''))
+        const first = !(await binding.store.listResumes()).some((r) => r.is_current)
+        const row = await binding.store.addResume({ name: item.name, kind: 'source', parsed_json: basics, set_current: first, file_path: file.name })
+        updateUpload(item.id, { status: 'waiting', result_id: row.id })
+        binding.onData()
+      } catch (e) {
+        updateUpload(item.id, { status: 'error', error: e instanceof ApiError ? e.message : (e as Error).message })
+      }
+    },
+
+    async readWaiting(target, resume) {
+      // Once per resume per session: a read that failed isn't retried in a loop.
+      if (!binding || !resume.file_path || get().uploads.some((u) => u.replace_id === resume.id)) return
+      const batch = crypto.randomUUID()
+      const item: UploadItem = { id: crypto.randomUUID(), name: resume.name, status: 'preparing', job_id: null, batch, replace_id: resume.id }
+      set((s) => ({ uploads: [...s.uploads, item] }))
+      try {
+        const kept = (await binding.store.listApplicationFiles()).find((f) => f.kind === 'resume')
+        const data = kept?.name === resume.file_path ? await binding.store.getApplicationFileData('resume') : null
+        if (!data) throw new Error('Its file was replaced on the Extension page. Upload this resume again to read the rest.')
+        batchTargets.set(batch, target)
+        const input = await prepareKept(resume.file_path, data.data)
+        const jobId = await startJob(target.runtime.id, target.agent.id, 'resume_parse', { name: resume.name, ...input })
+        updateUpload(item.id, { status: 'reading', job_id: jobId })
+        followUpload({ ...item, status: 'reading', job_id: jobId })
+      } catch (e) {
+        updateUpload(item.id, { status: 'error', error: e instanceof ApiError ? e.message : (e as Error).message })
+      }
     },
 
     clearUploads() {
