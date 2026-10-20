@@ -101,7 +101,7 @@ function WhatsNext({ item }: { item: { name: string; result_id?: string } }) {
   )
 }
 
-export function UploadPane({ manual, onOpenMaster }: { manual: ReactNode; onOpenMaster: () => void }) {
+export function UploadPane({ manual, onOpenMaster, pick = false, onPicked }: { manual: ReactNode; onOpenMaster: () => void; pick?: boolean; onPicked?: () => void }) {
   const target = agentFor(useRuntimes().data, 'resume_parse')
   const uploads = useResumeTask((s) => s.uploads)
   const upload = useResumeTask((s) => s.upload)
@@ -111,6 +111,12 @@ export function UploadPane({ manual, onOpenMaster }: { manual: ReactNode; onOpen
   const [over, setOver] = useState(false)
   const [showManual, setShowManual] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
+  // The header's Upload resume asks for the file chooser (still within the click's user activation).
+  useEffect(() => {
+    if (!pick) return
+    picker.current?.click()
+    onPicked?.()
+  }, [pick, onPicked])
   const busy = uploads.some((u) => u.status === 'preparing' || u.status === 'reading')
   const mergeDone = task?.kind === 'resume_merge' && task.status === 'done' && uploads.some((u) => u.status === 'saved') && !busy
 

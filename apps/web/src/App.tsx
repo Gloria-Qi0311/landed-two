@@ -390,7 +390,7 @@ function ApplicationsPage({
             </>
           }
         />
-        <EmptyApplicationsView onAddManual={onOpenAddModal} onConnectPortal={() => {}} />
+        <EmptyApplicationsView onAddManual={onOpenAddModal} onTrackStatus={() => navigate('/automation')} />
       </>
     );
   }

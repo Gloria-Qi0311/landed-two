@@ -2,7 +2,7 @@
 import React from 'react';
 import { Icon } from './primitives';
 
-export const EmptyApplicationsView = ({ onAddManual, onConnectPortal }: { onAddManual: () => void; onConnectPortal: () => void }) => (
+export const EmptyApplicationsView = ({ onAddManual, onTrackStatus }: { onAddManual: () => void; onTrackStatus: () => void }) => (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', overflowY: 'auto' }}>
     <div style={{ maxWidth: 760, width: '100%' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: 28 }}>
@@ -19,7 +19,7 @@ export const EmptyApplicationsView = ({ onAddManual, onConnectPortal }: { onAddM
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <button onClick={onConnectPortal} style={{
+        <button onClick={onTrackStatus} style={{
           background: 'var(--surface)', border: '0.5px solid var(--border)',
           borderRadius: 10, padding: 18, textAlign: 'left', cursor: 'pointer',
           fontFamily: 'inherit', color: 'var(--fg)',
@@ -28,12 +28,13 @@ export const EmptyApplicationsView = ({ onAddManual, onConnectPortal }: { onAddM
             <Icon name="refresh" size={16} />
             <span style={{ fontSize: 11, color: 'oklch(0.45 0.13 155)', background: 'oklch(0.96 0.04 155)', padding: '2px 7px', borderRadius: 4, fontWeight: 500, letterSpacing: '0.02em' }}>RECOMMENDED</span>
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Connect a portal</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Track status automatically</div>
           <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5, marginBottom: 14 }}>
-            Auto-import every role you've applied to on Greenhouse, Lever, Workday, Ashby, BOSS Zhipin, and more. Status changes flow back automatically.
+            Your agent reads confirmation emails, interview invites and rejections and moves each card for you. The extension
+            adds what you submit on job sites.
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--fg)', fontSize: 12, fontWeight: 500 }}>
-            Install extension <Icon name="arrowRight" size={11} />
+            Set up email checks <Icon name="arrowRight" size={11} />
           </div>
         </button>
 

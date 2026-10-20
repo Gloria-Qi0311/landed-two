@@ -57,6 +57,8 @@ export function ResumesPage() {
   const resumes = resumesQuery.data ?? []
   // 'master' | 'new-version' | 'new' (upload) | a resume id
   const [activeId, setActiveId] = useState<string | null>(null)
+  // Set by the header's Upload resume: the upload pane opens the file chooser once.
+  const [pick, setPick] = useState(false)
 
   // Default: the current resume, else the master, else the first upload.
   const effectiveActiveId = useMemo(() => {
@@ -86,7 +88,7 @@ export function ResumesPage() {
         }
         actions={
           <>
-            <button className="btn-secondary" onClick={() => setActiveId('new')}>
+            <button className="btn-secondary" onClick={() => { setActiveId('new'); setPick(true) }}>
               <Icon name="plus" size={13} stroke={2} /> Upload resume
             </button>
             <button className="btn-primary" onClick={() => setActiveId('new-version')}>
@@ -112,6 +114,8 @@ export function ResumesPage() {
             <NewVersionPane onCreated={setActiveId} onOpenMaster={() => setActiveId('master')} />
           ) : effectiveActiveId === 'new' || activeResume === null ? (
             <UploadPane
+              pick={pick}
+              onPicked={() => setPick(false)}
               onOpenMaster={() => setActiveId('master')}
               manual={
                 <UploadFlow
