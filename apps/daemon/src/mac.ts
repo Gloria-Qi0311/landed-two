@@ -45,6 +45,31 @@ export function parseConnectUrl(raw: string): { server: string; token: string; n
   return { server: origin.origin, token, name }
 }
 
+/** landed://connect-agent?agent=codex&url=https://…/mcp. Any web page can
+ * open a custom URL, so accept only the action and endpoint Landed needs;
+ * cli.ts still shows a native confirmation before changing Codex. */
+export function parseAgentConnectUrl(raw: string): { agent: 'codex'; url: string } | null {
+  let link: URL
+  try {
+    link = new URL(raw)
+  } catch {
+    return null
+  }
+  if (link.protocol !== 'landed:' || (link.hostname || link.pathname.replace(/^\/+/, '')) !== 'connect-agent') return null
+  if (link.searchParams.get('agent') !== 'codex') return null
+  const rawUrl = link.searchParams.get('url') ?? ''
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return null
+  }
+  const localHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+  if (url.protocol !== 'https:' && !localHttp) return null
+  if (url.username || url.password || url.search || url.hash || url.pathname !== '/mcp') return null
+  return { agent: 'codex', url: url.toString() }
+}
+
 const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 /** The LaunchAgent: start at login, restart if it stops, log to ~/.landed. */
@@ -221,6 +246,13 @@ export function confirm(message: string, button = 'Connect'): boolean {
 export function notify(message: string) {
   if (process.env.LANDED_ASSUME_YES === '1') return
   spawnSync('osascript', ['-e', `display notification ${osaString(message)} with title "Landed"`])
+}
+
+export function alert(message: string) {
+  if (process.env.LANDED_ASSUME_YES === '1') return
+  spawnSync('osascript', ['-e',
+    `display alert "Landed" message ${osaString(message)} buttons {"OK"} default button "OK" as critical`,
+  ])
 }
 
 export function computerName(): string | null {

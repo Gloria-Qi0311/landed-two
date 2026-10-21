@@ -80,6 +80,12 @@ from before tasks (scope `observations:write` only) may submit but not read
 tasks. Public origin: `PUBLIC_URL`, else the request's Host / X-Forwarded-*
 (Vite proxies `/mcp`, `/oauth`, `/.well-known` in dev).
 
+For Codex on macOS, Agent settings offers a one-click install through Landed for
+Mac: `landed://connect-agent?agent=codex&url=…/mcp`. The native app validates the
+HTTPS endpoint, asks in a native dialog, then uses Codex's own `mcp add` and
+`mcp login` commands so Codex remains the owner of its shared config and OAuth
+credentials. Never remove that confirmation: any page can open a custom URL.
+
 ### The briefing
 
 The briefing is **the one deliberate exception** to "no user data on the server

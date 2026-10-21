@@ -3,7 +3,7 @@
 // through Landed's MCP connector (OAuth), or with a token over the agent
 // protocol (Meta Muse) — and the raw reports. Scheduled work and the
 // auto-apply preference live on the Automation page.
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from './primitives'
 import { useAuth } from '../lib/auth'
 import { formatRelative } from '../lib/time'
@@ -71,7 +71,7 @@ export function AgentSettings() {
           Cloud agents (ChatGPT, Claude, Gemini, Meta Muse…)
         </div>
 
-        <ConnectorCard />
+        <ConnectorCard connections={active} />
 
         {created
           ? <SetupPanel created={created} onDone={() => setCreated(null)} />
@@ -266,34 +266,89 @@ const CONNECTOR_STEPS: { name: string; steps: ReactNode }[] = [
   { name: 'Claude Code · Codex · Cursor', steps: <><code>claude mcp add --transport http landed URL</code> · <code>codex mcp add landed --url URL</code> · Cursor: Settings → MCP → Add new MCP server → URL.</> },
 ]
 
-function ConnectorCard() {
-  const url = `${window.location.origin}/mcp`
+const codexConnectLink = (url: string) =>
+  `landed://connect-agent?agent=codex&url=${encodeURIComponent(url)}`
+
+function CodexConnect({ url, connected }: { url: string; connected: boolean }) {
+  const [opening, setOpening] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  useEffect(() => {
+    if (connected) {
+      setOpening(false)
+      setShowHelp(false)
+    }
+  }, [connected])
+  const open = () => {
+    setOpening(true)
+    setShowHelp(false)
+    window.location.href = codexConnectLink(url)
+    setTimeout(() => setShowHelp(true), 7000)
+  }
+
   return (
-    <Card title="Add Landed as a connector">
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8,
+      background: 'var(--surface-2)', border: '0.5px solid var(--border)', flexWrap: 'wrap',
+    }}>
+      <div style={{ flex: 1, minWidth: 220 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+          <Icon name="sparkle" size={13} /> Codex on this Mac
+          {connected && <span style={{ fontSize: 10.5, color: 'oklch(0.45 0.13 155)', fontWeight: 500 }}>Connected</span>}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5, marginTop: 2 }}>
+          Landed for Mac adds the connector and starts sign-in for you. Approve Landed once in the browser; no terminal or pasted URL.
+        </div>
+      </div>
+      <button type="button" className={connected ? 'btn-secondary' : 'btn-primary'} onClick={open}>
+        {opening ? 'Opening sign-in…' : connected ? 'Reconnect Codex' : 'Connect Codex'}
+      </button>
+      {opening && (
+        <div style={{ flexBasis: '100%', fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+          In the Landed dialog, click <b>Connect Codex</b>; then sign in and click <b>Allow</b> in the browser.
+          {showHelp && <> Nothing opened? Open Landed for Mac once so it can update, then try again.</>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConnectorCard({ connections }: { connections: AgentConnection[] }) {
+  const url = `${window.location.origin}/mcp`
+  const codexConnected = connections.some((c) => c.provider === 'mcp' && /codex/i.test(c.display_name))
+  const onMac = /Mac/i.test(navigator.platform || navigator.userAgent)
+  return (
+    <Card title="Connect an AI agent">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Muted>
           Any agent that takes remote MCP connectors can work for you here, on your own subscription: it gets Landed's tasks (a job
           search for your confirmed direction; an email check if you turned those on and it can read your mail) and hands results
-          back, which land in Leads and on your applications like any agent's. Add this URL as a connector, sign in to Landed when
-          it asks, and click Allow.
+          back, which land in Leads and on your applications like any agent's.
         </Muted>
-        <CopyField value={url} />
-        {isPrivateOrigin() && (
-          <div style={{
-            fontSize: 11.5, padding: '7px 10px', borderRadius: 6, lineHeight: 1.5,
-            background: 'oklch(0.97 0.03 70)', border: '0.5px solid oklch(0.86 0.07 70)', color: 'oklch(0.38 0.1 60)',
-          }}>
-            Agents in the cloud can't reach {window.location.host}. Use Landed's public HTTPS address once it's deployed; agents on this
-            computer (Claude Code, Codex, Cursor) can connect to this one now.
-          </div>
-        )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {CONNECTOR_STEPS.map((s) => (
-            <div key={s.name} style={{ fontSize: 12, lineHeight: 1.55 }}>
-              <span style={{ fontWeight: 600 }}>{s.name}:</span> <span style={{ color: 'var(--fg-muted)' }}>{s.steps}</span>
+        {onMac && <CodexConnect url={url} connected={codexConnected} />}
+        <details style={{ fontSize: 12 }}>
+          <summary style={{ color: 'var(--fg-muted)', cursor: 'pointer', userSelect: 'none' }}>
+            Connect another agent manually
+          </summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+            <CopyField value={url} />
+            {isPrivateOrigin() && (
+              <div style={{
+                fontSize: 11.5, padding: '7px 10px', borderRadius: 6, lineHeight: 1.5,
+                background: 'oklch(0.97 0.03 70)', border: '0.5px solid oklch(0.86 0.07 70)', color: 'oklch(0.38 0.1 60)',
+              }}>
+                Agents in the cloud can't reach {window.location.host}. Use Landed's public HTTPS address once it's deployed; agents on this
+                computer (Claude Code, Codex, Cursor) can connect to this one now.
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {CONNECTOR_STEPS.map((s) => (
+                <div key={s.name} style={{ fontSize: 12, lineHeight: 1.55 }}>
+                  <span style={{ fontWeight: 600 }}>{s.name}:</span> <span style={{ color: 'var(--fg-muted)' }}>{s.steps}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        </details>
         <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4 }}>Then ask it — or give it a scheduled task (e.g. every morning):</div>
         <CopyField value={scheduledPrompt()} mono={false} rows={3} />
       </div>
