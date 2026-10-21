@@ -1,7 +1,11 @@
 # Extension, Apply Assist and Landed for Mac
 
-Apply Assist fills job application forms in the user's browser. **It stays local
-and never submits**: the user checks the form and clicks Submit themselves.
+Apply Assist fills job application forms in the user's browser and stays local.
+Manual Open & autofill, the extension popup and the menu bar stop before Submit.
+Explicitly approving one Lead authorizes the automatic queue to fill, review and
+submit that one application when there are no unresolved fields. Login, account
+creation, CAPTCHA, missing answers/files and review flags block only that job and
+tell the user what to fix.
 
 ## Code layout (`apps/extension`)
 
@@ -20,6 +24,7 @@ holds the message listener and `handleFill`.
 | Module | What it does |
 |---|---|
 | `core.js` | Field ids, `deepAll` / `isRendered` (open shadow roots), outlining, sensitive labels, `fillField`, visible inputs |
+| `blockers.js` | Stops before sign-in, account creation or CAPTCHA; never works around them |
 | `selects.js` | Native `<select>` |
 | `values.js` | Turning resume and answer values into what a field wants |
 | `combobox.js` | Search-box dropdowns (react-select, place autocompletes), `chooseCity` |
@@ -128,8 +133,12 @@ the field's own root, and the outline styles are injected there too.
   sensitive questions left out.
 - Page labels are untrusted prompt text.
 
-Browser extensions are the only code that touches the DOM, and they **never
-click Submit / Apply / Finish**.
+Browser extensions are the only code that touches the DOM. `lib/fill/submit.js`
+may click exactly one unmistakable final-submit control only for a tab carrying
+the per-job authorization created by Approve. It rejects intermediate Next /
+Continue / Review / Apply-now controls, multiple candidates, blockers, missing
+required fields and yellow review fields. Every other fill surface stops before
+Submit.
 
 ### Review after filling
 
@@ -275,7 +284,7 @@ an agent's read of a form never saves a Yes for it.
 - consent (privacy policy, data processing, "I confirm…") is ticked only when the
   user turns on `agree_to_terms` ("Tick consent boxes for me"). It's the user's own
   switch: an agent's read never sets it;
-- Submit is never clicked.
+- saved answers alone never authorize Submit; only Approve on that lead does.
 
 The agent can read a form the user already filled (screenshot or text) and answer
 with a ```` ```landed-answers ```` block (`extractAnswers`). The chat card saves
@@ -332,7 +341,7 @@ lists show none) and goes to the local model like radio groups. Place
 autocompletes take the result whose place name *is* the city ("Seattle Hill" is
 another place), in the saved state when there are several.
 
-## Open & autofill from Landed, and submissions → Applied
+## Open & autofill, approved execution, and submissions → Applied
 
 A lead card (sparkle icon) and a saved application's drawer
 (`components/apply-assist.tsx`) ask the extension over the page bridge
@@ -350,6 +359,28 @@ focus and on every new event, one tab at a time via Web Locks): the stamped
 application or lead, else screenshot matching. A forward move is undoable, and
 each submission is handled once (`portal-applied:` ledger suggestion, so deleting
 the application doesn't bring it back). Events older than 30 days are ignored.
+
+**Approved-lead execution** (#99) starts automatically after Approve and keeps a
+manual Retry approved control. It uses the same `priority` order as the cards and
+opens at most five linked `saved` applications, one tab at a time in that order;
+each tab then fills, reviews and submits independently. A manually saved
+application has no linked-lead authorization and is never included. A skipped or
+blocked job never consumes the rest of the batch:
+
+- another application at that company is already at OA, interview or offer;
+- an active application at the company has a `recruiter_response` note;
+- the application is already filling / waiting for review, lacks a posting link,
+  or has no usable resume.
+
+Before touching fields, `blockers.js` checks for a visible password/account form
+or CAPTCHA. It never signs in, creates an account or works around the challenge.
+The service worker queues a small result (Landed ids, counts and blocker only;
+never form values) under `landed:assist-results`. The open Landed tab takes each
+result once: `next_step` becomes a specific `Blocked · …`, `Review highlighted
+fields, then submit` for manual fills, or `Submitted · waiting for confirmation`,
+and the batch UI tells the user while every other tab continues.
+After the user signs in or creates the account and the tab navigates, the normal
+fill can run again. The menu bar and the web batch both cap a selection at five.
 
 ## Landed for Mac updates itself
 

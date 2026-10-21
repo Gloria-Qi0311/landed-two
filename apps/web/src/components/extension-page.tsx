@@ -34,7 +34,7 @@ function StatusCard() {
           <span>
             It fills with the resume you pick in the Landed menu bar ({current ? <Link to="/resumes">{current.name}</Link> : 'none marked current yet'}), or — when you
             start from a lead or application here — the version tailored for that job. Unknown fields go to the AI on your Mac (Ollama, or your Claude Code).
-            It never clicks Submit.
+            Manual autofill never clicks Submit; an approved Lead may submit after every check passes.
           </span>
           <span>
             Landed for Mac updates itself (and the extension with it). <a href="/api/downloads/landed-mac.zip" download>Download it again</a> to reinstall or

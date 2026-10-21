@@ -106,10 +106,19 @@ messages (PR title and a clean body, no trailer).
   and links, keeps the file, and the agent reads the rest once one is connected
   (`resumes.file_path` marks it waiting).
 
-## Apply Assist never submits
+## An approved lead may be submitted automatically
 
-- Never click Submit / Apply / Finish. Never bypass a CAPTCHA. Never store site
-  passwords.
+- Approve on one Lead is explicit authorization to apply to and submit that one
+  job. A discovered lead, a manually saved application, opening a posting or a
+  previous approval never authorizes another submission.
+- For an approved lead, the extension may click one unambiguous final Submit
+  control only after every required field is answered and the agent fill review
+  ran with no unresolved issue. Manual Open & autofill, the extension popup and
+  the menu bar never submit.
+- Never bypass a CAPTCHA or store site passwords. Login, account creation,
+  missing answers/files, review flags and sensitive or legal confirmations not
+  covered by the user's saved choices stop that application and tell the user;
+  they do not stop other approved applications.
 - Never guess: no saved answer → yellow; EEO left blank → "I don't wish to
   answer"; consent boxes only when the user's own `agree_to_terms` switch is on (an
   agent never sets it).
@@ -135,6 +144,10 @@ messages (PR title and a clean body, no trailer).
   open-ended text or resume fields); the Extension page asks each once, and the
   answer fills every form after that, on pages still open only fields still empty.
   Questions only the user's answers can answer never take a resume value.
+- Approved applications run automatically, at most five at a time in queue
+  priority order. The linked saved lead is the authorization proof. Execution
+  skips a company already at OA, interview, offer or recruiter contact; every
+  blocker and a successful submit are recorded on the application.
 - A tailored version's one-page PDF is derived: made in the browser from its
   `parsed_json`, never stored, never shrunk below 9.5 pt to fit.
 - Fill code lives in `apps/extension/lib/fill/*.js`, each module registered on

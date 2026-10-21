@@ -421,6 +421,7 @@ function ApplicationsPage({
           onOpen={onOpenApp}
           onMoveCard={onMoveCard}
           leads={leads}
+          queueLeads={allLeads}
           onAddLead={(lead: DbJobLead, stage: Stage) => leadActions.add.mutate({ lead, stage })}
           onDismissLead={(id: string) => leadActions.dismiss.mutate(id)}
           onOpenLead={(lead: DbJobLead) => recordApplyClick({ kind: 'lead', lead })}

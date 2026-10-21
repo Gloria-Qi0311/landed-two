@@ -86,7 +86,7 @@ export function ApplicationFilesCard() {
     <div style={card}>
       <div>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>Files to upload</div>
-        <div style={muted}>PDF or Word, up to 3 MB each. The extension attaches them when it fills a form; you still check and submit yourself.</div>
+        <div style={muted}>PDF or Word, up to 3 MB each. The extension attaches them when it fills a form; manual autofill waits for you, while an approved Lead can submit after every check passes.</div>
       </div>
       <div>{SLOTS.map((s) => <Slot key={s.kind} {...s} />)}</div>
     </div>

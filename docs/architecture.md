@@ -106,7 +106,8 @@ postings are fetched: the browser) is in [leads-model.md](leads-model.md).
 ### 3. Execution: filling a form
 
 ```
-Lead card / drawer "Open & autofill"  or  extension popup "Fill"  or  menu bar app
+Manual card / drawer "Open & autofill"  or  approved Leads queue (≤5)
+  or  extension popup "Fill"  or  menu bar app
    ▼
 extension background.js → fillTab: the page plus every frame that reported a form
    ▼
@@ -116,7 +117,8 @@ content scripts (lib/fill/*): rules → saved answers → files → dropdowns/ra
    └─ review → native host → the user's own agent checks the filled form
       (sensitive questions left out; picks a fact or an option, never writes text)
    ▼
-fields outlined green (filled) or yellow (needs you) → the user submits
+manual fill: fields outlined green/yellow → the user submits
+approved queue: all checks pass → one unambiguous final submit is clicked
    ├─ still empty → Extension page asks once → every form after answers by rule
    ▼
 "thanks for applying" page → portal event → lib/inbox/confirmations.ts → Applied

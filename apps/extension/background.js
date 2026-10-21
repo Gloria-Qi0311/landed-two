@@ -430,14 +430,78 @@ async function fillTab(tabId, resume) {
   const answered = responses.filter((r) => !r.error)
   if (answered.length === 0) return { tabId, error: responses[0]?.error || 'No response from page' }
   const count = (key) => answered.reduce((sum, r) => sum + (Array.isArray(r[key]) ? r[key].length : 0), 0)
+  const fields = answered.reduce((sum, r) => sum + (Number.isSafeInteger(Number(r.fields)) ? Math.max(0, Number(r.fields)) : 0), 0)
+  const rawBlocker = answered.map((r) => r.blocker).find((b) => b && ['login', 'account', 'captcha'].includes(b.kind))
+  const blocker = rawBlocker ? {
+    kind: rawBlocker.kind,
+    message: typeof rawBlocker.message === 'string' ? rawBlocker.message.slice(0, 300) : '',
+  } : null
+  // A blocker is terminal for this page load. Other frames may already have
+  // filled harmless fields in parallel, but Landed never passes the gate.
+  if (blocker) return {
+    tabId, filled: count('filled'), review: count('manual'), fields, frames: answered.length,
+    blocker, agent_review: addReviews(answered), unanswered: 0, missing_files: [],
+  }
   const attached = new Set(answered.flatMap((r) => (Array.isArray(r.filled) ? r.filled : [])).filter((f) => String(f).startsWith('file:')).map((f) => String(f).slice(5)))
   const missing = [...new Set(answered.flatMap((r) => (Array.isArray(r.missing_files) ? r.missing_files : [])))].filter((kind) => !attached.has(kind))
   const unanswered = answered.flatMap((r) => (Array.isArray(r.unanswered) ? r.unanswered : []))
   await queueQuestions(tabId, unanswered)
   return {
-    tabId, filled: count('filled'), review: count('manual'), missing_files: missing, frames: answered.length, agent_review: addReviews(answered),
+    tabId, filled: count('filled'), review: count('manual'), fields, missing_files: missing, frames: answered.length, agent_review: addReviews(answered),
     unanswered: unanswered.length,
   }
+}
+
+function submitFrame(tabId, frameId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(tabId, { action: 'submit-application' }, { frameId }, (response) => {
+        const error = chrome.runtime.lastError
+        if (error || !response) resolve({ ok: false, error: error?.message || 'No response from page' })
+        else resolve(response)
+      })
+    } catch (error) {
+      resolve({ ok: false, error: error instanceof Error ? error.message : String(error) })
+    }
+  })
+}
+
+/** Ask each form frame in order; exactly one may identify and click the final
+ * submit. Every frame re-checks its live DOM immediately before the click. */
+async function submitTab(tabId) {
+  const frames = [0, ...((await loadFormFrames())[tabId] || []).filter((id) => id !== 0)]
+  const blockers = []
+  for (const frameId of frames) {
+    const result = await submitFrame(tabId, frameId)
+    if (result?.submitted) return { tabId, submitted: true, label: result.label || null }
+    if (result?.blocker) blockers.push(result.blocker)
+  }
+  const human = blockers.find((b) => b && ['login', 'account', 'captcha', 'answers', 'review'].includes(b.kind))
+    || blockers.find((b) => b?.kind === 'submit')
+  return {
+    tabId,
+    blocker: human || { kind: 'submit', message: 'No unambiguous final submit control is visible' },
+  }
+}
+
+/** Aggregate fill result → why an approved application still cannot submit. */
+function submissionBlocker(result) {
+  if (Array.isArray(result.missing_files) && result.missing_files.length) {
+    return { kind: 'files', message: `Missing required ${result.missing_files.join(' and ').replace(/_/g, ' ')}` }
+  }
+  if (Number(result.unanswered) > 0) {
+    return { kind: 'answers', message: `${result.unanswered} required question${result.unanswered === 1 ? '' : 's'} need your saved answer` }
+  }
+  if (Number(result.review) > 0) {
+    return { kind: 'review', message: `${result.review} field${result.review === 1 ? '' : 's'} still need review` }
+  }
+  if (!result.agent_review || result.agent_review.error) {
+    return { kind: 'review', message: result.agent_review?.error || 'The agent review did not run' }
+  }
+  if (Number(result.agent_review.flagged) > 0) {
+    return { kind: 'review', message: `${result.agent_review.flagged} field${result.agent_review.flagged === 1 ? '' : 's'} were flagged by the agent` }
+  }
+  return null
 }
 
 // ── questions a fill had to leave empty (lib/fill/unanswered.js) ──────────
@@ -636,10 +700,16 @@ connectAssistBridge()
 // resume version Landed picked — again on the next page if the form isn't
 // on this one (an "Apply" button that leads to it) — and remember which
 // application/lead the tab is for, so the "thanks for applying" page lands
-// on that one. Same fill as the menu bar: it never submits.
+// on that one. Manual opens use the same fill as the menu bar and never
+// submit. A linked lead + application may additionally carry the one-job
+// submit authorization created by the user's Approve action.
 
 const ASSIST_TABS_KEY = 'landed:assist-tabs'
+const ASSIST_RESULTS_KEY = 'landed:assist-results'
 const FILL_RETRIES_MS = [1500, 3000, 6000]
+const MAX_ASSIST_RESULTS = 50
+const withAssistResultsLock = self.LandedBridge.createQueueLock()
+const assistFillingTabs = new Set()
 
 function tabArea() {
   // Session storage outlives the service worker but not the browser.
@@ -670,24 +740,111 @@ function updateAssistTabs(fn) {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** A small, non-sensitive result queue for the open Landed tab. Values and
+ * resume contents never enter it — only Landed ids, counts and a blocker. */
+async function queueAssistResult(entry, result, status) {
+  const row = {
+    application_id: entry.application_id || null,
+    lead_id: entry.lead_id || null,
+    tab_id: result.tabId,
+    status,
+    blocker: result.blocker?.kind || null,
+    message: result.blocker?.message || (typeof result.error === 'string' ? result.error.slice(0, 300) : null),
+    filled: Number(result.filled) || 0,
+    review: Number(result.review) || 0,
+    at: new Date().toISOString(),
+  }
+  await withAssistResultsLock(async () => {
+    const stored = await readArea(chrome.storage.local, ASSIST_RESULTS_KEY)
+    const queued = Array.isArray(stored) ? stored : []
+    queued.push(row)
+    await writeArea(chrome.storage.local, { [ASSIST_RESULTS_KEY]: queued.slice(-MAX_ASSIST_RESULTS) })
+  })
+}
+
+async function takeAssistResults() {
+  return withAssistResultsLock(async () => {
+    const stored = await readArea(chrome.storage.local, ASSIST_RESULTS_KEY)
+    const queued = Array.isArray(stored) ? stored : []
+    if (queued.length) await writeArea(chrome.storage.local, { [ASSIST_RESULTS_KEY]: [] })
+    return queued
+  })
+}
+
 /** Fill a Landed-opened tab, retrying while the page builds its form. */
 async function fillAssistTab(tabId) {
-  for (const wait of FILL_RETRIES_MS) {
-    await delay(wait)
-    const entry = (await loadAssistTabs())[tabId]
-    if (!entry || entry.filled) return
-    await loadAssistResumes()
-    const resume = assistResumes.find((item) => item.id === entry.resume_id)
-    if (!resume) return
-    const result = await fillTab(tabId, resume)
-    if (result.filled > 0 || result.review > 0) {
-      await updateAssistTabs((tabs) => { if (tabs[tabId]) tabs[tabId].filled = true })
-      return
+  if (assistFillingTabs.has(tabId)) return
+  assistFillingTabs.add(tabId)
+  let lastError = null
+  try {
+    for (const wait of FILL_RETRIES_MS) {
+      await delay(wait)
+      const entry = (await loadAssistTabs())[tabId]
+      if (!entry || entry.filled) return
+      await loadAssistResumes()
+      const resume = assistResumes.find((item) => item.id === entry.resume_id)
+      if (!resume) return
+      const result = await fillTab(tabId, resume)
+      if (result.blocker) {
+        await updateAssistTabs((tabs) => { if (tabs[tabId]) tabs[tabId].blocker = result.blocker.kind })
+        await queueAssistResult(entry, result, 'blocked')
+        return
+      }
+      lastError = result.error || null
+      if (result.fields > 0 || result.filled > 0 || result.review > 0) {
+        if (!entry.submit_authorized) {
+          await updateAssistTabs((tabs) => { if (tabs[tabId]) tabs[tabId].filled = true })
+          await queueAssistResult(entry, result, 'ready')
+          return
+        }
+        const blocker = submissionBlocker(result)
+        if (blocker) {
+          await updateAssistTabs((tabs) => {
+            if (tabs[tabId]) {
+              tabs[tabId].filled = true
+              tabs[tabId].blocker = blocker.kind
+            }
+          })
+          await queueAssistResult(entry, { ...result, blocker }, 'blocked')
+          return
+        }
+        // Persist before asking the page to click: the click may navigate the
+        // tab immediately, and the loading event must not start a second fill.
+        await updateAssistTabs((tabs) => {
+          if (tabs[tabId]) {
+            tabs[tabId].filled = true
+            tabs[tabId].submitting = true
+          }
+        })
+        const submitted = await submitTab(tabId)
+        if (submitted.submitted) {
+          await updateAssistTabs((tabs) => {
+            if (tabs[tabId]) {
+              tabs[tabId].submitting = false
+              tabs[tabId].submitted = true
+            }
+          })
+          await queueAssistResult(entry, result, 'submitted')
+        } else {
+          await updateAssistTabs((tabs) => {
+            if (tabs[tabId]) {
+              tabs[tabId].submitting = false
+              tabs[tabId].blocker = submitted.blocker?.kind || 'submit'
+            }
+          })
+          await queueAssistResult(entry, { ...result, blocker: submitted.blocker }, 'blocked')
+        }
+        return
+      }
     }
+    const entry = (await loadAssistTabs())[tabId]
+    if (entry && lastError) await queueAssistResult(entry, { tabId, error: lastError }, 'error')
+  } finally {
+    assistFillingTabs.delete(tabId)
   }
 }
 
-async function openAndFill({ url, resume_id, application_id, lead_id }) {
+async function openAndFill({ url, resume_id, application_id, lead_id, submit_authorized = false }) {
   await loadAssistResumes()
   const resume = assistResumes.find((item) => item.id === resume_id)
   if (!resume) return { ok: false, error: "That resume isn't in this browser yet. Reload Landed so it syncs, then try again." }
@@ -697,16 +854,29 @@ async function openAndFill({ url, resume_id, application_id, lead_id }) {
   })
   if (!tab || !Number.isInteger(tab.id)) return { ok: false, error: 'Could not open the posting' }
   await updateAssistTabs((tabs) => {
-    tabs[tab.id] = { resume_id, application_id, lead_id, filled: false, opened_at: Date.now() }
+    tabs[tab.id] = {
+      resume_id, application_id, lead_id,
+      submit_authorized: submit_authorized === true && !!application_id && !!lead_id,
+      filled: false, submitting: false, submitted: false, blocker: null, opened_at: Date.now(),
+    }
   })
   return { ok: true, data: { tab_id: tab.id, resume: resume.name } }
 }
 
 try {
   chrome.tabs.onUpdated.addListener((tabId, info) => {
+    if (info.status === 'loading') {
+      void updateAssistTabs((tabs) => {
+        if (tabs[tabId] && !tabs[tabId].submitting && !tabs[tabId].submitted) {
+          tabs[tabId].filled = false
+          tabs[tabId].blocker = null
+        }
+      })
+      return
+    }
     if (info.status !== 'complete') return
     loadAssistTabs().then((tabs) => {
-      if (tabs[tabId] && !tabs[tabId].filled) void fillAssistTab(tabId)
+      if (tabs[tabId] && !tabs[tabId].filled && !tabs[tabId].submitting && !tabs[tabId].submitted) void fillAssistTab(tabId)
     })
   })
   chrome.tabs.onRemoved.addListener((tabId) => {
@@ -766,6 +936,7 @@ const handleBridge = self.LandedBridge.createBridgeHandler({
   onQueueChanged: () => refreshBadge(),
   version: chrome.runtime.getManifest().version,
   openAndFill,
+  takeAssistResults,
   onAnswersSynced: () => { void fillAnsweredTabs() },
 })
 

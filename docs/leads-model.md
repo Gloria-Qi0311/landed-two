@@ -19,12 +19,12 @@ The Leads column sorts both by deadline. Leads carry no source date, no
 ## Proposal: keep the two records, give each one job
 
 ```
- supply track writes                       the user approves             execution track reads
-┌──────────────────────────┐   approve    ┌──────────────────────────┐   "apply next batch"
-│ Candidates               │ ───────────► │ Queue                    │ ─────────────────────►
-│ job_leads, status 'new'  │ (one or many)│ applications, 'saved'    │  open → fill → user submits
-│ + posted_at, closed_at,  │ addLeadTo-   │ linked lead carries the  │  → confirmation → Applied
-│   screen, fit            │ Pipeline     │ score and reasons        │    (already works)
+ supply track writes                       the user approves             automatic execution
+┌──────────────────────────┐   approve    ┌──────────────────────────┐   approved queue
+│ Candidates               │ ───────────► │ Authorized queue         │ ─────────────────────►
+│ job_leads, status 'new'  │ (one or many)│ applications, 'saved'    │  open → fill → review
+│ + posted_at, closed_at,  │ addLeadTo-   │ linked lead carries the  │  → submit → confirm
+│   screen, fit            │ Pipeline     │ per-job authorization    │  → Applied
 └──────────────────────────┘              └──────────────────────────┘
 ```
 
@@ -32,14 +32,16 @@ The Leads column sorts both by deadline. Leads carry no source date, no
    knows to each one.
 2. **Approving** a candidate is the existing `addLeadToPipeline(lead, 'saved')`.
    Batch approval calls it for each selected lead. There's no new "approved" state:
-   stage `saved` means approved.
+   the linked lead plus stage `saved` is the per-job submission authorization.
+   A manually added `saved` application is not authorized for auto-submit.
 3. **The queue** is applications in stage `saved`, in priority order. A saved
    application created from a lead reads its score from that lead (the one whose
    `application_id` points to it). One added by hand has no score and sorts by
    deadline.
-4. **Execution** opens the posting with Apply Assist (it already takes an
-   application id), and the confirmation page moves it to Applied. No change is
-   needed there for this PR.
+4. **Execution** automatically takes approved items, opens the posting, fills it,
+   runs the agent review and submits only when no required field or review issue
+   remains. The confirmation page moves it to Applied. Human-only blockers stop
+   only that application.
 
 This reuses the model that exists, and nothing changes for users until the new
 fields have values.
@@ -259,11 +261,24 @@ in New Grad).
   Engineer, New Grad" and "Software Engineer, Platform (New Grad)" at one company
   badged both before.
 
+## Approved-lead execution (#99)
+
+Approve starts the linked `saved` applications automatically, up to five at a
+time in the same `priority` order as the column. The extension opens, fills,
+reviews and clicks one unambiguous final submit control when every check passes.
+A company already at OA, interview, offer or active recruiter contact is skipped
+and the reason is shown. Login, required account, CAPTCHA, missing answers/files,
+review flags or an ambiguous final control write a human-readable `Blocked · …`
+into `next_step`; each affects only that tab. A successful click writes
+`Submitted · waiting for confirmation`, and the portal confirmation moves it to
+Applied. The header keeps a retry control but no second approval is required.
+
+This deliberately uses `next_step` instead of adding execution state: it is the
+next action the user sees on the card and in the drawer, survives local/cloud
+sync and backups, and can be edited by the user. The extension result queue
+contains no application answers.
+
 ## Left for later PRs
 
-- `apply_mode` (manual / assist / auto) and the daily limit, which only matter
-  for the optional auto-submit phase. Auto-submit is not decided.
-- Write-back from execution ("blocked: needs an account / a CAPTCHA"). The
-  execution track adds it to `applications` when it builds "apply next batch".
-- Not applying to companies where the user is already at OA, interview or
-  recruiter stage. This is an execution-track rule.
+- Optional user-configurable daily limits. They must not weaken the per-job
+  Approve authorization boundary.

@@ -17,7 +17,9 @@
 //   assist-open   "Open & autofill" on a lead or application: open its posting
 //                 in a new tab and fill it with the resume version Landed
 //                 picked; the tab remembers which application/lead it's for,
-//                 so the "thanks for applying" page lands on that one
+//                 so the "thanks for applying" page lands on that one. Only
+//                 a linked application + lead may carry submit authorization.
+//   take-assist-results  fill-ready / human-blocker results, delivered once
 //   hello         presence + version check
 //
 // Requests arrive from lib/web-bridge.js (a content script injected only on
@@ -110,7 +112,7 @@
   }
 
   function createBridgeHandler(deps) {
-    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, onAnswersSynced } = deps
+    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
 
     return async function handle(msg, sender) {
@@ -246,12 +248,23 @@
           if (!url) return { ok: false, error: 'not a link the extension can open' }
           if (typeof p.resume_id !== 'string' || !p.resume_id) return { ok: false, error: 'resume_id is required' }
           if (!openAndFill) return { ok: false, error: 'this browser cannot autofill' }
+          const applicationId = landedId(p.application_id)
+          const leadId = landedId(p.lead_id)
           return openAndFill({
             url,
             resume_id: p.resume_id.slice(0, 64),
-            application_id: landedId(p.application_id),
-            lead_id: landedId(p.lead_id),
+            application_id: applicationId,
+            lead_id: leadId,
+            // The web app sets this only for a lead the user approved. The
+            // bridge refuses to forward it without both linked Landed ids,
+            // so manual Open & autofill can never inherit submit permission.
+            submit_authorized: p.submit_authorized === true && !!applicationId && !!leadId,
           })
+        }
+
+        case 'take-assist-results': {
+          const results = takeAssistResults ? await takeAssistResults() : []
+          return { ok: true, data: { results: Array.isArray(results) ? results.slice(0, 50) : [] } }
         }
 
         default:

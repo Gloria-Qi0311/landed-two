@@ -26,7 +26,7 @@ function memoryQueue(events) {
   }
 }
 
-function makeHandler(events = [], openAndFill) {
+function makeHandler(events = [], openAndFill, takeAssistResults) {
   const q = memoryQueue(events)
   const saved = {}
   const onQueueChanged = jest.fn()
@@ -41,6 +41,7 @@ function makeHandler(events = [], openAndFill) {
     onQueueChanged,
     version: '2.2',
     openAndFill,
+    takeAssistResults,
     onAnswersSynced,
   })
   return { handle, q, saved, onQueueChanged, onAnswersSynced }
@@ -148,20 +149,36 @@ describe('bridge handler', () => {
     expect(await handle({ type: 'sync-resumes', payload: {} }, FROM_WEB)).toMatchObject({ ok: false })
   })
 
-  test('assist-open passes only a safe link, a resume and Landed ids', async () => {
+  test('assist-open passes only a safe link, a resume and Landed ids; submit needs an approved lead link', async () => {
     const open = jest.fn(async (req) => ({ ok: true, data: { tab_id: 7, req } }))
     const { handle } = makeHandler([], open)
     const app = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b'
-    const res = await handle({ type: 'assist-open', payload: { url: 'https://jobs.lever.co/acme/1', resume_id: 'r1', application_id: app, lead_id: 'not-an-id' } }, FROM_WEB)
+    const lead = '7f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b'
+    const res = await handle({ type: 'assist-open', payload: { url: 'https://jobs.lever.co/acme/1', resume_id: 'r1', application_id: app, lead_id: lead, submit_authorized: true } }, FROM_WEB)
     expect(res).toMatchObject({ ok: true, data: { tab_id: 7 } })
-    expect(open).toHaveBeenCalledWith({ url: 'https://jobs.lever.co/acme/1', resume_id: 'r1', application_id: app, lead_id: null })
+    expect(open).toHaveBeenCalledWith({ url: 'https://jobs.lever.co/acme/1', resume_id: 'r1', application_id: app, lead_id: lead, submit_authorized: true })
+
+    await handle({ type: 'assist-open', payload: { url: 'https://jobs.lever.co/acme/2', resume_id: 'r1', application_id: app, lead_id: 'not-an-id', submit_authorized: true } }, FROM_WEB)
+    expect(open).toHaveBeenLastCalledWith({ url: 'https://jobs.lever.co/acme/2', resume_id: 'r1', application_id: app, lead_id: null, submit_authorized: false })
 
     for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'https://user:pw@x.com/', 42]) {
       expect(await handle({ type: 'assist-open', payload: { url, resume_id: 'r1' } }, FROM_WEB)).toMatchObject({ ok: false })
     }
     expect(await handle({ type: 'assist-open', payload: { url: 'https://x.com/' } }, FROM_WEB)).toMatchObject({ ok: false })
     expect(await handle({ type: 'assist-open', payload: { url: 'https://x.com/', resume_id: 'r1' } }, { origin: 'https://evil.example' })).toMatchObject({ ok: false })
-    expect(open).toHaveBeenCalledTimes(1)
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+
+  test('take-assist-results hands independent page results over once', async () => {
+    const app = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b'
+    let rows = [{ application_id: app, tab_id: 7, status: 'blocked', blocker: 'captcha' }]
+    const take = jest.fn(async () => { const out = rows; rows = []; return out })
+    const { handle } = makeHandler([], undefined, take)
+    expect(await handle({ type: 'take-assist-results' }, FROM_WEB)).toEqual({
+      ok: true, data: { results: [{ application_id: app, tab_id: 7, status: 'blocked', blocker: 'captcha' }] },
+    })
+    expect(await handle({ type: 'take-assist-results' }, FROM_WEB)).toEqual({ ok: true, data: { results: [] } })
+    expect(take).toHaveBeenCalledTimes(2)
   })
 
   test('a submission from a tab Landed opened keeps its application', async () => {

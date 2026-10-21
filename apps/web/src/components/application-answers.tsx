@@ -188,7 +188,7 @@ export function ApplicationAnswersPane() {
             <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>Application answers</div>
             <div style={muted}>
               What application forms ask that your resume doesn't. The extension uses these when it fills a form — text fields, radio buttons and
-              dropdowns. Anything left on “Ask me” stays yellow for you, and it never clicks Submit. Quicker: send your agent a screenshot of a form
+              dropdowns. Anything left on “Ask me” stays yellow for you and blocks automatic submission. Quicker: send your agent a screenshot of a form
               you already filled and ask it to save your answers.
             </div>
           </div>

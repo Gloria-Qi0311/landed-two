@@ -25,6 +25,11 @@ import { useResumes } from './resumes'
 import { useApplicationAnswers, useApplicationFiles } from './answers'
 import { FILE_KINDS } from '@landed/schema/application-files'
 import { addUnanswered, EMPTY_ANSWERS, type ReportedQuestion } from '@landed/schema/application-answers'
+import {
+  APPLY_ASSIST_RESULT_EVENT,
+  nextStepForAssistResult,
+  parseApplyAssistResults,
+} from '../lib/apply-batch'
 
 const PULL_INTERVAL_MS = 60_000
 
@@ -55,6 +60,28 @@ export function useExtensionBridge() {
             await store.saveApplicationAnswers(next)
             qc.invalidateQueries({ queryKey: ['application_answers'] })
           }
+        }
+        // A Landed-opened application page finished filling, or stopped at
+        // a human-only login/account/CAPTCHA. Keep that on the application
+        // card and notify the batch control; one result never gates another.
+        const assist = await bridgeRequest<{ results: unknown[] }>('take-assist-results')
+        const results = parseApplyAssistResults(assist?.results)
+        if (results.length) {
+          const apps = await store.listApplications()
+          let changed = false
+          for (const result of results) {
+            const app = result.application_id ? apps.find((a) => a.id === result.application_id) : null
+            if (app?.stage === 'saved') {
+              const next_step = nextStepForAssistResult(result)
+              if (app.next_step !== next_step) {
+                const updated = await store.updateApplication(app.id, { next_step })
+                Object.assign(app, updated)
+                changed = true
+              }
+            }
+            window.dispatchEvent(new CustomEvent(APPLY_ASSIST_RESULT_EVENT, { detail: result }))
+          }
+          if (changed) qc.invalidateQueries({ queryKey: ['applications'] })
         }
       } catch (e) {
         console.warn('[landed] could not store events from the extension', e)

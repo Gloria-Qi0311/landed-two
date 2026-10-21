@@ -4,6 +4,7 @@
 // manifest.json content_scripts):
 //
 //   core      finding fields (shadow roots too), visibility, marks, review list
+//   blockers  sign-in, account creation and CAPTCHA stops (never bypassed)
 //   selects   native <select>
 //   values    what a field should get: saved answers or the resume (+ Workday rules)
 //   combobox  custom dropdowns and search boxes
@@ -17,13 +18,14 @@
 //   unanswered  empty fields worth asking the user about, once; filling them when answered
 //   frames    forms in iframes report to the service worker
 //   portal    portal confirmation pages → events
+//   submit    strict final-submit detection; called only by an authorized tab
 //
 // Field detection lives in lib/field-detect.js, option matching in
 // lib/value-match.js, CN↔EN translation in lib/cross-lingual.js, saved
 // answers in lib/choice-answers.js. Type-checked via JSDoc + checkJs
 // (tsconfig.json).
 
-const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, fillPendingFromAnswers, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, tagFilled, tryFillCombobox, tryFillSelect, unansweredQuestions } = window.LandedFill;
+const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectApplyBlocker, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, fillPendingFromAnswers, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, submitApplication, tagFilled, tryFillCombobox, tryFillSelect, unansweredQuestions } = window.LandedFill;
 const { normalize, getFieldLabel, matchResumeKey } = window.ResumeFillerFieldDetect;
 const CL = window.ResumeFillerCrossLingual;
 const CA = window.LandedChoiceAnswers;
@@ -41,6 +43,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     loadApplicationAnswers().then(fillPendingFromAnswers).then((filled) => sendResponse({ filled }), () => sendResponse({ filled: 0 }));
     return true;
   }
+  if (msg.action === 'submit-application') {
+    sendResponse(submitApplication());
+    return true;
+  }
   if (msg.action === 'ping') {
     sendResponse({ ok: true });
     return true;
@@ -56,6 +62,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 async function handleFill(resumeData, customFields, opts) {
   opts = opts || {};
+  // Human-only gates come first. In particular, never type a saved value
+  // into a password/verification page and never try to work around CAPTCHA.
+  const blocker = detectApplyBlocker();
+  if (blocker) return { filled: [], manual: [], missing_files: [], review: null, unanswered: [], fields: 0, blocker };
+  const fields = deepAll('input:not([type=hidden]):not([type=submit]):not([type=button]), select, textarea, [role="combobox"]')
+    .filter((el) => isRendered(el)).length;
   let flat;
   if (typeof window.flattenResumeForFill === 'function') {
     flat = window.flattenResumeForFill(resumeData);
@@ -406,5 +418,5 @@ async function handleFill(resumeData, customFields, opts) {
   // What's still empty and worth asking the user once (the Extension page).
   const unanswered = unansweredQuestions(manual);
 
-  return { filled, manual, missing_files: Array.from(missingFiles), review, unanswered };
+  return { filled, manual, missing_files: Array.from(missingFiles), review, unanswered, fields, blocker: null };
 }

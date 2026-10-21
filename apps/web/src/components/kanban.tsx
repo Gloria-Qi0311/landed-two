@@ -26,7 +26,7 @@ import {
 import { currentRound, formatWhen, roundLabel } from '@landed/schema/pipeline';
 import { DeadlineChip } from './deadline-chip';
 import { CompanyMark, Icon, stageColors } from './primitives';
-import { LeadAssistButton } from './apply-assist';
+import { ApplyNextBatch, LeadAssistButton } from './apply-assist';
 import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
 import type { SupplyCheck } from '../lib/supply';
@@ -325,7 +325,7 @@ function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline, grouped, se
 export type LeadsRefresh = { refresh: (() => void) | null; running: boolean; last: SupplyCheck | null; error: string | null };
 
 type LeadsColumnProps = {
-  leads: DbJobLead[]; saved: BoardApp[]; onDismiss?: (id: string) => void; onOpen?: (lead: DbJobLead) => void;
+  leads: DbJobLead[]; queueLeads: DbJobLead[]; saved: BoardApp[]; allApps: BoardApp[]; onDismiss?: (id: string) => void; onOpen?: (lead: DbJobLead) => void;
   onOpenApp: (id: string) => void; getCompany: (id: string) => MarkCompany; duplicateIds: Set<string>;
   onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline; refresh?: LeadsRefresh;
   filtered?: DbJobLead[]; onPutBack?: (lead: DbJobLead) => void;
@@ -345,7 +345,7 @@ function ApproveBar({ count, total, onApprove, onSelectAll, onClear, busy }: {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
       <button type="button" className="btn-primary" disabled={busy} onClick={onApprove} style={smallBtn}
-        title="Save them for later: each becomes an application you haven't applied to yet, in this column">
+        title="Authorize Landed to fill, review and submit these applications; human-only blockers still wait for you">
         Approve {count}
       </button>
       {count < total && <button type="button" className="btn-ghost" onClick={onSelectAll} style={smallBtn}>Select all {total}</button>}
@@ -371,7 +371,7 @@ function refreshNote(r: LeadsRefresh): string | null {
 // A Leads card: an agent-found job, or an application not applied to yet.
 type LeadItem = { lead: DbJobLead; app?: undefined; deadline: string | null } | { app: BoardApp; lead?: undefined; deadline: string | null };
 
-function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack, closed = [], leadForApp = () => undefined, onApprove, onUndoApprove }: LeadsColumnProps) {
+function LeadsColumn({ leads, queueLeads, saved, allApps, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack, closed = [], leadForApp = () => undefined, onApprove, onUndoApprove }: LeadsColumnProps) {
   // Dropping an application here puts it back to "not applied yet".
   const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
   const count = leads.length + saved.length;
@@ -394,7 +394,7 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
       const { approved: done, failed } = await onApprove(selected);
       // Ones that failed stay picked, to try again.
       setApproved(done.length ? done : null); setPicked(new Set(failed));
-      setNote([done.length && `Approved ${done.length} · saved for later`, failed.length && `${failed.length} couldn't be saved`].filter(Boolean).join(' · '));
+      setNote([done.length && `Approved ${done.length} · applying automatically`, failed.length && `${failed.length} couldn't be approved`].filter(Boolean).join(' · '));
     } catch (e) {
       setNote(`Couldn't approve: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -433,6 +433,7 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
           )}
         </div>
         <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3, lineHeight: 1.4 }}>Not applied yet — drag into a stage when you apply</div>
+        <ApplyNextBatch apps={allApps} leads={queueLeads} getCompany={getCompany} />
         {refresh && refreshNote(refresh) && (
           <div role="status" style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>{refreshNote(refresh)}</div>
         )}
@@ -519,6 +520,7 @@ function LeadsColumn({ leads, saved, onDismiss, onOpen, onOpenApp, getCompany, d
 type KanbanProps = {
   apps: BoardApp[]; companies: BoardCompany[]; onOpen: (id: string) => void; onMoveCard: (id: string, stage: string) => void;
   leads?: DbJobLead[]; onAddLead?: (lead: DbJobLead, stage: Stage) => void; onDismissLead?: (id: string) => void;
+  queueLeads?: DbJobLead[];
   onOpenLead?: (lead: DbJobLead) => void; onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline;
   leadsRefresh?: LeadsRefresh; filteredLeads?: DbJobLead[]; onPutBackLead?: (lead: DbJobLead) => void; closedLeads?: DbJobLead[];
   leadForApp?: (appId: string) => DbJobLead | undefined;
@@ -527,7 +529,7 @@ type KanbanProps = {
 
 const UNKNOWN_COMPANY: MarkCompany = { name: 'Unknown company', hue: null, logo: null };
 
-export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh, filteredLeads, onPutBackLead, closedLeads, leadForApp, onApproveLeads, onUndoApprove }: KanbanProps) => {
+export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], queueLeads = leads, onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh, filteredLeads, onPutBackLead, closedLeads, leadForApp, onApproveLeads, onUndoApprove }: KanbanProps) => {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -571,7 +573,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], on
       onDragCancel={() => setActiveId(null)}
     >
       <div style={{ display: 'flex', gap: 12, padding: '16px 28px 24px', overflowX: 'auto', height: '100%', alignItems: 'stretch' }}>
-        <LeadsColumn leads={leads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
+        <LeadsColumn leads={leads} queueLeads={queueLeads} saved={apps.filter(a => a.stage === 'saved')} allApps={apps} onDismiss={onDismissLead} onOpen={onOpenLead}
           onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds}
           onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} refresh={leadsRefresh}
           filtered={filteredLeads} onPutBack={onPutBackLead} closed={closedLeads} leadForApp={leadForApp}
