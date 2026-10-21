@@ -1077,6 +1077,20 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
     assert.deepEqual(names, ['connected', 'new attempt'])
   })
 
+  test('a daemon can publish Claude sign-out so the UI can show the recovery step', async () => {
+    const owner = await signup('runtime-signed-out@example.com', undefined, { cloud: false })
+    const { body: { token: rt } } = await call('POST', '/api/runtimes', { token: owner, body: { name: 'Signed-out Mac' } })
+    const hello = await call('POST', '/api/runtime/hello', { token: rt, body: {
+      agents: [{ id: 'claude', label: 'Claude Code', version: '2.1.999', kinds: ['automation_sync'], auth: 'signed_out' }],
+    } })
+    assert.equal(hello.body.agents[0].auth, 'signed_out')
+
+    const ready = await call('POST', '/api/runtime/hello', { token: rt, body: {
+      agents: [{ id: 'claude', label: 'Claude Code', version: '2.1.999', kinds: ['automation_sync'], auth: 'anything-else' }],
+    } })
+    assert.equal(ready.body.agents[0].auth, undefined, 'only the fixed status code is accepted')
+  })
+
   test('a daemon dropping mid-task fails the task instead of hanging', async () => {
     const owner = await signup('runtime-drop@example.com', undefined, { cloud: false })
     const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })

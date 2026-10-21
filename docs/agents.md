@@ -175,6 +175,15 @@ times). A task that still never called its mailbox or Chrome tool must end in an
 error, not an empty success; otherwise a check that read nothing would advance
 `email_checked_at` and skip mail.
 
+The connector cache is only evidence of which read tools were safe the last
+time Gmail loaded; it is not evidence that Claude Code is still signed in. Each
+capability pass and every Claude task checks `claude auth status`. An explicit
+sign-out removes Claude's task capabilities (while leaving `automation_sync` so
+the computer stays connected), publishes `auth: signed_out` to the UI, and gives
+the user the concrete recovery command, `claude auth login`. The 30-minute
+capability pass restores the cached Gmail capability after login. CI keeps a
+signed-out-with-cached-Gmail regression and runs it on every change and weekly.
+
 ## Agent page and chat
 
 The Agent UI is its own page (`/agent`, sidebar: Applications → Agent → My

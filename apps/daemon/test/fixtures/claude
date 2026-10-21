@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+const args = process.argv.slice(2)
+
+if (args[0] === '--version') {
+  console.log('2.1.999 (Claude Code)')
+  process.exit(0)
+}
+
+if (args[0] === 'auth' && args[1] === 'status') {
+  if (process.env.FAKE_CLAUDE_AUTH === 'invalid') console.log('not json')
+  else console.log(JSON.stringify({ loggedIn: process.env.FAKE_CLAUDE_AUTH === 'true' }))
+  process.exit(0)
+}
+
+if (args[0] === 'mcp' && args[1] === 'list') {
+  console.log('No MCP servers configured.')
+  process.exit(0)
+}
+
+// Capability probes should finish without making a model call.
+process.exit(0)

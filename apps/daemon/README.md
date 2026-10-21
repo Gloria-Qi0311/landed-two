@@ -64,6 +64,13 @@ You need Node 23.6+ and at least one supported agent CLI, installed and signed i
   - `automation_sync`: Landed's Automation page. The daemon keeps the schedule you set (email checks, job searches) in `~/.landed/automations.json` and runs it itself, so it works even when Landed is closed. Results wait there until Landed is open again and has stored them.
 
   The daemon re-checks what your agent can do (mail connector, Chrome) every 30 minutes, so connecting Gmail or Chrome needs no restart. claude.ai connectors don't always load in `claude -p`, so the last good mailbox lookup is kept in `~/.landed/capabilities.json`. An email or portal check that never reached the mailbox or Chrome reports an error and doesn't count as a check, so no email is skipped. `pnpm landed status` shows what was found. After updating Landed itself, restart the daemon (`pnpm landed start`) to pick up new code.
+
+  If an email check says Claude Code is signed out, pairing the computer again
+  will not repair it: the Landed pairing and the Claude account are separate.
+  Run `claude auth login` in Terminal and finish the browser sign-in. If the
+  next check still cannot load Gmail, reconnect Gmail in Claude → Settings →
+  Connectors. Landed re-checks automatically within 30 minutes; no failed check
+  advances the email window.
 - Your message reaches the agent on stdin and never passes through a shell.
 - The agent runs in an empty `~/.landed/workspace`. It ignores your own Claude Code settings and hooks (`--setting-sources ""`).
 - Chat and search only get read-only web tools (WebSearch, WebFetch), and none of your MCP connectors load. Email checks only get your mailbox's read tools. Portal checks only get Chrome's open-tab, navigate and read tools, with no other connector loaded. The agent never gets file access or a shell.

@@ -221,11 +221,14 @@ function EmailCard({ designated, targets, cloudLine }: CardProps) {
   const agent = runner(designated, 'email_check')
   const queued = useAutomationSync((s) => s.runNow.includes('email_check') || !!s.output?.state.email_check?.running)
   const elsewhere = !agent && targets.some((t) => computerCan(t, 'email_check'))
+  const signedOut = targets.some((t) => t.runtime.agents.some((a) => a.id === 'claude' && a.auth === 'signed_out'))
   return (
     <AutomationCard
       kind="email_check" icon="inbox" title="Check email" flow="New emails → application status"
       presets={[...INTERVALS, ...DAILY.slice(0, 2)]} designated={designated}
-      blocker={agent || elsewhere ? null : <>Your agent can't read email yet. Connect Gmail in Claude (claude.ai → Settings → Connectors); your computer picks it up within 30 minutes.</>}
+      blocker={agent || elsewhere ? null : signedOut
+        ? <>Claude Code is signed out. Open Terminal, run <code>claude auth login</code>, and finish signing in in the browser. Landed checks again automatically within 30 minutes.</>
+        : <>Your agent can't read email yet. First run <code>claude auth login</code> in Terminal. Then connect Gmail in Claude (Settings → Connectors); Landed picks it up within 30 minutes.</>}
     >
       <Row label="Looks at">
         Emails received since the last check (each run starts an hour before the previous one, so nothing falls in between),

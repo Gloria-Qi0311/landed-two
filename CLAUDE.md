@@ -92,6 +92,9 @@ messages (PR title and a clean body, no trailer).
   product and security decision.
 - Email and portal tasks that never called their tool end in an error, not an
   empty success.
+- Cached connector capabilities never override an explicit agent sign-out;
+  auth failures name the exact recovery action, and periodic detection must
+  restore capabilities after the user signs back in.
 - Never pair a computer without the native confirm dialog (`apps/daemon/src/mac.ts`).
 - The chat agent is told what Landed knows about the user (resume gist, the answers
   that shape a search, the search), never contact details, address, date of birth or

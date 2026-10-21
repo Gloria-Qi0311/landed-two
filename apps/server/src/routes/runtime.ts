@@ -232,6 +232,7 @@ function cleanAgents(raw: unknown) {
       kinds: Array.isArray(a.kinds) ? a.kinds.filter((k: unknown) => typeof k === 'string' && JOB_KINDS.has(k)) : LEGACY_KINDS,
       mail: typeof a.mail === 'string' && a.mail.trim() ? a.mail.trim().slice(0, 40) : null,
       browser: typeof a.browser === 'string' && a.browser.trim() ? a.browser.trim().slice(0, 40) : null,
+      ...(a.auth === 'signed_out' ? { auth: 'signed_out' } : {}),
     }))
 }
 

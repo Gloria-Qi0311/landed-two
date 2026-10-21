@@ -22,6 +22,8 @@ import type { Spec, Task, TaskEvent } from './types.ts'
  *  `browser`: "Chrome" when Claude in Chrome is connected (portal checks). */
 export type AgentInfo = {
   id: string; label: string; version: string | null; kinds: string[]; mail: string | null; browser: string | null
+  /** A recoverable reason this installed agent is not ready. */
+  auth?: 'signed_out'
 }
 
 export type { Task, TaskEvent } from './types.ts'
@@ -35,6 +37,28 @@ export type { Task, TaskEvent } from './types.ts'
 const SUPPORTED = [{ id: 'claude', label: 'Claude Code', bin: 'claude', kinds: ['chat', 'job_search', 'resume_parse', 'resume_merge', 'resume_tailor', 'automation_sync'] }]
 
 const WEB_TOOLS = ['WebSearch', 'WebFetch']
+
+export type ClaudeAuthState = 'signed_in' | 'signed_out' | 'unknown'
+
+/** `claude auth status` is JSON in current Claude Code. Treat an older CLI or
+ *  a malformed response as unknown so an upgrade does not disable an agent. */
+export function parseClaudeAuthStatus(out: string): ClaudeAuthState {
+  try {
+    const status = JSON.parse(out)
+    if (status?.loggedIn === true) return 'signed_in'
+    if (status?.loggedIn === false) return 'signed_out'
+  } catch {
+    // Older Claude Code: keep using the existing capability probes.
+  }
+  return 'unknown'
+}
+
+function claudeAuthStatus(): ClaudeAuthState {
+  const result = spawnSync('claude', ['auth', 'status'], { encoding: 'utf8', timeout: 15_000 })
+  return parseClaudeAuthStatus(result.stdout ?? '')
+}
+
+const CLAUDE_SIGNED_OUT = 'Claude Code is signed out, so Landed could not run this task. Open Terminal, run `claude auth login`, and finish signing in in the browser. Landed checks again automatically within 30 minutes.'
 
 // ── mailbox access ────────────────────────────────────────────────────────
 // Email checks use a mail connector the user already gave Claude Code (e.g.
@@ -237,6 +261,18 @@ export async function detectAgents(opts: { quick?: boolean } = {}): Promise<Agen
   for (const a of SUPPORTED) {
     const r = spawnSync(a.bin, ['--version'], { encoding: 'utf8', timeout: 15_000 })
     if (r.status !== 0) continue
+    if (claudeAuthStatus() === 'signed_out') {
+      // Never let the last good Gmail lookup make a signed-out Claude look
+      // ready. Keep automation_sync so this computer can stay connected,
+      // receive settings and publish the recovery state to the UI.
+      claudeMail = null
+      notes.push(CLAUDE_SIGNED_OUT)
+      found.push({
+        id: a.id, label: a.label, version: r.stdout.trim().split('\n')[0] || null,
+        kinds: ['automation_sync'], mail: null, browser: null, auth: 'signed_out',
+      })
+      continue
+    }
     const [mail, chrome] = await Promise.all([opts.quick ? cachedMail() : detectMail(), probeChrome()])
     claudeMail = mail
     found.push({
@@ -1091,6 +1127,10 @@ export function runTask(task: Task, emit: (e: TaskEvent) => void): Promise<void>
 }
 
 function runClaudeTask(task: Task, emit: (e: TaskEvent) => void): Promise<void> {
+  // Auth can expire between the 30-minute capability probes. Fail before
+  // starting a model or retrying a missing connector, and tell the user how
+  // to recover instead of leaving them at a generic connector error.
+  if (claudeAuthStatus() === 'signed_out') return fail(emit, CLAUDE_SIGNED_OUT)
 
   if (task.kind === 'chat') {
     const conversationId = String(task.input.conversation_id ?? '')
@@ -1120,7 +1160,7 @@ function runClaudeTask(task: Task, emit: (e: TaskEvent) => void): Promise<void> 
   }
 
   if (task.kind === 'email_check') {
-    if (!claudeMail) return fail(emit, "Claude Code on this computer can't read your email (no mail connector). Connect Gmail in Claude; the daemon picks it up within 30 minutes.")
+    if (!claudeMail) return fail(emit, "Claude Code cannot read your email yet. First run `claude auth login` in Terminal. Then connect Gmail in Claude (Settings → Connectors). Landed checks again automatically within 30 minutes.")
     const input = task.input as Partial<EmailCheckInput>
     if (typeof input.since !== 'string' || !Array.isArray(input.applications)) return fail(emit, 'Bad email task.')
     const mail = claudeMail
@@ -1131,7 +1171,7 @@ function runClaudeTask(task: Task, emit: (e: TaskEvent) => void): Promise<void> 
       requireServer: mail.server,
       requireTool: {
         match: (name) => mail.tools.includes(name),
-        missing: `Claude Code couldn't load your ${mail.label} connector this time, so nothing was read. Landed will try again shortly.`,
+        missing: `Claude Code could not load your ${mail.label} connector after five attempts, so no email was read. In Claude, reconnect ${mail.label} in Settings → Connectors, then click Run now. Landed will also retry on the next scheduled run.`,
       },
     }, emit)
   }

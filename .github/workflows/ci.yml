@@ -7,6 +7,10 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Keep running regression cases even during a quiet week. In particular,
+  # this covers cached connectors after an agent session expires.
+  schedule:
+    - cron: '17 15 * * 1'
 
 concurrency:
   group: ci-${{ github.ref }}

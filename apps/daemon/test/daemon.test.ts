@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   CHROME_READ_TOOLS, chatImages, chatWithContext, chatWithHistory, contextToSend, claudeImageMessage, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
-  initHasServer, isReadOnlyTool, parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
+  initHasServer, isReadOnlyTool, parseClaudeAuthStatus, parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
 
@@ -84,6 +84,13 @@ test('mail access: only a connected mail server, only its read tools', () => {
     'mcp__claude_ai_Gmail__search_threads', 'mcp__claude_ai_Gmail__get_thread', 'mcp__claude_ai_Gmail__list_labels',
   ])
   assert.deepEqual(toolReferences('not json'), [])
+})
+
+test('Claude auth status: explicit sign-in/out only; unknown versions do not disable the agent', () => {
+  assert.equal(parseClaudeAuthStatus('{"loggedIn":true,"authMethod":"claude.ai"}'), 'signed_in')
+  assert.equal(parseClaudeAuthStatus('{"loggedIn":false,"authMethod":"none"}'), 'signed_out')
+  assert.equal(parseClaudeAuthStatus('{}'), 'unknown')
+  assert.equal(parseClaudeAuthStatus('not json'), 'unknown')
 })
 
 test('read-only means by words: "thread" is not "read"', () => {

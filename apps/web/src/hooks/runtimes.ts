@@ -14,6 +14,7 @@ export type TaskKind = 'chat' | 'job_search' | 'email_check' | 'portal_check' | 
  *  `browser`: "Chrome" when it can look at pages in the user's Chrome. */
 export type RuntimeAgent = {
   id: string; label: string; version: string | null; kinds?: TaskKind[]; mail?: string | null; browser?: string | null
+  auth?: 'signed_out'
 }
 export type Runtime = {
   id: string
