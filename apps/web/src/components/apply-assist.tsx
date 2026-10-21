@@ -8,173 +8,36 @@
 // Separately, approving a lead is explicit authorization for the batch path
 // to submit that one application after all safety checks pass. Manual
 // Open & autofill never carries that authorization.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Icon } from './primitives'
-import { bridgeCall, onExtensionReady } from '../lib/extension-bridge'
+import { bridgeCall } from '../lib/extension-bridge'
 import { PICK_TEXT, pickResumeFor, type AssistTarget } from '../lib/apply-assist'
 import { useResumes } from '../hooks/resumes'
-import { useRecordApplyClick, useSuggestions } from '../hooks/inbox'
-import { useUpdateApplication, type BoardApp } from '../hooks/queries'
+import { useRecordApplyClick } from '../hooks/inbox'
 import type { ClickTarget } from '../lib/inbox'
 import type { DbJobLead } from '../lib/store'
 import { muted, danger } from './ui'
-import type { MarkCompany } from './primitives'
-import {
-  APPLY_ASSIST_RESULT_EVENT,
-  APPLY_BATCH_LIMIT,
-  APPLY_FILLING,
-  planApplyBatch,
-  type ApplyAssistResult,
-} from '../lib/apply-batch'
+import { requestAutoApplyRun, useAutoApplyControl, useExtension } from '../hooks/auto-apply'
+import { useAutomations } from '../hooks/automation'
 
-
-/** The extension's version, or null when it isn't installed here. */
-export function useExtension() {
-  const qc = useQueryClient()
-  useEffect(() => onExtensionReady(() => qc.invalidateQueries({ queryKey: ['extension'] })), [qc])
-  return useQuery({
-    queryKey: ['extension'],
-    staleTime: 60_000,
-    queryFn: async () => {
-      const res = await bridgeCall<{ version: string }>('hello')
-      return res.ok ? res.data.version : null
-    },
-  })
-}
-
-/** Approved leads execute automatically, at most five at a time in the same
- * priority order as the cards. Each extension request is independent: one
- * login/CAPTCHA cannot stop the rest. The button remains as an explicit retry. */
-export function ApplyNextBatch({
-  apps,
-  leads,
-  getCompany,
-}: {
-  apps: BoardApp[]
-  leads: DbJobLead[]
-  getCompany: (id: string) => MarkCompany
-}) {
-  const extension = useExtension()
-  const resumeQuery = useResumes()
-  const suggestionQuery = useSuggestions()
-  const resumes = resumeQuery.data ?? []
-  const suggestions = suggestionQuery.data ?? []
-  const update = useUpdateApplication()
-  const record = useRecordApplyClick()
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
-  const active = useRef<Set<string>>(new Set())
-  const autoStarted = useRef<Set<string>>(new Set())
-  const approvedIds = useMemo(() => new Set(leads
-    .filter((lead) => lead.status === 'saved' && lead.application_id)
-    .map((lead) => lead.application_id!)), [leads])
-  const plan = useMemo(() => planApplyBatch({
-    apps,
-    companyName: (id) => getCompany(id).name,
-    leads,
-    suggestions,
-    resumes,
-  }), [apps, getCompany, leads, resumes, suggestions])
-  const autoKey = plan.items.map((item) => item.app.id).join('|')
-
-  useEffect(() => {
-    const onResult = (event: Event) => {
-      const result = (event as CustomEvent<ApplyAssistResult>).detail
-      if (!result?.application_id || !active.current.has(result.application_id)) return
-      const app = apps.find((a) => a.id === result.application_id)
-      const company = app ? getCompany(app.companyId).name : 'One application'
-      if (result.status === 'blocked') {
-        const why = result.blocker === 'captcha' ? 'a CAPTCHA'
-          : result.blocker === 'account' ? 'account creation'
-            : result.blocker === 'login' ? 'a sign-in'
-              : result.blocker === 'answers' ? 'required answers'
-                : result.blocker === 'files' ? 'a required file'
-                  : result.blocker === 'review' ? 'flagged fields'
-                    : 'the final submit control'
-        setNote(`${company} needs you for ${why}. The other pages are still going.`)
-      } else if (result.status === 'submitted') {
-        setNote(`${company} was submitted. Waiting for the portal confirmation.`)
-      } else if (result.status === 'error') {
-        setNote(`${company} couldn't be autofilled${result.message ? `: ${result.message}` : '.'} The other pages are still going.`)
-      }
-    }
-    window.addEventListener(APPLY_ASSIST_RESULT_EVENT, onResult)
-    return () => window.removeEventListener(APPLY_ASSIST_RESULT_EVENT, onResult)
-  }, [apps, getCompany])
-
-  const run = useCallback(async () => {
-    if (busy) return
-    if (resumeQuery.isLoading || suggestionQuery.isLoading) {
-      setNote('Loading the apply queue…')
-      return
-    }
-    active.current = new Set()
-    if (!extension.data) {
-      setNote('Install or reload the Landed extension in this browser first.')
-      return
-    }
-    if (plan.items.length === 0) {
-      setNote(plan.skipped.length ? plan.skipped.filter((s) => s.reason !== 'not-approved').map((s) => s.message).slice(0, 2).join(' · ') : 'No approved applications are ready to run.')
-      return
-    }
-
-    setBusy(true)
-    setNote(null)
-    const opened: string[] = []
-    const failed: string[] = []
-    try {
-      // Await each open so tabs appear in queue order. Filling/review then
-      // runs independently in every tab inside the extension.
-      for (const item of plan.items) {
-        const res = await bridgeCall<{ tab_id: number }>('assist-open', {
-          url: item.target.url,
-          resume_id: item.resume.resume.id,
-          application_id: item.target.application_id,
-          lead_id: item.target.lead_id,
-          submit_authorized: true,
-        })
-        if (!res.ok) {
-          failed.push(`${item.company} · ${item.app.role}`)
-          continue
-        }
-        opened.push(item.app.id)
-        active.current.add(item.app.id)
-        record({ kind: 'application', id: item.app.id, role: item.app.role, stage: item.app.stage, company_name: item.company })
-        try {
-          await update.mutateAsync({ id: item.app.id, patch: { next_step: APPLY_FILLING } })
-        } catch {
-          // The tab is already open; a storage error must not stop the rest.
-        }
-      }
-      const skipped = plan.skipped.filter((s) => ['company-progress', 'recruiter'].includes(s.reason))
-      const parts = [
-        opened.length && `Started ${opened.length} of ${APPLY_BATCH_LIMIT} — filling, reviewing and submitting when safe`,
-        failed.length && `${failed.length} couldn't be opened`,
-        skipped.length && `Skipped: ${skipped.map((s) => s.message).slice(0, 2).join('; ')}`,
-      ].filter(Boolean)
-      setNote(parts.join(' · ') || 'Nothing opened.')
-    } finally {
-      setBusy(false)
-    }
-  }, [busy, extension.data, plan, record, resumeQuery.isLoading, suggestionQuery.isLoading, update])
-
-  useEffect(() => {
-    if (!autoKey || busy || extension.isLoading || !extension.data || resumeQuery.isLoading || suggestionQuery.isLoading) return
-    if (autoStarted.current.has(autoKey)) return
-    autoStarted.current.add(autoKey)
-    void run()
-  }, [autoKey, busy, extension.data, extension.isLoading, resumeQuery.isLoading, run, suggestionQuery.isLoading])
-
-  if (approvedIds.size === 0) return null
+/** Compact status/control in Leads. The execution itself is global and its
+ * full management surface lives on Automation. */
+export function ApplyNextBatch({ leads }: { leads: DbJobLead[] }) {
+  const { automations } = useAutomations()
+  const busy = useAutoApplyControl((state) => state.busy)
+  const note = useAutoApplyControl((state) => state.note)
+  const approved = leads.some((lead) => lead.status === 'saved' && lead.application_id)
+  if (!approved) return null
   return (
     <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <button type="button" className="btn-primary" disabled={busy || extension.isLoading || resumeQuery.isLoading || suggestionQuery.isLoading} onClick={() => void run()}
-          style={{ fontSize: 11.5, padding: '4px 9px' }} title="Retry approved applications that are ready to run.">
+        <button type="button" className="btn-primary" disabled={busy} onClick={requestAutoApplyRun}
+          style={{ fontSize: 11.5, padding: '4px 9px' }} title="Run approved applications that are ready now.">
           <Icon name="sparkle" size={11} /> {busy ? 'Applying…' : 'Retry approved'}
         </button>
-        <span style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>Approved jobs run automatically · up to 5 at a time</span>
+        <span style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>
+          {automations.auto_apply.enabled ? `Auto apply on · up to ${automations.auto_apply.max_concurrent} at a time` : 'Auto apply off · manage it in Automation'}
+        </span>
       </div>
       {note && <div role="status" style={{ fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.4 }}>{note}</div>}
     </div>

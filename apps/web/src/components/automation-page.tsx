@@ -1,18 +1,19 @@
-// Automation — three jobs your agent does on a schedule, each laid out the
-// same way: when it runs, what it looks at, and what happens with what it
-// finds (packages/schema/src/automation.ts).
+// Automation — three scheduled jobs plus event-driven Auto apply, each laid
+// out the same way: when it runs, what it looks at, and what happens with what
+// it finds (packages/schema/src/automation.ts).
 //   1. Check email            new emails → application status
 //   2. Find new jobs          your criteria → Leads
-//   3. Check candidate portals quiet applications → application status
-// The only page-level setting is where they run: the user's computer (even
-// with Landed closed — lib/automation-sync.ts); connected cloud agents also
-// do 1 and 2 on their own schedule. Every other setting belongs to one of
-// the three (e.g. "apply email updates automatically" is part of 1).
+//   3. Auto apply             approved Leads → submitted applications
+//   4. Check candidate portals quiet applications → application status
+// Scheduled work runs on the user's computer (even with Landed closed —
+// lib/automation-sync.ts); connected cloud agents also do 1 and 2 on their
+// own schedule. Auto apply is managed here but runs event-first in the open
+// browser; already-open application tabs continue if Landed closes.
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  describeSchedule, INTERVAL_HOURS, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
+  AUTO_APPLY_CONCURRENCY, AUTOMATION_KINDS, describeSchedule, INTERVAL_HOURS, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
   type AutomationKind, type AutomationRun, type Automations, type Schedule,
 } from '@landed/schema/automation'
 import { parseBrief, type RemotePreference, type SearchBrief } from '@landed/schema/search-brief'
@@ -30,6 +31,7 @@ import { useFollowedBoards, useSupplyRefresh } from '../hooks/supply'
 import { ATS_LABELS } from '@landed/supply'
 import { useAgentConnections } from '../hooks/agents'
 import { useRuntimes } from '../hooks/runtimes'
+import { requestAutoApplyRun, useAutoApplyControl } from '../hooks/auto-apply'
 import { mutedLarge as muted, danger } from './ui'
 
 const card = { background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12 } as const
@@ -181,12 +183,15 @@ export function AutomationPage() {
   const cloudLine = cloud.length
     ? `${cloud.map((c) => c.display_name).join(', ')} also ${cloud.length === 1 ? 'does' : 'do'} this when ${cloud.length === 1 ? 'it runs' : 'they run'}, on ${cloud.length === 1 ? 'its' : 'their'} own schedule.`
     : null
+  const scheduledOn = AUTOMATION_KINDS.some((kind) => automations[kind].enabled)
 
   return (
     <>
       <PageHeader
         title="Automation"
-        subtitle={designated
+        subtitle={!scheduledOn && automations.auto_apply.enabled
+          ? 'Auto apply starts approved jobs in this browser; scheduled agent work is off'
+          : designated
           ? `Your agent does these on schedule — ${designated.agent.label} on ${designated.runtime.name}, even with Landed closed`
           : anyPaired ? 'Your computer is offline — scheduled work resumes when it’s back' : 'Connect your computer on the Agent page to run these'}
       />
@@ -200,10 +205,85 @@ export function AutomationPage() {
           {sync.error && <div style={{ ...muted, color: danger }}>Couldn't reach your computer: {sync.error}</div>}
           <EmailCard designated={designated} targets={targets} cloudLine={cloudLine} />
           <SearchCard designated={designated} targets={targets} cloud={cloud} />
+          <AutoApplyCard />
           <PortalCard designated={designated} targets={targets} />
         </div>
       </div>
     </>
+  )
+}
+
+// Auto apply is event-driven in this browser, so it has the same visual
+// language as scheduled cards without pretending it has a clock schedule or
+// a daemon run log.
+function AutoApplyCard() {
+  const navigate = useNavigate()
+  const { automations, loaded } = useAutomations()
+  const set = useSetAutomations()
+  const busy = useAutoApplyControl((state) => state.busy)
+  const ready = useAutoApplyControl((state) => state.ready)
+  const queued = useAutoApplyControl((state) => state.queued)
+  const active = useAutoApplyControl((state) => state.active)
+  const blocked = useAutoApplyControl((state) => state.blocked)
+  const awaiting = useAutoApplyControl((state) => state.awaiting_confirmation)
+  const note = useAutoApplyControl((state) => state.note)
+  const lastStarted = useAutoApplyControl((state) => state.last_started_at)
+  const a = automations.auto_apply
+  const save = (next: Partial<typeof a>) => set.mutate({ ...automations, auto_apply: { ...a, ...next } })
+  const status = active ? `Applying ${active} now`
+    : queued ? `${queued} approved ${queued === 1 ? 'job is' : 'jobs are'} ready`
+      : awaiting ? `${awaiting} waiting for portal confirmation`
+        : 'No approved jobs are ready'
+
+  return (
+    <section style={card}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <span style={{ width: 34, height: 34, borderRadius: 10, background: a.enabled ? 'var(--accent-soft)' : 'var(--surface-3)', color: a.enabled ? 'var(--accent)' : 'var(--fg-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 150ms' }}>
+          <Icon name="sparkle" size={16} />
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em' }}>Auto apply</div>
+          <div style={{ ...muted, fontSize: 12 }}>Approved Leads → submitted applications</div>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', flexShrink: 0, color: a.enabled ? 'var(--fg)' : 'var(--fg-muted)' }}>
+          {a.enabled ? 'On' : 'Off'}
+          <input type="checkbox" className="switch" aria-label={`Auto apply: ${a.enabled ? 'on' : 'off'}`} checked={a.enabled}
+            disabled={!loaded || set.isPending} onChange={(event) => save({ enabled: event.target.checked })} />
+        </label>
+      </div>
+
+      <Row label="When">
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span>Whenever you Approve a Lead</span>
+          <select aria-label="Maximum simultaneous applications" value={a.max_concurrent} disabled={!loaded || set.isPending} style={select}
+            onChange={(event) => save({ max_concurrent: Number(event.target.value) })}>
+            {AUTO_APPLY_CONCURRENCY.map((count) => <option key={count} value={count}>At most {count} at a time</option>)}
+          </select>
+          <span style={{ ...muted, flex: 1 }}>{status}{lastStarted && ` · last started ${formatRelative(lastStarted)}`}</span>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={requestAutoApplyRun} style={{ opacity: busy ? 0.6 : 1 }}>
+            <Icon name="refresh" size={12} /> {busy ? 'Running…' : 'Run now'}
+          </button>
+        </span>
+      </Row>
+      <Row label="Looks at">
+        Only applications created from Leads you explicitly approved, in priority order. Manually saved jobs and ordinary Open &amp; autofill never inherit submit permission.
+      </Row>
+      <Row label="Then">
+        Pick the tailored resume, open and fill the form, run the agent review, and submit only when every check passes. Login, account creation, CAPTCHA, missing answers/files, review flags, or an ambiguous final button stop only that job.
+      </Row>
+      <Row label="Runs in">
+        This browser and the Landed extension. Once an application tab is opened, it keeps going if you leave this page or close Landed.
+      </Row>
+      {!ready && <Row label="Needs"><span style={{ color: danger }}>Install or reload the Landed browser extension here before approved jobs can start.</span></Row>}
+      {blocked > 0 && (
+        <Row label="Needs">
+          <span style={{ color: danger }}>{blocked} approved {blocked === 1 ? 'application is' : 'applications are'} waiting for you. </span>
+          <button type="button" className="btn-secondary" onClick={() => navigate('/applications')} style={{ fontSize: 11.5, padding: '1px 8px' }}>Open Applications</button>
+        </Row>
+      )}
+      {note && <div role="status" style={{ ...muted, paddingLeft: 46 }}>{note}</div>}
+      {set.error && <div role="alert" style={{ ...muted, color: danger, paddingLeft: 46 }}>{(set.error as Error).message}</div>}
+    </section>
   )
 }
 
@@ -400,7 +480,7 @@ function Criteria({ brief }: { brief: SearchBrief | null }) {
   )
 }
 
-// 3 ── candidate portals ───────────────────────────────────────────────────
+// 4 ── candidate portals ───────────────────────────────────────────────────
 
 function PortalCard({ designated, targets }: CardProps) {
   const { automations } = useAutomations()

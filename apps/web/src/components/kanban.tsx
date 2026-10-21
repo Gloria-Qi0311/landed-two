@@ -325,7 +325,7 @@ function DraggableLeadCard({ lead, onDismiss, onOpen, onSetDeadline, grouped, se
 export type LeadsRefresh = { refresh: (() => void) | null; running: boolean; last: SupplyCheck | null; error: string | null };
 
 type LeadsColumnProps = {
-  leads: DbJobLead[]; queueLeads: DbJobLead[]; saved: BoardApp[]; allApps: BoardApp[]; onDismiss?: (id: string) => void; onOpen?: (lead: DbJobLead) => void;
+  leads: DbJobLead[]; queueLeads: DbJobLead[]; saved: BoardApp[]; onDismiss?: (id: string) => void; onOpen?: (lead: DbJobLead) => void;
   onOpenApp: (id: string) => void; getCompany: (id: string) => MarkCompany; duplicateIds: Set<string>;
   onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline; refresh?: LeadsRefresh;
   filtered?: DbJobLead[]; onPutBack?: (lead: DbJobLead) => void;
@@ -371,7 +371,7 @@ function refreshNote(r: LeadsRefresh): string | null {
 // A Leads card: an agent-found job, or an application not applied to yet.
 type LeadItem = { lead: DbJobLead; app?: undefined; deadline: string | null } | { app: BoardApp; lead?: undefined; deadline: string | null };
 
-function LeadsColumn({ leads, queueLeads, saved, allApps, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack, closed = [], leadForApp = () => undefined, onApprove, onUndoApprove }: LeadsColumnProps) {
+function LeadsColumn({ leads, queueLeads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack, closed = [], leadForApp = () => undefined, onApprove, onUndoApprove }: LeadsColumnProps) {
   // Dropping an application here puts it back to "not applied yet".
   const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
   const count = leads.length + saved.length;
@@ -433,7 +433,7 @@ function LeadsColumn({ leads, queueLeads, saved, allApps, onDismiss, onOpen, onO
           )}
         </div>
         <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3, lineHeight: 1.4 }}>Not applied yet — drag into a stage when you apply</div>
-        <ApplyNextBatch apps={allApps} leads={queueLeads} getCompany={getCompany} />
+        <ApplyNextBatch leads={queueLeads} />
         {refresh && refreshNote(refresh) && (
           <div role="status" style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>{refreshNote(refresh)}</div>
         )}
@@ -573,7 +573,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], qu
       onDragCancel={() => setActiveId(null)}
     >
       <div style={{ display: 'flex', gap: 12, padding: '16px 28px 24px', overflowX: 'auto', height: '100%', alignItems: 'stretch' }}>
-        <LeadsColumn leads={leads} queueLeads={queueLeads} saved={apps.filter(a => a.stage === 'saved')} allApps={apps} onDismiss={onDismissLead} onOpen={onOpenLead}
+        <LeadsColumn leads={leads} queueLeads={queueLeads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
           onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds}
           onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} refresh={leadsRefresh}
           filtered={filteredLeads} onPutBack={onPutBackLead} closed={closedLeads} leadForApp={leadForApp}

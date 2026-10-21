@@ -11,7 +11,7 @@ import { PageHeader } from './shell'
 import { ApplicationAnswersPane } from './application-answers'
 import { ApplicationFilesCard } from './application-files'
 import { PendingQuestionsCard } from './pending-questions'
-import { useExtension } from './apply-assist'
+import { useExtension } from '../hooks/auto-apply'
 import { useCurrentResume } from '../hooks/resumes'
 import { muted, card } from './ui'
 

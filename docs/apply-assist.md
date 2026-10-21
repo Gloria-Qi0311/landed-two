@@ -361,8 +361,11 @@ each submission is handled once (`portal-applied:` ledger suggestion, so deletin
 the application doesn't bring it back). Events older than 30 days are ignored.
 
 **Approved-lead execution** (#99) starts automatically after Approve and keeps a
-manual Retry approved control. It uses the same `priority` order as the cards and
-opens at most five linked `saved` applications, one tab at a time in that order;
+manual Retry approved control. Automation owns its on/off switch, 1–5 concurrent
+limit, Run now and queue/blocker status (`automations.auto_apply`). The global
+`useAutoApplyRunner` stays mounted on every Landed route. It uses the same
+`priority` order as the cards and opens only as many linked `saved` applications
+as the configured concurrency leaves free, one tab at a time in that order;
 each tab then fills, reviews and submits independently. A manually saved
 application has no linked-lead authorization and is never included. A skipped or
 blocked job never consumes the rest of the batch:
@@ -380,7 +383,9 @@ result once: `next_step` becomes a specific `Blocked · …`, `Review highlighte
 fields, then submit` for manual fills, or `Submitted · waiting for confirmation`,
 and the batch UI tells the user while every other tab continues.
 After the user signs in or creates the account and the tab navigates, the normal
-fill can run again. The menu bar and the web batch both cap a selection at five.
+fill can run again. Turning Auto apply off prevents new tabs but does not cancel
+an authorized tab already running. The menu bar and the web batch both cap a
+selection at five.
 
 ## Landed for Mac updates itself
 

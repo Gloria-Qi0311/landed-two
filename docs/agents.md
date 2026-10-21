@@ -305,16 +305,25 @@ and the chat prompt's block format in `apps/daemon/src/agents.ts` must agree.
 
 ## Automation
 
-`/automation` (sidebar between Agent and My Resume) is exactly **three
-automations, each laid out as When / Looks at / Then** (product decision after
-acceptance review). Don't add page-level settings or extra cards: a new setting
-belongs to one of the three.
+`/automation` (sidebar between Agent and My Resume) has the three scheduled
+agent jobs plus event-driven **Auto apply**, each laid out as When / Looks at /
+Then. Settings live on the automation they affect, not at page level.
 
 | Automation | Looks at | Then |
 |---|---|---|
 | Check email | New emails | Application status; its "Then" holds the auto-apply choice (`users.auto_apply_updates`) |
 | Find new jobs | The active brief as criteria, editable in place (an edit makes a new active search via `addJobSearch`), searched with what Search with ticks | Leads |
+| Auto apply | Applications linked to Leads the user approved | Fill, review and submit when safe; otherwise record the blocker |
 | Check candidate portals | Applications quiet for N days | Ask-first status updates |
+
+**Auto apply** is not a daemon schedule. Its account-level
+`users.automations.auto_apply` setting is on by default and carries `enabled`
+plus `max_concurrent` (1–5). `useAutoApplyRunner` is mounted below the login gate,
+so it runs on every Landed route, not only Applications. Automation shows the
+switch, concurrency, Run now, active/ready/blocked/confirmation counts and the
+extension requirement. Turning it off stops new tabs; already-open authorized
+tabs continue. Run now is still available while off. Only a linked saved lead
+is authorization; the setting never broadens it.
 
 **Find new jobs → Search with** (`users.automations.job_search.sources`,
 `SearchSources` in `packages/schema/src/automation.ts`; `components/search-sources.tsx`):

@@ -263,8 +263,9 @@ in New Grad).
 
 ## Approved-lead execution (#99)
 
-Approve starts the linked `saved` applications automatically, up to five at a
-time in the same `priority` order as the column. The extension opens, fills,
+Approve starts linked `saved` applications automatically in the same `priority`
+order as the column. Automation manages on/off, 1–5 simultaneous applications,
+Run now and queue/blocker status. The extension opens, fills,
 reviews and clicks one unambiguous final submit control when every check passes.
 A company already at OA, interview, offer or active recruiter contact is skipped
 and the reason is shown. Login, required account, CAPTCHA, missing answers/files,

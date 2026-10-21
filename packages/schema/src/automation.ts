@@ -1,10 +1,13 @@
-// Automation: Landed's recurring agent work, on a schedule. Three of them,
-// each "when → what → then":
+// Automation: Landed's recurring and event-driven work. Three jobs run on a
+// schedule, each "when → what → then":
 //   email_check   read new email → update applications
 //   job_search    search with the confirmed brief → new jobs in Leads
 //   portal_check  look at the candidate portals of applications that went
 //                 quiet (user's Chrome, read-only) → ask before updating
-// Everything else (how email updates are applied) belongs to one of them. The schedule is account-level (users.automations, /me). The daemon
+// Auto apply is event-driven instead: approving a lead authorizes that one
+// application, and the browser extension executes it while a browser is
+// available. Everything else (how email updates are applied) belongs to one
+// of them. The settings are account-level (users.automations, /me). The daemon
 // on the user's computer runs it (so it works with Landed closed) and keeps
 // results on that computer until the browser picks them up (task kind
 // `automation_sync`): the browser sends the schedule + the context the tasks
@@ -30,12 +33,14 @@ export type SearchSources = { agents: string[]; job_lists: boolean; company_boar
 /** `quiet_days` (portal_check only): look at an application's portal once
  *  it has had no news for this many days. `sources` (job_search only). */
 export type AutomationConfig = { enabled: boolean; schedule: Schedule; quiet_days?: number; sources?: SearchSources }
-export type Automations = Record<AutomationKind, AutomationConfig>
+export type AutoApplyConfig = { enabled: boolean; max_concurrent: number }
+export type Automations = Record<AutomationKind, AutomationConfig> & { auto_apply: AutoApplyConfig }
 
 export const INTERVAL_HOURS = [1, 2, 4, 8, 12]
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
 export const WEEKDAYS = [1, 2, 3, 4, 5]
 export const QUIET_DAY_CHOICES = [7, 14, 21, 30]
+export const AUTO_APPLY_CONCURRENCY = [1, 2, 3, 4, 5]
 /** At most this many portals per run: each one is a few minutes of browsing. */
 export const MAX_PORTALS_PER_RUN = 5
 
@@ -47,6 +52,9 @@ export const DEFAULT_AUTOMATIONS: Automations = {
   email_check: { enabled: false, schedule: { kind: 'interval', hours: 4 } },
   job_search: { enabled: false, schedule: { kind: 'daily', time: '09:00', days: ALL_DAYS }, sources: DEFAULT_SEARCH_SOURCES },
   portal_check: { enabled: false, schedule: { kind: 'daily', time: '10:00', days: [1] }, quiet_days: 14 },
+  // Preserve #99's shipped behavior: approved leads execute automatically
+  // unless the user turns this off on Automation.
+  auto_apply: { enabled: true, max_concurrent: 5 },
 }
 
 function parseSchedule(raw: unknown, fallback: Schedule): Schedule {
@@ -70,6 +78,13 @@ export function parseAutomations(raw: unknown): Automations {
     out[kind] = { enabled: x?.enabled === true, schedule: parseSchedule(x?.schedule, d.schedule) }
     if (kind === 'portal_check') out[kind].quiet_days = QUIET_DAY_CHOICES.includes(x?.quiet_days as number) ? x!.quiet_days as number : d.quiet_days
     if (kind === 'job_search') out[kind].sources = parseSearchSources(x?.sources)
+  }
+  const auto = r.auto_apply
+  out.auto_apply = {
+    enabled: auto?.enabled !== false,
+    max_concurrent: AUTO_APPLY_CONCURRENCY.includes(auto?.max_concurrent as number)
+      ? auto!.max_concurrent as number
+      : DEFAULT_AUTOMATIONS.auto_apply.max_concurrent,
   }
   return out
 }

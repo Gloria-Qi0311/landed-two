@@ -1356,11 +1356,13 @@ describe('automation', () => {
     const set = await call('PATCH', '/api/me', { token: owner, body: { automations: {
       email_check: { enabled: true, schedule: { kind: 'interval', hours: 2 } },
       job_search: { enabled: true, schedule: { kind: 'daily', time: '25:00', days: [1] } },
+      auto_apply: { enabled: false, max_concurrent: 2 },
       hack: { enabled: true },
     } } })
     assert.equal(set.status, 200)
     assert.deepEqual(set.body.automations.email_check, { enabled: true, schedule: { kind: 'interval', hours: 2 } })
     assert.equal(set.body.automations.job_search.schedule.time, '09:00', 'bad time → default')
+    assert.deepEqual(set.body.automations.auto_apply, { enabled: false, max_concurrent: 2 })
     assert.equal(set.body.automations.hack, undefined)
     assert.equal((await call('PATCH', '/api/me', { token: owner, body: { automations: 'daily' } })).status, 400)
   })

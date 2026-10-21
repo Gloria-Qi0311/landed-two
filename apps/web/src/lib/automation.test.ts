@@ -38,6 +38,10 @@ describe('schedules', () => {
     expect(parseAutomations({ email_check: { enabled: true, schedule: { kind: 'interval', hours: 3 } } }).email_check)
       .toEqual({ enabled: true, schedule: { kind: 'interval', hours: 4 } }) // 3h isn't offered → default
     expect(parseAutomations(null).job_search.enabled).toBe(false)
+    expect(parseAutomations(null).auto_apply).toEqual({ enabled: true, max_concurrent: 5 })
+    expect(parseAutomations({ auto_apply: { enabled: false, max_concurrent: 2 } }).auto_apply)
+      .toEqual({ enabled: false, max_concurrent: 2 })
+    expect(parseAutomations({ auto_apply: { enabled: true, max_concurrent: 99 } }).auto_apply.max_concurrent).toBe(5)
     expect(parseSyncInput({ runtime_id: 'nope' })).toBeNull()
     const input = parseSyncInput({ runtime_id: '11111111-2222-4333-8444-555555555555', run_now: ['email_check', 'rm -rf'], ack: ['x'], context: { applications: [{ company: 'A', role: 'PM', stage: 'phone' }] } })!
     expect(input.run_now).toEqual(['email_check'])

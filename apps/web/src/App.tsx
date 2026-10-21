@@ -15,6 +15,7 @@ import { useSearchRunner } from './hooks/search';
 import { useAutoSupply, useLeadScreening, usePutBack, useSupplyRefresh } from './hooks/supply';
 import { screenedOut } from './lib/screen';
 import { useAutomationRunner } from './hooks/automation';
+import { useAutoApplyRunner } from './hooks/auto-apply';
 import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
 
 import { useAuth } from './lib/auth';
@@ -141,6 +142,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useAutoSupply();
   useLeadScreening();
   useAutomationRunner();
+  useAutoApplyRunner();
   usePortalRunner();
   useResumeTaskRunner();
   useKnownAnswers();
