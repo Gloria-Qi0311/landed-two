@@ -151,6 +151,10 @@ messages (PR title and a clean body, no trailer).
   opened. The linked saved lead is the authorization proof. Execution skips a
   company already at OA, interview, offer or recruiter contact; every blocker
   and a successful submit are recorded on the application.
+- Every fill keeps a trace under a short ref (phases, model calls, each field's
+  source or why it was left), never a sensitive question's value. The extension
+  keeps the last 20; Cloud accounts' go to the server for 30 days (not Dexie or the
+  snapshot), and only the owner's paired computer reads one by ref.
 - A tailored version's one-page PDF is derived: made in the browser from its
   `parsed_json`, never stored, never shrunk below 9.5 pt to fit.
 - Fill code lives in `apps/extension/lib/fill/*.js`, each module registered on

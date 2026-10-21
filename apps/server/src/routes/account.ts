@@ -127,6 +127,7 @@ export function accountRoutes(sql: Sql) {
       await tx`delete from agent_conversations where user_id = ${userId}`
       await tx`delete from application_answers where user_id = ${userId}`
       await tx`delete from application_files where user_id = ${userId}`
+      await tx`delete from fill_traces where user_id = ${userId}`
       // Observations moved to the device with the export; keep payload-free
       // receipts so agent retries stay idempotent.
       await tx`update agent_observations set payload_json = null, delivered_at = now(), expires_at = null

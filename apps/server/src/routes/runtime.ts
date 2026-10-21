@@ -34,6 +34,7 @@ import type { AppEnv } from '../auth.ts'
 import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
 import type { Job, JobEvent, RuntimeHub } from '../runtime-hub.ts'
+import { traceFor } from './traces.ts'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>
@@ -294,6 +295,15 @@ export function runtimeDaemonRoutes(sql: Sql, hub: RuntimeHub) {
       disconnect()
       if (closed) await stream.close()
     })
+  })
+
+  // One of its owner's fill traces, by the ref the extension showed
+  // (`landed fill-trace <ref>`). Read-only; Cloud accounts have them.
+  app.get('/fill-traces/:ref', async (c) => {
+    const runtime = await runtimeFromToken(sql, c)
+    const trace = await traceFor(sql, runtime.user_id, c.req.param('ref'))
+    if (!trace) fail(404, 'no fill trace with that ref (Cloud accounts keep them 30 days)')
+    return c.json(trace)
   })
 
   app.post('/jobs/:id/events', async (c) => {

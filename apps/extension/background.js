@@ -17,7 +17,7 @@
 // chrome.runtime.onStartup re-arms on browser restart in case the
 // onInstalled handler never ran.
 
-importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js', 'lib/bridge-handler.js', 'lib/apply-assist-bridge.js', 'lib/resume-pick.js', 'lib/choice-answers.js')
+importScripts('lib/snapshot-store.js', 'lib/config.js', 'lib/storage-adapter.js', 'lib/portal-events-push.js', 'lib/portal-sentinels.js', 'lib/bridge-handler.js', 'lib/apply-assist-bridge.js', 'lib/resume-pick.js', 'lib/choice-answers.js', 'lib/fill-trace-store.js')
 
 // Every read-modify-write of the pending-event queue (ingest, Cloud push,
 // web-bridge take) runs under this lock so none of them clobbers another —
@@ -424,11 +424,46 @@ function fillFrame(tabId, frameId, resume) {
 }
 
 /** Fill the page and every frame in it that holds a form; add them up. */
-async function fillTab(tabId, resume) {
+// What each fill did, step by step: one trace per page under a short ref
+// (lib/fill-trace-store.js; Cloud accounts' go to the server too).
+const fillTraces = self.LandedFillTraces.createFillTraceStore({
+  storage: self.LandedSnapshotStore.chromeStorageAdapter(chrome.storage.local),
+  session: async () => (await chromeGet([self.LandedConfig.SESSION_STORAGE_KEY]))[self.LandedConfig.SESSION_STORAGE_KEY] || null,
+  apiUrl: self.LandedConfig.API_URL,
+  fetch: (url, init) => fetch(url, init),
+})
+
+/** Keep this fill's trace; its ref, or null when it couldn't be kept. */
+async function traceFill(tabId, resume, via, result, answered) {
+  try {
+    const mod = self.LandedFillTraces
+    const ref = mod.newRef()
+    const name = resume.name || assistResumes.find((r) => r.id === resume.id)?.name || null
+    const trace = mod.buildTrace({
+      ref, via, tab: await getTab(tabId), resume: { id: resume.id, name }, extension: chrome.runtime.getManifest().version,
+      result, frames: answered.map((r) => r.trace),
+    })
+    await fillTraces.save(trace)
+    return ref
+  } catch {
+    return null
+  }
+}
+
+/** via: popup | menu | assist (a tab Landed opened) — for the trace. */
+async function fillTab(tabId, resume, via = 'menu') {
   const frames = [0, ...((await loadFormFrames())[tabId] || []).filter((id) => id !== 0)]
   const responses = await Promise.all(frames.map((frameId) => fillFrame(tabId, frameId, resume)))
   const answered = responses.filter((r) => !r.error)
   if (answered.length === 0) return { tabId, error: responses[0]?.error || 'No response from page' }
+  const result = await addUpFill(tabId, answered)
+  // A Landed-opened tab retries until its form appears; those empty tries
+  // aren't worth a trace. A fill the user started always is.
+  const found = result.blocker || result.fields > 0 || result.filled > 0 || result.review > 0
+  return { ...result, trace_ref: via !== 'assist' || found ? await traceFill(tabId, resume, via, result, answered) : null }
+}
+
+async function addUpFill(tabId, answered) {
   const count = (key) => answered.reduce((sum, r) => sum + (Array.isArray(r[key]) ? r[key].length : 0), 0)
   const fields = answered.reduce((sum, r) => sum + (Number.isSafeInteger(Number(r.fields)) ? Math.max(0, Number(r.fields)) : 0), 0)
   const rawBlocker = answered.map((r) => r.blocker).find((b) => b && ['login', 'account', 'captcha'].includes(b.kind))
@@ -597,7 +632,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ error: 'invalid fill request' })
     return true
   }
-  fillTab(msg.tabId, { parsed_json: msg.resume, id: typeof msg.resume_id === 'string' ? msg.resume_id : null }).then(sendResponse, (error) => sendResponse({ error: String(error) }))
+  const resume = { parsed_json: msg.resume, id: typeof msg.resume_id === 'string' ? msg.resume_id : null, name: typeof msg.resume_name === 'string' ? msg.resume_name.slice(0, 120) : null }
+  fillTab(msg.tabId, resume, 'popup').then(sendResponse, (error) => sendResponse({ error: String(error) }))
+  return true
+})
+
+// The popup's copy: one kept fill trace by ref (extension pages only).
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.action !== 'fill-trace-get') return
+  if (sender && sender.tab) return
+  fillTraces.get(String(msg.ref || '')).then((trace) => sendResponse({ trace }), () => sendResponse({ trace: null }))
   return true
 })
 
@@ -634,7 +678,7 @@ async function runAssistCommand(command) {
   } else {
     results = await Promise.all(tabIds.map(async (tabId) => {
       const chosen = auto ? await autoResumeFor(tabId) : resume
-      return chosen ? fillTab(tabId, chosen) : { tabId, error: 'Resume is not available in this browser' }
+      return chosen ? fillTab(tabId, chosen, 'menu') : { tabId, error: 'Resume is not available in this browser' }
     }))
   }
   const summary = self.LandedApplyAssistBridge.fillSummary(results)
@@ -743,6 +787,8 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 /** A small, non-sensitive result queue for the open Landed tab. Values and
  * resume contents never enter it — only Landed ids, counts and a blocker. */
 async function queueAssistResult(entry, result, status) {
+  // How it ended goes on the fill's trace too.
+  if (result.trace_ref) void fillTraces.setOutcome(result.trace_ref, { status, blocker: result.blocker || null }).catch(() => {})
   const row = {
     application_id: entry.application_id || null,
     lead_id: entry.lead_id || null,
@@ -753,6 +799,7 @@ async function queueAssistResult(entry, result, status) {
     filled: Number(result.filled) || 0,
     review: Number(result.review) || 0,
     at: new Date().toISOString(),
+    trace_ref: result.trace_ref || null,
   }
   await withAssistResultsLock(async () => {
     const stored = await readArea(chrome.storage.local, ASSIST_RESULTS_KEY)
@@ -784,7 +831,7 @@ async function fillAssistTab(tabId) {
       await loadAssistResumes()
       const resume = assistResumes.find((item) => item.id === entry.resume_id)
       if (!resume) return
-      const result = await fillTab(tabId, resume)
+      const result = await fillTab(tabId, resume, 'assist')
       if (result.blocker) {
         await updateAssistTabs((tabs) => { if (tabs[tabId]) tabs[tabId].blocker = result.blocker.kind })
         await queueAssistResult(entry, result, 'blocked')

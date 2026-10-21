@@ -173,6 +173,10 @@ async function runFillReview(manual, answers, flat) {
   const { items, leftOut } = fillReport();
   const summary = { checked: 0, fixed: 0, flagged: 0, left_out: leftOut, model: null, error: null };
   if (items.length === 0) return summary;
+  const started = Date.now();
+  const traced = () => F.traceModel?.('review_fill', {
+    asked: items.length, answered: summary.fixed + summary.flagged, model: summary.model, error: summary.error, ms: Date.now() - started,
+  });
   const response = await askNativeHost({
     type: 'review_fill',
     fields: items.map(({ id, question, value, source, options }) => ({ id, question, value, source, ...(options ? { options } : {}) })),
@@ -180,6 +184,7 @@ async function runFillReview(manual, answers, flat) {
   });
   if (!response || !response.ok) {
     summary.error = (response && response.error) || 'Landed for Mac did not answer';
+    traced();
     return summary;
   }
   summary.checked = items.length;
@@ -201,6 +206,7 @@ async function runFillReview(manual, answers, flat) {
       summary.flagged++;
     }
   }
+  traced();
   return summary;
 }
 

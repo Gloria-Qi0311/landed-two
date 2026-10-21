@@ -44,7 +44,10 @@ The preferred model is `qwen3.5:4b`; set `LANDED_OLLAMA_MODEL` in the native-hos
 pnpm landed connect --server https://your-landed --token landed_rt_…   # pair + run here
 pnpm landed start                                                       # run again later
 pnpm landed status                                                      # what's paired, which agents were found
+pnpm landed fill-trace K7Q2MX                                           # what one autofill did (the ref the extension showed)
 ```
+
+`fill-trace` reads one of your fill traces with this computer's pairing (Landed Cloud accounts keep them 30 days; `--json` prints the raw trace). See docs/apply-assist.md, "Fill traces".
 
 Only one daemon runs per computer (`~/.landed/daemon.pid`). If the background service is installed, `connect` hands it the new connection instead of starting a second daemon. `pnpm landed uninstall` removes the service.
 

@@ -1503,6 +1503,60 @@ describe('agent chat history (Cloud)', () => {
     assert.deepEqual((await call('GET', '/api/application-files', { token: owner })).body, [])
   })
 
+  test('fill traces: Cloud accounts upload them, the paired computer reads one by ref', async () => {
+    const owner = await signup('traces@example.com')
+    const other = await signup('traces-other@example.com')
+    const trace = (ref: string, extra: Record<string, unknown> = {}) => ({
+      v: 1, ref, at: '2026-10-21T20:03:00.000Z', via: 'popup', extension: '2.8', injected: 'dropped',
+      page: { url: 'https://job-boards.example.com/acme/jobs/1', title: 'Product Analyst — Acme' },
+      resume: { id: 'r1', name: 'Alex Chen resume' },
+      result: { filled: 2, review: 1, fields: 3, missing_files: [], unanswered: 0, blocker: null, agent_review: null },
+      frames: [{
+        url: 'https://job-boards.example.com/acme/jobs/1', top: true, ms: 1200, fields_on_page: 3,
+        phases: [{ name: 'resume', ms: 40, filled: 2 }], models: [], unanswered: [], blocker: null,
+        fields: [
+          { id: 'f1', kind: 'text', question: 'First Name', status: 'filled', source: 'resume', value: 'Alex' },
+          { id: 'f2', kind: 'select', question: 'Gender', status: 'filled', source: 'answers', hidden: true, value: 'should not be kept' },
+          { id: 'f3', kind: 'text', question: 'How did you hear about us?', status: 'review', source: '', reason: 'needs a saved answer' },
+        ],
+      }],
+      ...extra,
+    })
+    const put = (token: string, ref: string, body: unknown) => call('PUT', `/api/fill-traces/${ref}`, { token, body })
+    assert.equal((await put(owner, 'K7Q2MX', trace('K7Q2MX'))).status, 204)
+    const got = (await call('GET', '/api/fill-traces/k7q2mx', { token: owner })).body
+    assert.equal(got.page.title, 'Product Analyst — Acme')
+    assert.equal(got.injected, undefined, 'known keys only')
+    assert.deepEqual(got.frames[0].fields[1], { id: 'f2', kind: 'select', question: 'Gender', status: 'filled', source: 'answers', hidden: true }, 'a hidden field keeps no value')
+    assert.equal((await put(owner, 'K7Q2MX', trace('ABCDEF'))).status, 400, 'the ref in the body is the one in the path')
+    assert.equal((await put(owner, 'not-a-ref', trace('K7Q2MX'))).status, 404)
+    assert.equal((await call('GET', '/api/fill-traces/K7Q2MX', { token: other })).status, 404, "never another account's")
+    const local = await signup('traces-local@example.com', undefined, { cloud: false })
+    assert.equal((await put(local, 'K7Q2MX', trace('K7Q2MX'))).status, 409, 'sync-off accounts keep them in the extension')
+
+    // The outcome comes later: the same ref, replaced.
+    const blocked = { status: 'blocked', blocker: { kind: 'login', message: 'Sign in to continue' }, at: '2026-10-21T20:04:00.000Z' }
+    assert.equal((await put(owner, 'K7Q2MX', trace('K7Q2MX', { outcome: blocked }))).status, 204)
+
+    // The owner's paired computer reads it by ref (O for 0 is fine); another account's can't.
+    const { body: { token: rt } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
+    const { body: { token: otherRt } } = await call('POST', '/api/runtimes', { token: other, body: {} })
+    const read = await call('GET', '/api/runtime/fill-traces/K7Q2MX', { token: rt })
+    assert.equal(read.status, 200)
+    assert.equal(read.body.outcome.blocker.kind, 'login')
+    assert.equal((await call('GET', '/api/runtime/fill-traces/K7Q2MX', { token: otherRt })).status, 404)
+    assert.equal((await call('GET', '/api/runtime/fill-traces/K7Q2MX', { token: owner })).status, 401, 'a session token is not a runtime token')
+
+    // Older than 30 days goes when the next one comes in.
+    await sql`update fill_traces set created_at = now() - interval '31 days' where ref = 'K7Q2MX'`
+    assert.equal((await put(owner, 'ZZZZZ1', trace('ZZZZZ1'))).status, 204)
+    assert.equal((await call('GET', '/api/fill-traces/K7Q2MX', { token: owner })).status, 404)
+
+    // Turning Cloud off deletes them.
+    assert.equal((await call('POST', '/api/cloud/disable', { token: owner, body: { password: 'correct horse battery' } })).status, 200)
+    assert.equal((await call('GET', '/api/runtime/fill-traces/ZZZZZ1', { token: rt })).status, 404)
+  })
+
   test('chat tasks carry only recent, valid history', async () => {
     const owner = await signup('chat-history@example.com', undefined, { cloud: false })
     const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })

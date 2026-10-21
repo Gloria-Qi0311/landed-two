@@ -14,6 +14,7 @@
 //   landed connect --server https://landed.example.com --token landed_rt_…
 //   landed start          # reconnect with the saved config, in this terminal
 //   landed status         # what's configured and which agents were found
+//   landed fill-trace <ref> [--json]  # what one autofill did (the ref its popup showed)
 //   landed native-host    # Chrome Native Messaging (started by Chrome)
 //
 // From the Landed repo: `pnpm landed <command>`.
@@ -24,6 +25,7 @@ import { agentForKind, detectAgents, detectionNotes, runTask, type AgentInfo, ty
 import { handleSync, setupAutomations, tick } from './automations.ts'
 import { connectCodex, existingLandedUrl, findCodex } from './codex-connector.ts'
 import type { SyncInput } from '@landed/schema/automation'
+import { formatFillTrace, normalizeFillTraceRef, parseFillTrace } from '@landed/schema/fill-trace'
 import { clearConfig, home, loadConfig, saveConfig, type Config } from './config.ts'
 import {
   alert, computerName, confirm, installService, notify, otherDaemon, parseAgentConnectUrl, parseConnectUrl, restartService, serviceInstalled, takeLock,
@@ -217,10 +219,31 @@ async function openUrl(raw: string | undefined) {
   notify(`This Mac is connected to Landed at ${host}.`)
 }
 
+/** `landed fill-trace <ref>`: one of the owner's fill traces, read with this
+ *  computer's pairing (Cloud accounts keep them 30 days). */
+async function printFillTrace(raw: string | undefined, json: boolean) {
+  const ref = normalizeFillTraceRef(raw)
+  if (!ref) {
+    console.error('Usage: landed fill-trace <ref> [--json] — the 6-character ref the extension showed after a fill')
+    process.exit(1)
+  }
+  const config = loadConfig()
+  if (!config) {
+    console.error('Not paired yet: this computer reads fill traces with its Landed connection.')
+    process.exit(1)
+  }
+  const trace = parseFillTrace(await new LandedClient(config.server, config.token).fillTrace(ref))
+  if (!trace) {
+    console.error(`No fill trace ${ref}. Only accounts with Landed Cloud sync on keep them on the server (30 days); others are in the extension.`)
+    process.exit(1)
+  }
+  console.log(json ? JSON.stringify(trace, null, 2) : formatFillTrace(trace))
+}
+
 async function main() {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
-    options: { server: { type: 'string' }, token: { type: 'string' }, name: { type: 'string' } },
+    options: { server: { type: 'string' }, token: { type: 'string' }, name: { type: 'string' }, json: { type: 'boolean' } },
   })
   const command = positionals[0] ?? 'start'
 
@@ -297,7 +320,9 @@ async function main() {
     return
   }
 
-  console.error(`Unknown command "${command}". Commands: setup, open-url, service, native-host, uninstall, connect, start, status.`)
+  if (command === 'fill-trace') return printFillTrace(positionals[1], values.json === true)
+
+  console.error(`Unknown command "${command}". Commands: setup, open-url, service, native-host, uninstall, connect, start, status, fill-trace.`)
   process.exit(1)
 }
 

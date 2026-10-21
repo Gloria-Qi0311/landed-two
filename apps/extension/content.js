@@ -19,13 +19,14 @@
 //   frames    forms in iframes report to the service worker
 //   portal    portal confirmation pages → events
 //   submit    strict final-submit detection; called only by an authorized tab
+//   trace     what this fill did, step by step, for finding what went wrong
 //
 // Field detection lives in lib/field-detect.js, option matching in
 // lib/value-match.js, CN↔EN translation in lib/cross-lingual.js, saved
 // answers in lib/choice-answers.js. Type-checked via JSDoc + checkJs
 // (tsconfig.json).
 
-const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectApplyBlocker, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, fillPendingFromAnswers, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, submitApplication, tagFilled, tryFillCombobox, tryFillSelect, unansweredQuestions } = window.LandedFill;
+const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectApplyBlocker, detectPortalEventForCurrentPage, existingComboboxTexts, finishTrace, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, fillPendingFromAnswers, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, startTrace, submitApplication, tagFilled, tracePhase, tryFillCombobox, tryFillSelect, unansweredQuestions } = window.LandedFill;
 const { normalize, getFieldLabel, matchResumeKey } = window.ResumeFillerFieldDetect;
 const CL = window.ResumeFillerCrossLingual;
 const CA = window.LandedChoiceAnswers;
@@ -64,8 +65,10 @@ async function handleFill(resumeData, customFields, opts) {
   opts = opts || {};
   // Human-only gates come first. In particular, never type a saved value
   // into a password/verification page and never try to work around CAPTCHA.
+  // What this fill does, step by step (lib/fill/trace.js).
+  startTrace();
   const blocker = detectApplyBlocker();
-  if (blocker) return { filled: [], manual: [], missing_files: [], review: null, unanswered: [], fields: 0, blocker };
+  if (blocker) return { filled: [], manual: [], missing_files: [], review: null, unanswered: [], fields: 0, blocker, trace: finishTrace({ blocker }) };
   const fields = deepAll('input:not([type=hidden]):not([type=submit]):not([type=button]), select, textarea, [role="combobox"]')
     .filter((el) => isRendered(el)).length;
   let flat;
@@ -111,6 +114,7 @@ async function handleFill(resumeData, customFields, opts) {
   }
   // Where each value came from, for the review at the end (lib/fill/review.js).
   tagFilled('file');
+  tracePhase('files');
 
   // Work Experience and Education sections (Workday's "My Experience"): every
   // job, internship and school as its own entry, with its own location and
@@ -118,6 +122,7 @@ async function handleFill(resumeData, customFields, opts) {
   // more "Location: <your city>" in a job, or only the current job).
   const sections = await fillExperienceSections(normalized, filled, manual);
   for (const el of sections.owned) answered.add(el);
+  tracePhase('entries');
 
   // Phase 0: text fields the answers cover (legal names, address, date of
   // birth, signature, today's date…) — before the resume rules, which would
@@ -155,10 +160,12 @@ async function handleFill(resumeData, customFields, opts) {
     addManual(manual, el, label, '需要申请资料', null);
   }
   tagFilled('answers');
+  tracePhase('answers');
 
   // Phase 1：填所有可见 input / textarea
   fillInputBatch(getVisibleInputs(), flat, filled, manual, answered);
   tagFilled('resume');
+  tracePhase('resume');
 
   // Phase 2：原生 <select> 匹配填值
   for (const el of /** @type {HTMLSelectElement[]} */ (deepAll('select'))) {
@@ -201,6 +208,8 @@ async function handleFill(resumeData, customFields, opts) {
       aiChoices.push({ id: fieldId(el), question: label, options: options.map((o) => o.text), apply: (i) => setSelectOption(el, options[i]) });
     }
   }
+
+  tracePhase('selects');
 
   // Phase 3：combobox / 自定义下拉
   const comboboxes = /** @type {HTMLElement[]} */ (
@@ -261,6 +270,7 @@ async function handleFill(resumeData, customFields, opts) {
   }
 
   tagFilled('resume');
+  tracePhase('dropdowns');
 
   // Phase 4：富文本 / contenteditable
   for (const el of deepAll('[contenteditable="true"], [role="textbox"]').filter((x) => !sections.owned.has(x))) {
@@ -276,6 +286,7 @@ async function handleFill(resumeData, customFields, opts) {
     : null;
   if (resume && !sections.handled) await fillAllSectionDates(resume, filled);
   tagFilled('entries');
+  tracePhase('dates');
 
   // Phase 6: radio buttons and checkboxes. Answered only from the user's
   // saved application answers (never guessed); consent boxes only when they
@@ -325,6 +336,7 @@ async function handleFill(resumeData, customFields, opts) {
   }
 
   tagFilled('answers');
+  tracePhase('choices');
 
   // Phase 7：user-learned custom fields and label→resumeKey mappings.
   // customFields: { section: { label: literalValue } } — value is fixed.
@@ -375,6 +387,7 @@ async function handleFill(resumeData, customFields, opts) {
   }
 
   tagFilled('saved');
+  tracePhase('saved fields');
 
   // Explicit custom answers and learned mappings run after the generic scan.
   // If one resolved a field, do not keep its earlier review entry or send it
@@ -410,6 +423,7 @@ async function handleFill(resumeData, customFields, opts) {
   }
 
   tagFilled('model');
+  tracePhase('model');
 
   // Phase 9: the user's own agent reviews the filled form (local Ollama, else
   // their Claude Code). Changed fields turn yellow; sensitive ones aren't sent.
@@ -417,6 +431,8 @@ async function handleFill(resumeData, customFields, opts) {
 
   // What's still empty and worth asking the user once (the Extension page).
   const unanswered = unansweredQuestions(manual);
+  if (review) tracePhase('review');
 
-  return { filled, manual, missing_files: Array.from(missingFiles), review, unanswered, fields, blocker: null };
+  const trace = finishTrace({ manual, unanswered, fields });
+  return { filled, manual, missing_files: Array.from(missingFiles), review, unanswered, fields, blocker: null, trace };
 }

@@ -20,6 +20,7 @@ import { searchRoutes } from './routes/searches.ts'
 import { conversationRoutes } from './routes/conversations.ts'
 import { answerRoutes } from './routes/answers.ts'
 import { fileRoutes } from './routes/files.ts'
+import { traceRoutes } from './routes/traces.ts'
 import { downloadRoutes } from './routes/downloads.ts'
 import { agentTaskRoutes, mcpRoutes } from './routes/mcp.ts'
 import { oauthAccountRoutes, oauthRoutes } from './routes/oauth.ts'
@@ -119,6 +120,7 @@ export function createApp(
   cloud.route('/', conversationRoutes(sql))
   cloud.route('/', answerRoutes(sql))
   cloud.route('/', fileRoutes(sql))
+  cloud.route('/', traceRoutes(sql))
   api.route('/', cloud)
   app.route('/api', api)
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))

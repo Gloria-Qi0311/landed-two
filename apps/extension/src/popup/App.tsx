@@ -329,6 +329,31 @@ type FillResult = {
   missing?: string[]
   /** the user's own agent checking the filled page (lib/fill/review.js) */
   agentReview?: AgentReview | null
+  /** what this fill did, step by step (lib/fill-trace-store.js) */
+  traceRef?: string | null
+}
+
+/** A fill's ref; clicking copies its whole trace (what each step did), to
+ *  share when a fill went wrong. Cloud accounts' can also be read by ref on
+ *  their paired computer. */
+function TraceRef({ traceRef }: { traceRef: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    chrome.runtime.sendMessage({ action: 'fill-trace-get', ref: traceRef }, (response) => {
+      void chrome.runtime.lastError
+      const text = response?.trace ? JSON.stringify(response.trace, null, 2) : traceRef
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }, () => {})
+    })
+  }
+  return (
+    <button type="button" onClick={copy} title="What this fill did, step by step. Click to copy it; share it (or just this ref) when a fill went wrong."
+      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--fg-muted)', textDecoration: 'underline dotted' }}>
+      {copied ? 'copied' : traceRef}
+    </button>
+  )
 }
 
 type AgentReview = { checked: number; fixed: number; flagged: number; left_out: number; model: string | null; error: string | null }
@@ -456,7 +481,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
         }
         // The service worker fills the page and any frame holding a form
         // (embedded application forms, dialogs) and adds them up.
-        chrome.runtime.sendMessage({ action: 'fill-tab', tabId: tab.id, resume: pick.resume.parsed_json, resume_id: pick.resume.id }, (response) => {
+        chrome.runtime.sendMessage({ action: 'fill-tab', tabId: tab.id, resume: pick.resume.parsed_json, resume_id: pick.resume.id, resume_name: pick.resume.name }, (response) => {
           const runtimeError = chrome.runtime.lastError
           if (runtimeError || !response || response.error) {
             resolve({ tabId: tab.id, title: tab.title, kind: 'error', error: runtimeError?.message || response?.error || 'No response from page' })
@@ -469,6 +494,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
               review: Number(response.review) || 0,
               missing: Array.isArray(response.missing_files) ? response.missing_files : [],
               agentReview: response.agent_review && typeof response.agent_review === 'object' ? response.agent_review : null,
+              traceRef: typeof response.trace_ref === 'string' ? response.trace_ref : null,
             })
           }
         })
@@ -621,6 +647,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
               </span>
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.title}</span>
               {result.kind === 'done' && <span>{result.filled} filled · {result.review} review</span>}
+              {result.kind === 'done' && result.traceRef && <TraceRef traceRef={result.traceRef} />}
               {result.kind === 'error' && <span title={result.error}>unavailable</span>}
             </div>
           ))}

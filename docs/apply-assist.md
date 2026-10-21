@@ -36,6 +36,7 @@ holds the message listener and `handleFill`.
 | `ai.js` | Asking the local model for unknown labels and unanswered choices |
 | `review.js` | Where each value came from; the fill report; the agent review after a fill |
 | `unanswered.js` | Empty questions worth asking the user once; filling them on open pages once answered |
+| `trace.js` | What this fill did, step by step: phases, model calls, every field's source or why it was left |
 | `frames.js` | A sub-frame showing a form reports itself to the service worker |
 | `portal.js` | Status detection on candidate portal pages |
 
@@ -216,6 +217,44 @@ Questions only the user's answers can answer (`ANSWER_ONLY`: how you heard,
 worked here before, non-compete, talent network) stay yellow when nothing is
 saved, instead of taking a resume field that happens to match ("How did you hear
 about us?" used to get the resume summary).
+
+### Fill traces
+
+Product decision (2026-10-21): every fill keeps a trace, so a bad fill can be
+traced to the rule or model call behind it without reproducing it.
+
+- **Recorded per frame** (`lib/fill/trace.js`): `startTrace` when a fill starts,
+  `tracePhase` after each phase (files, entries, answers, resume, selects,
+  dropdowns, dates, choices, saved fields, model, review: how long, how many
+  fields it filled), `traceModel` for each model call (`match_fields`,
+  `choose_options`, `review_fill`: asked, answered, model, error, time), and
+  `finishTrace` for every field Landed marked: question, kind, status, source
+  (`data-landed-source`), the value (clipped), the review's note, and why it was
+  left for the user (the `addManual` hint in words). Sensitive questions
+  (`neverSent`, `isSensitiveLabel`) and passwords carry `hidden: true` and no
+  value. A blocked page's trace says why nothing was filled.
+- **Added up per page** (`fillTab` → `lib/fill-trace-store.js`): the page (no
+  query string), the resume, the totals, the frames, and how the fill started
+  (`popup`, `menu`, or `assist` for a tab Landed opened; that one's empty retries
+  before its form appears aren't kept). It gets a 6-character ref (Crockford
+  base32). A Landed-opened tab's outcome (ready, blocked, submitted, error) is
+  added when it's known, and the ref goes with the result to Landed, which
+  appends `· fill <ref>` to the application's next step.
+- **Kept**: the last 20 in `chrome.storage.local` (`landed:fill-traces`). A
+  Landed Cloud account's also go to the server (`PUT /api/fill-traces/:ref`,
+  `fill_traces`, migration 0022), kept 30 days and deleted with Cloud sync off.
+  The server refuses a sync-off account's (`requireCloud`); those stay in the
+  extension. Uploading happens after the fill returns, so a slow server never
+  holds up the popup. Traces are debugging records, not job-hunt data: not in
+  Dexie or the snapshot.
+- **Read**: the popup shows the ref next to each page's result; clicking it
+  copies the whole trace. On the user's paired computer, `landed fill-trace
+  <ref>` (`pnpm landed fill-trace <ref>` from the repo; `--json` for the raw
+  trace) reads it with the computer's runtime token (`GET
+  /api/runtime/fill-traces/:ref`, read-only, the owner's traces only) and prints
+  it with `formatFillTrace` (`packages/schema/src/fill-trace.ts`). The server
+  validates every trace with `parseFillTrace`: known keys only, strings clipped,
+  at most 300 KB, a hidden field's value dropped.
 
 ## Application answers and the Extension page
 

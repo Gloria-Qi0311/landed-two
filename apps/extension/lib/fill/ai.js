@@ -13,6 +13,7 @@ const CA = global.LandedChoiceAnswers;
 async function runChoiceFallback(choices, answers, flat) {
   const open = choices.filter((c) => c.options.length >= 2 && c.options.length <= 40 && c.question);
   if (!answers || open.length === 0) return [];
+  const started = Date.now();
   const response = await new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage({
@@ -30,7 +31,13 @@ async function runChoiceFallback(choices, answers, flat) {
       resolve(null);
     }
   });
-  if (!response || !response.ok || !response.choices) return [];
+  const traced = (answered, error) => F.traceModel?.('choose_options', {
+    asked: Math.min(open.length, 40), answered, model: (response && response.model) || null, error, ms: Date.now() - started,
+  });
+  if (!response || !response.ok || !response.choices) {
+    traced(0, (response && response.error) || 'Landed for Mac did not answer');
+    return [];
+  }
   const done = [];
   for (const c of open) {
     const pick = response.choices[c.id];
@@ -40,6 +47,7 @@ async function runChoiceFallback(choices, answers, flat) {
     (c.group || [deepAll(`[data-landed-field-id="${c.id}"]`)[0]]).forEach((el) => el && markField(el, 'filled'));
     done.push(c.id);
   }
+  traced(done.length, null);
   return done;
 }
 
@@ -51,6 +59,7 @@ async function runLLMFallback(manual, flat, answerKeys) {
   // Prefer the local Landed.app bridge. The model only selects an existing
   // resume key; native-host.ts validates that key and returns the original
   // value, so page text cannot persuade it to invent an application fact.
+  const started = Date.now();
   const native = await new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage({
@@ -70,10 +79,13 @@ async function runLLMFallback(manual, flat, answerKeys) {
       resolve(null);
     }
   });
-  if (native && native.ok && native.values) {
-    const filled = await applySuggestedValues(modelEligible, native.values, true);
-    if (filled.length > 0) return filled;
-  }
+  let filled = [];
+  if (native && native.ok && native.values) filled = await applySuggestedValues(modelEligible, native.values, true);
+  F.traceModel?.('match_fields', {
+    asked: modelEligible.length, answered: filled.length, model: (native && native.model) || null,
+    error: native && native.ok ? null : (native && native.error) || 'Landed for Mac did not answer', ms: Date.now() - started,
+  });
+  if (filled.length > 0) return filled;
 
   // Existing remote-provider fallback remains available for people without
   // Landed.app/Ollama, but only when they explicitly enabled it in options.

@@ -52,6 +52,15 @@ export class LandedClient {
     return (await this.request('/api/runtime/hello', { method: 'POST', body: JSON.stringify(info) })).json()
   }
 
+  /** One of the owner's fill traces by ref, or null when there's none. */
+  async fillTrace(ref: string): Promise<unknown> {
+    const res = await fetch(`${this.server}/api/runtime/fill-traces/${encodeURIComponent(ref)}`, { headers: { Authorization: `Bearer ${this.token}` } })
+    if (res.status === 404) return null
+    if (res.status === 401) throw new AuthError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'unauthorized')
+    if (!res.ok) throw new Error(`GET fill trace → ${res.status}`)
+    return res.json()
+  }
+
   async postEvents(taskId: string, events: TaskEvent[]) {
     await this.request(`/api/runtime/jobs/${taskId}/events`, { method: 'POST', body: JSON.stringify({ events }) })
   }

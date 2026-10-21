@@ -82,10 +82,18 @@ describe('apply-assist results', () => {
     expect(nextStepForAssistResult({ status: 'blocked', blocker: 'answers', message: null })).toBe(`${APPLY_BLOCKED}Answer required questions in Extension`)
   })
 
+  test("names the fill's trace, so what it did can be looked up", () => {
+    const step = nextStepForAssistResult({ status: 'blocked', blocker: 'login', message: null, trace_ref: 'K7Q2MX' })
+    expect(step).toBe(`${APPLY_BLOCKED}Sign in required · fill K7Q2MX`)
+    expect(step.startsWith(APPLY_BLOCKED)).toBe(true)
+  })
+
   test('bounds and validates extension results', () => {
     const application_id = '11111111-2222-4333-8444-555555555555'
     expect(parseApplyAssistResults([{ application_id, tab_id: 7, status: 'blocked', blocker: 'captcha', message: 'Needs you', filled: 2, review: 1, at: '2026-10-19T12:00:00Z' }]))
-      .toEqual([{ application_id, lead_id: null, tab_id: 7, status: 'blocked', blocker: 'captcha', message: 'Needs you', filled: 2, review: 1, at: '2026-10-19T12:00:00Z' }])
+      .toEqual([{ application_id, lead_id: null, tab_id: 7, status: 'blocked', blocker: 'captcha', message: 'Needs you', filled: 2, review: 1, at: '2026-10-19T12:00:00Z', trace_ref: null }])
+    expect(parseApplyAssistResults([{ tab_id: 7, status: 'ready', trace_ref: 'K7Q2MX' }])[0].trace_ref).toBe('K7Q2MX')
+    expect(parseApplyAssistResults([{ tab_id: 7, status: 'ready', trace_ref: '<script>' }])[0].trace_ref).toBeNull()
     expect(parseApplyAssistResults([{ tab_id: 'x', status: 'ready' }, null])).toEqual([])
   })
 })

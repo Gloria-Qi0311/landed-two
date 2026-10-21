@@ -3,6 +3,7 @@
 // authorization to open, fill, review and submit. This module is deliberately
 // pure so the authorization boundary, skip rules and extension results stay
 // testable outside React.
+import { FILL_TRACE_REF } from '@landed/schema/fill-trace'
 import type { DbJobLead, DbResume, DbSuggestion } from './store/types'
 import { byPriority, rankOf } from './fit'
 import { pickResumeFor, type AssistTarget, type ResumePick } from './apply-assist'
@@ -43,6 +44,8 @@ export type ApplyAssistResult = {
   filled: number
   review: number
   at: string
+  /** the fill's trace (`landed fill-trace <ref>`), when the extension kept one */
+  trace_ref: string | null
 }
 
 const ACTIVE_COMPANY_STAGES = new Set(['oa', 'interview', 'phone', 'onsite', 'offer'])
@@ -142,11 +145,13 @@ const blockerMessage: Record<ApplyAssistBlocker, string> = {
 }
 
 /** What the application card records after an extension result. */
-export function nextStepForAssistResult(result: Pick<ApplyAssistResult, 'status' | 'blocker' | 'message'>): string {
-  if (result.status === 'submitted') return APPLY_SUBMITTED
-  if (result.status === 'ready') return APPLY_REVIEW
-  if (result.status === 'blocked' && result.blocker) return APPLY_BLOCKED + blockerMessage[result.blocker]
-  return APPLY_BLOCKED + (result.message?.trim().slice(0, 120) || 'Autofill could not finish')
+export function nextStepForAssistResult(result: Pick<ApplyAssistResult, 'status' | 'blocker' | 'message'> & { trace_ref?: string | null }): string {
+  const step = result.status === 'submitted' ? APPLY_SUBMITTED
+    : result.status === 'ready' ? APPLY_REVIEW
+    : result.status === 'blocked' && result.blocker ? APPLY_BLOCKED + blockerMessage[result.blocker]
+    : APPLY_BLOCKED + (result.message?.trim().slice(0, 120) || 'Autofill could not finish')
+  // The fill's ref, to look up what it did when it went wrong.
+  return result.trace_ref ? `${step} · fill ${result.trace_ref}` : step
 }
 
 /** Extension storage is outside React's type boundary; accept only the small
@@ -169,6 +174,7 @@ export function parseApplyAssistResults(raw: unknown): ApplyAssistResult[] {
       filled: Number.isSafeInteger(Number(r.filled)) ? Math.max(0, Number(r.filled)) : 0,
       review: Number.isSafeInteger(Number(r.review)) ? Math.max(0, Number(r.review)) : 0,
       at: typeof r.at === 'string' && !Number.isNaN(Date.parse(r.at)) ? r.at : new Date().toISOString(),
+      trace_ref: typeof r.trace_ref === 'string' && FILL_TRACE_REF.test(r.trace_ref) ? r.trace_ref : null,
     }]
   })
 }
