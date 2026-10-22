@@ -404,7 +404,11 @@ hours (`hooks/supply.ts`, `lib/supply.ts`; see
   summary names the window read, and the prompt gives the start as local time +
   `after:<Unix seconds>` (a Gmail date means local midnight, and a UTC date can
   already be tomorrow). "Re-read the last 30 days" sends `email_rescan_days` with
-  a run-now.
+  a run-now. A run-now that arrives while the same kind is running is never
+  dropped: the daemon runs it right after, once, with the context the browser
+  sent since and the furthest re-read asked for (`runNow` in
+  `apps/daemon/src/automations.ts`); the browser clears its request once a sync
+  delivered it.
 - **The browser side**: the `automation_sync` task (`lib/automation-sync.ts`,
   `useAutomationRunner`) sends the schedule plus the context the tasks need
   (`{applications, email_since, brief, search_id, portal_apps}`) and acks the

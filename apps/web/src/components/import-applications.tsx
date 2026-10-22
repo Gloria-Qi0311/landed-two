@@ -12,7 +12,7 @@ import { danger, muted } from './ui'
 import { useStore } from '../lib/store'
 import type { DbApplication, DbCompany } from '../lib/store/types'
 import {
-  FIELD_LABEL, IMPORT_FIELDS, decodeBytes, findHeader, guessMapping, planImport, readRows, readStatus, readTable, runImport, undoImport,
+  FIELD_LABEL, IMPORT_FIELDS, decodeBytes, emailAfterImport, findHeader, guessMapping, planImport, readRows, readStatus, readTable, runImport, undoImport,
   unreadStatuses, type AgentStages, type ColumnUse, type ImportField, type ImportOutcome, type Planned, type StatusReading,
 } from '../lib/import-applications'
 import { bridgeCall } from '../lib/extension-bridge'
@@ -49,14 +49,18 @@ function useEmailCheck() {
   const { automations } = useAutomations()
   const runtimes = useRuntimes()
   const designated = designate(syncTargets(runtimes.data ?? []), automations)
-  return !!designated && computerCan(designated, 'email_check') && designated.runtime.agents.some((a) => a.kinds?.includes('email_check'))
+  return {
+    canRead: !!designated && computerCan(designated, 'email_check') && designated.runtime.agents.some((a) => a.kinds?.includes('email_check')),
+    // Check email's switch on Workflow: off means Landed doesn't read email on its own.
+    enabled: automations.email_check.enabled,
+  }
 }
 
 export function ImportApplicationsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { store } = useStore()
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const canReadEmail = useEmailCheck()
+  const email = useEmailCheck()
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [pasted, setPasted] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -144,7 +148,7 @@ export function ImportApplicationsModal({ open, onClose }: { open: boolean; onCl
       setDone(outcome)
       // Brought up to date from email on its own, in the background: the user
       // needn't wait here (the Applications page says while it runs).
-      if (canReadEmail && outcome.added.length + outcome.updated.length > 0) {
+      if (emailAfterImport({ ...email, changed: outcome.added.length + outcome.updated.length }) === 'auto') {
         requestRunNow('email_check', { rescanDays: daysToRead(outcome.earliest) })
         setEmailAsked(true)
       }
@@ -174,6 +178,7 @@ export function ImportApplicationsModal({ open, onClose }: { open: boolean; onCl
   }
   const emailDays = daysToRead(done?.earliest ?? null)
 
+  const afterImport = done ? emailAfterImport({ ...email, changed: done.added.length + done.updated.length }) : 'none'
   let body: ReactNode
   if (done) {
     const parts = [
@@ -193,12 +198,14 @@ export function ImportApplicationsModal({ open, onClose }: { open: boolean; onCl
         <div style={muted}>
           {emailAsked
             ? <>Your sheet says where each one stood when you saved it. Landed is reading your email from the last {emailDays} days in the background to bring them up to date (an interview invite, a rejection). You can close this: updates show up on the board as they come in, and ones it isn't sure about ask you first.</>
-            : 'Your sheet says where each one stood when you saved it. Emails since then (an interview invite, a rejection) can bring them up to date.'}
+            : afterImport === 'offer'
+              ? 'Your sheet says where each one stood when you saved it. Check email is off on Workflow, so Landed didn\'t read your email on its own; you can have it read once now to bring them up to date.'
+              : 'Your sheet says where each one stood when you saved it. Emails since then (an interview invite, a rejection) can bring them up to date.'}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {emailAsked ? (
+          {emailAsked || afterImport === 'none' ? (
             <button type="button" className="btn-primary" onClick={onClose}>Done</button>
-          ) : canReadEmail ? (
+          ) : afterImport === 'offer' || afterImport === 'auto' ? (
             <button type="button" className="btn-primary"
               onClick={() => { requestRunNow('email_check', { rescanDays: emailDays }); setEmailAsked(true) }}>
               <Icon name="inbox" size={13} /> Update them from email (last {emailDays} days)

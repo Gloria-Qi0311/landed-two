@@ -108,12 +108,16 @@ runs in the browser, like the export.
   leave Leads and a search doesn't bring them back. Imported applications count
   as news on the day of the import (`last_activity_at`), so the 21-day "still
   waiting?" questions don't all arrive at once. Undo puts everything back. With
-  email checks set up, Landed re-reads email back to the oldest import (a week
-  at least, at most 90 days) to bring them up to date, on its own and in the
-  background: the window says so and closes with Done, and the Applications page
-  shows one line while it runs (`EmailCheckRunning`); what it finds arrives as
-  updates. Without email checks, a button leads to setting them up. Older ones
-  keep the sheet's status.
+  Check email on (Workflow) and a computer that can read email, Landed re-reads
+  email back to the oldest import (a week at least, at most 90 days) to bring
+  them up to date, on its own and in the background: the window says so and
+  closes with Done, and the Applications page shows one line while it runs
+  (`EmailCheckRunning`); what it finds arrives as updates. With Check email off,
+  Landed never reads email on its own: the window offers it once, as a click
+  (`emailAfterImport`). With no computer that reads email, a button leads to
+  setting it up. Asked while an email check is already running, the re-read runs
+  right after it, with the imported applications (the daemon queues a run-now
+  instead of dropping it). Older ones keep the sheet's status.
 - The store call is `importApplications` (`POST /api/import`): each company is
   found or created by exact name, all or nothing, at most 2000 rows a call (the
   import sends 200 at a time). Demo data uses it too.

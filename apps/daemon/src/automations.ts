@@ -69,6 +69,10 @@ let log: (msg: string) => void = () => {}
 let recheckFn: (() => void) | null = null
 let abilitiesFn: (() => Abilities) | null = null
 const running = new Set<AutomationKind>()
+/** "Run now" that came while the same kind was running: run it right after,
+ *  with the context the browser sent since (an import's applications), never
+ *  dropped. The browser clears its request once a sync has delivered it. */
+const queued = new Map<AutomationKind, RunOptions>()
 
 /** Wire up (cli.ts): this computer's runtime id (from hello), how to run a
  *  task and with which agent here, logging; how to look again at what the
@@ -121,9 +125,20 @@ export function handleSync(input: SyncInput): SyncOutput {
   // A page is waiting for a connector: every computer looks again, not just the one running the schedule.
   if (input.recheck) recheckFn?.()
   if (input.runtime_id === myRuntimeId) {
-    for (const kind of input.run_now) void runAutomation(kind, kind === 'email_check' && input.email_rescan_days ? { rescanDays: input.email_rescan_days } : {})
+    for (const kind of input.run_now) void runNow(kind, kind === 'email_check' && input.email_rescan_days ? { rescanDays: input.email_rescan_days } : {})
   }
   return output()
+}
+
+/** The user asked for a run: now, or right after the one in progress. Two
+ *  requests while it runs make one more run, reading as far back as the
+ *  further of them. */
+function runNow(kind: AutomationKind, opts: RunOptions) {
+  if (!running.has(kind)) return runAutomation(kind, opts)
+  const before = queued.get(kind)
+  const rescanDays = Math.max(before?.rescanDays ?? 0, opts.rescanDays ?? 0)
+  queued.set(kind, rescanDays ? { rescanDays } : {})
+  log(`automation: ${kind} is running; this run-now goes right after it`)
 }
 
 /** Called every minute: start whatever is due. */
@@ -213,6 +228,11 @@ async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
     }
   } finally {
     running.delete(kind)
+    const next = queued.get(kind)
+    if (next) {
+      queued.delete(kind)
+      void runAutomation(kind, next)
+    }
   }
 }
 
@@ -280,6 +300,7 @@ async function runWith(kind: AutomationKind, agent: string | null, agentLabel: s
 /** For tests: forget everything, on disk too. */
 export function resetAutomationsForTests() {
   rmSync(file(), { force: true })
+  queued.clear()
   state = null
   myRuntimeId = null
   pickAgent = () => 'claude'

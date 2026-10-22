@@ -130,6 +130,38 @@ test('re-reading: "run now" with email_rescan_days reads that far back once', as
   assert.ok(back(2) < 1.1, 'and the next check continues from the last one')
 })
 
+test('a re-read asked for while a check is running runs right after it, with the context sent since (never dropped)', async () => {
+  resetAutomationsForTests()
+  const calls: { input: Record<string, unknown> }[] = []
+  let release: () => void = () => {}
+  setupAutomations({
+    runtimeId: 'rt-a', log: () => {},
+    runTask: async (task, emit) => {
+      calls.push(task)
+      // The first check is still reading when the import asks to re-read.
+      if (calls.length === 1) await new Promise<void>((r) => { release = r })
+      emit({ type: 'done', text: '', findings: [] })
+    },
+  })
+  sync({ run_now: ['email_check'] })
+  await settle()
+  assert.equal(calls.length, 1)
+  // The import: its applications in the context, and a re-read 30 days back.
+  const imported = { ...context, applications: [...context.applications, { company: 'Bluefin Analytics', role: 'Product Analyst', stage: 'applied' }] }
+  sync({ context: imported, run_now: ['email_check'], email_rescan_days: 10 })
+  sync({ context: imported, run_now: ['email_check'], email_rescan_days: 30 })
+  await settle()
+  assert.equal(calls.length, 1, 'not two checks at once')
+  release()
+  await settle()
+  assert.equal(calls.length, 2, 'the re-read runs right after, once')
+  const back = (Date.now() - Date.parse(String(calls[1].input.since))) / 86_400_000
+  assert.ok(back > 29.9 && back < 30.1, 'as far back as the further request')
+  assert.deepEqual((calls[1].input.applications as { company: string }[]).map((a) => a.company), ['Figma', 'Bluefin Analytics'], 'with the imported applications')
+  await settle()
+  assert.equal(calls.length, 2, 'and nothing more after it')
+})
+
 test('a new pairing starts fresh: no old results, runs or email window', async () => {
   resetAutomationsForTests()
   const calls: { kind: string; input: Record<string, unknown> }[] = []
