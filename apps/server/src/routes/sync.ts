@@ -14,7 +14,7 @@
 // same snapshot inserts nothing new. Companies merge by name and portal
 // connections by (company, provider), so signing in on a second device that
 // has its own data merges rather than duplicates.
-import { parseMasterResume } from '@landed/schema/master-resume'
+import { parseDirections, parseMasterResume, parseResumeChoice } from '@landed/schema/master-resume'
 import { leadQueueDefaults } from '@landed/schema/lead-queue'
 import { normalizeStage, parseInterviews } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
@@ -28,8 +28,8 @@ import { CONVERSATION_COLUMNS } from './conversations.ts'
 import { parseConversation } from '@landed/schema/conversation'
 import { parseApplicationAnswers } from '@landed/schema/application-answers'
 import { ANSWER_COLUMNS } from './answers.ts'
-import { FILE_COLUMNS } from './files.ts'
-import { parseApplicationFile } from '@landed/schema/application-files'
+import { FILE_COLUMNS, RESUME_FILE_COLUMNS } from './files.ts'
+import { parseApplicationFile, parseResumeFile } from '@landed/schema/application-files'
 
 // Loosely-typed JSON row (request bodies, jsonb values) for the sql() helpers.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -41,6 +41,7 @@ export const BACKUP_VERSION = 1
 const TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
   'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers', 'application_files',
+  'resume_files',
 ] as const
 const MAX_ROWS_PER_TABLE = 20_000
 const CHUNK = 500
@@ -50,14 +51,14 @@ const COLUMNS = {
   applications: [
     'id', 'company_id', 'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at',
     'next_step', 'referral', 'source', 'job_id', 'portal_application_url', 'notes', 'starred',
-    'last_activity_at', 'created_at', 'interviews', 'deadline',
+    'last_activity_at', 'created_at', 'interviews', 'deadline', 'resume_choice',
   ],
   portal_connections: [
     'id', 'company_id', 'provider', 'portal_host', 'status', 'last_sync_at', 'last_seen_login_at',
     'failure_reason', 'created_at',
   ],
   portal_events: ['id', 'connection_id', 'application_id', 'type', 'payload_json', 'created_at'],
-  resumes: ['id', 'name', 'file_path', 'parsed_json', 'is_current', 'created_at', 'kind', 'master_json', 'target_json'],
+  resumes: ['id', 'name', 'file_path', 'parsed_json', 'is_current', 'created_at', 'kind', 'master_json', 'target_json', 'directions'],
   ai_runs: ['id', 'task', 'provider', 'prompt_text', 'response_text', 'parsed_json', 'parse_format', 'created_at'],
   // Raw agent inbox. Only rows that still carry a payload travel in a
   // snapshot (receipts are server bookkeeping, not user data).
@@ -71,6 +72,7 @@ const COLUMNS = {
   agent_conversations: CONVERSATION_COLUMNS,
   application_answers: ANSWER_COLUMNS,
   application_files: FILE_COLUMNS,
+  resume_files: RESUME_FILE_COLUMNS,
 } as const
 
 // NOT NULL columns get their DB default when a snapshot row omits them, so
@@ -86,7 +88,7 @@ function defaults(now: string): Row {
 
 const JSON_COLUMNS = new Set([
   'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
-  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json', 'turns', 'answers', 'screen', 'fit',
+  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json', 'turns', 'answers', 'screen', 'fit', 'resume_choice',
 ])
 
 function chunks<T>(rows: T[]): T[][] {
@@ -161,7 +163,7 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
     const stage = normalizeStage(r.stage ?? 'saved')
     if (!stage) fail(400, `applications[]: unknown stage ${JSON.stringify(r.stage)}`)
     const interviews = parseInterviews(r.interviews) ?? (stage.round ? [stage.round] : [])
-    apps.push(normalize('applications', r, { company_id: cid, stage: stage.stage, interviews }))
+    apps.push(normalize('applications', r, { company_id: cid, stage: stage.stage, interviews, resume_choice: parseResumeChoice(r.resume_choice) ?? null }))
   }
   counts.applications = await insertRows('applications', apps)
 
@@ -206,7 +208,7 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
     const master = kind === 'master' ? parseMasterResume(r.master_json) : null
     if (kind === 'master' && (masterTaken || !master)) kind = 'version'
     if (kind === 'master') masterTaken = true
-    return normalize('resumes', r, { is_current: isCurrent, kind, master_json: kind === 'master' ? master : null })
+    return normalize('resumes', r, { is_current: isCurrent, kind, master_json: kind === 'master' ? master : null, directions: parseDirections(r.directions) ?? [] })
   }))
 
   counts.ai_runs = await insertRows('ai_runs', list('ai_runs').map((r) => normalize('ai_runs', r, {})))
@@ -279,6 +281,14 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
     .flatMap((p) => (p.ok ? [p.file] : []))
     .filter((f, i, all) => all.findIndex((x) => x.kind === f.kind) === i)
     .map((f) => normalize('application_files', f, {})), true)
+
+  // each uploaded resume's own file — only for resumes in this upload, one each
+  const resumeIds = new Set(list('resumes').map((r) => r.id))
+  counts.resume_files = await insertRows('resume_files', list('resume_files')
+    .map((r) => parseResumeFile(r))
+    .flatMap((p) => (p.ok && resumeIds.has(p.file.resume_id) ? [p.file] : []))
+    .filter((f, i, all) => all.findIndex((x) => x.resume_id === f.resume_id) === i)
+    .map((f) => normalize('resume_files', f, {})), true)
 
   const onboarded = snap.profile?.onboarded_at
   if (typeof onboarded === 'string') {

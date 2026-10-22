@@ -6,7 +6,7 @@
 // layer (toAppShape etc.) is unchanged. Bad enum values / foreign ids /
 // cross-user references are rejected by Postgres (see migrations/0001) and
 // mapped to 400 by the app-level error handler.
-import { parseMasterResume, parseTailorNotes, parseTarget, parseWaitingFile } from '@landed/schema/master-resume'
+import { MAX_DIRECTIONS, parseDirections, parseMasterResume, parseResumeChoice, parseTailorNotes, parseTarget, parseWaitingFile } from '@landed/schema/master-resume'
 import { normalizeStage, parseDeadline, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
@@ -18,11 +18,11 @@ import { encryptSecret } from '../secrets.ts'
 const APPLICATION_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
   'referral', 'source', 'job_id', 'portal_application_url', 'notes', 'starred', 'last_activity_at', 'interviews',
-  'deadline',
+  'deadline', 'resume_choice',
 ] as const
 const APPLICATION_PATCH_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline',
+  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline', 'resume_choice',
 ] as const
 const COMPANY_FIELDS = ['name', 'hue', 'logo_chars', 'sector', 'loc', 'portal_url'] as const
 
@@ -56,6 +56,11 @@ function applicationColumns(sql: Sql, input: Row, fields: readonly string[], opt
     if (!rounds) fail(400, 'interviews must be an array of rounds')
     out.interviews = sql.json(rounds)
   }
+  if (out.resume_choice !== undefined) {
+    const choice = parseResumeChoice(out.resume_choice)
+    if (choice === undefined) fail(400, 'resume_choice needs a resume id and a name')
+    out.resume_choice = choice && sql.json(choice)
+  }
   return out
 }
 
@@ -78,6 +83,11 @@ function resumeExtras(sql: Sql, body: Row): Row {
     const t = body.target_json === null ? null : parseTarget(body.target_json)
     if (body.target_json !== null && !t) fail(400, 'target_json needs a role')
     out.target_json = t && sql.json({ ...t, notes: parseTailorNotes((body.target_json as Row).notes) })
+  }
+  if (body.directions !== undefined) {
+    const d = parseDirections(body.directions)
+    if (!d) fail(400, `directions must be up to ${MAX_DIRECTIONS} role names (60 characters each)`)
+    out.directions = d
   }
   return out
 }
@@ -227,7 +237,7 @@ export function dataRoutes(sql: Sql, config: Config) {
     if (body.name !== undefined) patch.name = requireString(body.name, 'name')
     if (body.parsed_json !== undefined) patch.parsed_json = body.parsed_json === null ? null : sql.json(body.parsed_json as Row)
     Object.assign(patch, resumeExtras(sql, body))
-    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: name, parsed_json, master_json, target_json, file_path)')
+    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: name, parsed_json, master_json, target_json, file_path, directions)')
     const [row] = await sql`
       update resumes set ${sql(patch)}
       where id = ${c.req.param('id')} and user_id = ${c.get('user').id}

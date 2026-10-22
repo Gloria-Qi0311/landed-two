@@ -40,6 +40,7 @@ function toAppShape(row: DbApplication) {
     starred: row.starred,
     interviews: row.interviews ?? [],
     deadline: row.deadline ?? null,
+    resume_choice: row.resume_choice ?? null,
   }
 }
 

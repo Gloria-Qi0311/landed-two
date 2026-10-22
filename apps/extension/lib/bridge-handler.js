@@ -113,6 +113,18 @@
     return role ? { role, company: text(raw.company, 120), job_url: text(raw.job_url, 2000), application_id: text(raw.application_id, 64) } : null
   }
 
+  /** A write that may not fit (resume files are big): what went wrong, in
+   *  words the page can show, instead of dropping the file silently. */
+  async function keep(write) {
+    try {
+      await write()
+      return null
+    } catch (e) {
+      const why = String((e && e.message) || e || 'the browser said no')
+      return /quota/i.test(why) ? "the extension's storage is full" : why.slice(0, 200)
+    }
+  }
+
   function createBridgeHandler(deps) {
     const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced, classifyStatuses } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
@@ -198,10 +210,11 @@
           const file = p.file === null ? null : sanitizeFile(p.file)
           if (p.file !== null && !file) return { ok: false, error: 'not a file the extension can upload' }
           const key = cfg.LOCAL_FILES_KEY || 'landed:application-files'
-          await withLock(async () => {
+          const failed = await keep(() => withLock(async () => {
             const stored = (await readLocal(chromeLocal, key))[key] || {}
             await chromeLocal.set({ [key]: { ...stored, [p.kind]: file } })
-          })
+          }))
+          if (failed) return { ok: false, error: `Couldn't keep the file: ${failed}` }
           return { ok: true, data: { kind: p.kind, saved: !!file } }
         }
 
@@ -233,14 +246,19 @@
           const hash = typeof p.hash === 'string' && /^[0-9a-f]{16,64}$/.test(p.hash) ? p.hash : null
           if (!hash) return { ok: false, error: 'hash is required' }
           const file = p.file === null ? null : sanitizeFile(p.file)
-          if (p.file !== null && (!file || !/\.pdf$/i.test(file.name))) return { ok: false, error: 'not a PDF the extension can upload' }
-          await withLock(async () => {
+          // A version's one-page PDF, or an uploaded resume's own file (PDF or Word).
+          if (p.file !== null && (!file || !/\.(pdf|docx?)$/i.test(file.name))) return { ok: false, error: 'not a resume file the extension can upload' }
+          // The manifest asks for unlimitedStorage (Chrome caps storage.local at
+          // 10 MB without it; a few resumes' files are more), and a write that
+          // still fails says so.
+          const failed = await keep(() => withLock(async () => {
             const stored = (await readLocal(chromeLocal, key))[key] || {}
             stored[id] = { hash, file, synced_at: new Date().toISOString() }
-            // The newest 20 versions are plenty for the jobs in flight.
-            const keep = Object.entries(stored).sort((a, b) => String(b[1].synced_at).localeCompare(String(a[1].synced_at))).slice(0, 20)
-            await chromeLocal.set({ [key]: Object.fromEntries(keep) })
-          })
+            // The newest 40 resumes' files are plenty for the jobs in flight.
+            const newest = Object.entries(stored).sort((a, b) => String(b[1].synced_at).localeCompare(String(a[1].synced_at))).slice(0, 40)
+            await chromeLocal.set({ [key]: Object.fromEntries(newest) })
+          }))
+          if (failed) return { ok: false, error: `Couldn't keep this resume's file: ${failed}` }
           return { ok: true, data: { saved: !!file } }
         }
 

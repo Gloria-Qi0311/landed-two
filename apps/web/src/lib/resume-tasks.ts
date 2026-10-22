@@ -16,7 +16,7 @@
 import { create } from 'zustand'
 import { safeNormalize } from '@landed/schema'
 import {
-  masterToResume, MAX_UPLOAD_BYTES, PARSE_FILE_TYPES, parseLooseResume, parseMasterResume, parseTailorNotes,
+  guessDirections, masterToResume, MAX_UPLOAD_BYTES, PARSE_FILE_TYPES, parseLooseResume, parseMasterResume, parseTailorNotes,
   type MasterResume, type ResumeTarget,
 } from '@landed/schema/master-resume'
 import { MAX_FILE_BYTES } from '@landed/schema/application-files'
@@ -116,23 +116,55 @@ async function prepare(file: File): Promise<{ file: { type: string; data_base64:
   throw new Error(/\.doc$/i.test(file.name) ? 'Old .doc files aren\'t supported — save it as .docx or PDF.' : 'Use a PDF, Word (.docx), image or text file.')
 }
 
-/** Keep the resume file itself, not only what was read from it: the newest
- *  PDF / Word file of a batch becomes the file the extension attaches to
- *  "Resume/CV" upload fields (Extension page, where it can be swapped). */
-async function keepResumeFile(files: File[]) {
-  const store = binding?.store
-  const file = files
-    .filter((f) => /\.(pdf|docx?)$/i.test(f.name) && f.size > 0 && f.size <= MAX_FILE_BYTES)
-    .sort((a, b) => b.lastModified - a.lastModified)[0]
-  if (!store || !file) return
-  const url = await new Promise<string>((resolve, reject) => {
+const keepable = (f: File) => /\.(pdf|docx?)$/i.test(f.name) && f.size > 0 && f.size <= MAX_FILE_BYTES
+
+function readBase64(file: File): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     const r = new FileReader()
-    r.onload = () => resolve(String(r.result))
+    r.onload = () => { const url = String(r.result); resolve(url.slice(url.indexOf(',') + 1)) }
     r.onerror = () => reject(new Error("Couldn't read the file."))
     r.readAsDataURL(file)
   })
-  await store.saveApplicationFile({ kind: 'resume', name: file.name, data: url.slice(url.indexOf(',') + 1) })
+}
+
+/** Keep the resume file itself, not only what was read from it: the newest
+ *  PDF / Word file of a batch becomes the account's default resume file (the
+ *  Extension page, where it can be swapped). */
+async function keepResumeFile(files: File[]) {
+  const store = binding?.store
+  const file = files.filter(keepable).sort((a, b) => b.lastModified - a.lastModified)[0]
+  if (!store || !file) return
+  await store.saveApplicationFile({ kind: 'resume', name: file.name, data: await readBase64(file) })
   binding?.onData()
+}
+
+/** Files being read, by upload item: each becomes its resume's own file once
+ *  the resume exists (a page reload loses them; adoptKeptFiles covers that). */
+const uploadFiles = new Map<string, File>()
+
+/** An uploaded resume keeps its own file (PDF or Word, up to 3 MB), so a fill
+ *  with that resume uploads that file and no other. */
+async function keepFileFor(resumeId: string, file: File | undefined) {
+  const store = binding?.store
+  if (!store || !file || !keepable(file)) return
+  await store.saveResumeFile({ resume_id: resumeId, name: file.name, data: await readBase64(file) })
+}
+
+/** Uploads from before resumes kept their own files: the account's resume
+ *  file belongs to the uploaded resume named after it ("resume+(6).pdf" →
+ *  "resume+(6)"), when that one has none yet. Older files were replaced by
+ *  newer uploads and can't be recovered. */
+export async function adoptKeptFiles(store: DataStore): Promise<number> {
+  const [resumes, own, kept] = await Promise.all([store.listResumes(), store.listResumeFiles(), store.listApplicationFiles()])
+  const file = kept.find((f) => f.kind === 'resume')
+  if (!file) return 0
+  const has = new Set(own.map((f) => f.resume_id))
+  const owner = resumes.find((r) => r.kind === 'source' && !has.has(r.id) && (r.file_path === file.name || r.name === baseName({ name: file.name } as File)))
+  if (!owner) return 0
+  const data = await store.getApplicationFileData('resume')
+  if (!data) return 0
+  await store.saveResumeFile({ resume_id: owner.id, name: file.name, data: data.data })
+  return 1
 }
 
 const fromBase64 = (data: string) => Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
@@ -195,14 +227,22 @@ export const useResumeTask = create<State>((set, get) => {
           else {
             try {
               let row: DbResume
+              // What it's for: Landed's guess, until the user says (My Resume).
+              const guess = guessDirections(parsed.resume)
               if (item.replace_id) {
-                // A waiting resume, read in full: it's no longer waiting.
-                row = await binding.store.updateResume(item.replace_id, { parsed_json: parsed.resume, file_path: null })
+                // A waiting resume, read in full: it's no longer waiting. The
+                // user's directions stay; none yet: the guess.
+                const before = (await binding.store.listResumes()).find((r) => r.id === item.replace_id)
+                row = await binding.store.updateResume(item.replace_id, {
+                  parsed_json: parsed.resume, file_path: null, ...(before?.directions?.length ? {} : { directions: guess }),
+                })
               } else {
                 // The first resume becomes the one auto-fill uses.
                 const first = !(await binding.store.listResumes()).some((r) => r.is_current)
-                row = await binding.store.addResume({ name: item.name, kind: 'source', parsed_json: parsed.resume, set_current: first })
+                row = await binding.store.addResume({ name: item.name, kind: 'source', parsed_json: parsed.resume, set_current: first, directions: guess })
               }
+              await keepFileFor(row.id, uploadFiles.get(item.id)).catch((err) => console.warn('[landed] could not keep the file for', item.name, err))
+              uploadFiles.delete(item.id)
               updateUpload(item.id, { status: 'saved', result_id: row.id })
               binding.onData()
             } catch (err) {
@@ -290,6 +330,7 @@ export const useResumeTask = create<State>((set, get) => {
       batchTargets.set(batch, target)
       const items: UploadItem[] = files.map((f) => ({ id: crypto.randomUUID(), name: baseName(f), status: 'preparing', job_id: null, batch }))
       set((s) => ({ uploads: [...s.uploads.filter((u) => u.status === 'preparing' || u.status === 'reading'), ...items] }))
+      items.forEach((item, i) => uploadFiles.set(item.id, files[i]))
       void keepResumeFile(files).catch((e) => console.warn('[landed] could not keep the resume file', e))
       await Promise.all(files.map(async (file, i) => {
         const item = items[i]
@@ -320,6 +361,7 @@ export const useResumeTask = create<State>((set, get) => {
         const basics = readBasics(await resumeText(file).catch(() => ''))
         const first = !(await binding.store.listResumes()).some((r) => r.is_current)
         const row = await binding.store.addResume({ name: item.name, kind: 'source', parsed_json: basics, set_current: first, file_path: file.name })
+        await keepFileFor(row.id, file)
         updateUpload(item.id, { status: 'waiting', result_id: row.id })
         binding.onData()
       } catch (e) {

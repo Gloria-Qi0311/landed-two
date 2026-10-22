@@ -35,13 +35,29 @@ const CA = window.LandedChoiceAnswers;
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'fill') {
-    handleFill(msg.resume, msg.customFields || {}, { aiTakeover: !!msg.aiTakeover, resumeId: typeof msg.resumeId === 'string' ? msg.resumeId : null }).then(sendResponse);
+    handleFill(msg.resume, msg.customFields || {}, {
+      aiTakeover: !!msg.aiTakeover,
+      resumeId: typeof msg.resumeId === 'string' ? msg.resumeId : null,
+      resumeKind: typeof msg.resumeKind === 'string' ? msg.resumeKind : null,
+    }).then(sendResponse);
     return true;
   }
   // The user answered questions on the Extension page: fill the fields still
   // empty that the answers now cover (lib/fill/unanswered.js).
   if (msg.action === 'fill-answers') {
     loadApplicationAnswers().then(fillPendingFromAnswers).then((filled) => sendResponse({ filled }), () => sendResponse({ filled: 0 }));
+    return true;
+  }
+  // The job on this page, for picking the resume (lib/resume-pick.js): its
+  // title and the posting's text.
+  if (msg.action === 'page-job') {
+    const heading = document.querySelector('h1, h2');
+    const main = /** @type {HTMLElement} */ (document.querySelector('main, [role="main"], #content, .content') || document.body);
+    sendResponse({
+      title: document.title || '',
+      jobTitle: (heading && heading.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+      text: (main && (main.innerText || main.textContent) || '').replace(/\s+/g, ' ').slice(0, 8000),
+    });
     return true;
   }
   if (msg.action === 'submit-application') {
@@ -113,7 +129,7 @@ async function handleFill(resumeData, customFields, opts) {
   // fields with nothing saved) stay yellow. Hidden inputs behind an
   // "Attach" button count too.
   const fileInputs = /** @type {HTMLInputElement[]} */ (deepAll('input[type="file"]'));
-  const files = fileInputs.length ? await loadApplicationFiles(opts.resumeId) : {};
+  const files = fileInputs.length ? await loadApplicationFiles(opts.resumeId, opts.resumeKind) : {};
   const answered = /** @type {Set<Element>} */ (new Set(fileInputs));
   const missingFiles = new Set();
   for (const el of fileInputs) {

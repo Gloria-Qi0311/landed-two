@@ -29,8 +29,9 @@
   const LOCAL_ANSWERS_KEY = 'landed:application-answers';
   // Resume / cover letter files from the Landed page, by kind.
   const LOCAL_FILES_KEY = 'landed:application-files';
-  // One-page PDFs of tailored resume versions, by version id (made by the
-  // Landed tab, bridge 'sync-version-pdf'); a fill with that version uploads it.
+  // Each resume's own file, by resume id: an upload's original, a tailored
+  // version's one-page PDF (handed over by the Landed tab, bridge
+  // 'sync-version-pdf'; null when it has none). A fill uploads the picked one's.
   const LOCAL_VERSION_PDFS_KEY = 'landed:version-pdfs';
   // Questions fills had to leave empty, until the Landed tab takes them to
   // the Extension page (lib/fill/unanswered.js, bridge 'take-questions').

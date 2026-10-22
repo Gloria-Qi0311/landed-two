@@ -26,7 +26,7 @@ import {
 import { ResumeSchema, emptyResume, safeNormalize, isResumeFilled, type Resume } from '@landed/schema'
 import { masterStats } from '@landed/schema/master-resume'
 import { PageHeader } from './shell'
-import { MasterPane, NewVersionPane, UploadPane, VersionNotes, VersionPdfCard } from './my-resume'
+import { DirectionsCard, MasterPane, NewVersionPane, SourceFileCard, UploadPane, VersionNotes, VersionPdfCard } from './my-resume'
 import { ResumeEditor } from './resume-editor'
 import { Icon } from './primitives'
 import {
@@ -130,6 +130,8 @@ export function ResumesPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {activeResume.kind === 'version' && <VersionNotes resume={activeResume} />}
               {activeResume.kind === 'version' && <VersionPdfCard resume={activeResume} />}
+              {activeResume.kind === 'source' && <DirectionsCard resume={activeResume} />}
+              {activeResume.kind === 'source' && <SourceFileCard resume={activeResume} />}
               <ResumeView
                 resume={activeResume}
                 waiting={activeResume.file_path ? (reading.has(activeResume.id) ? 'reading' : 'waiting') : null}

@@ -156,6 +156,9 @@ messages (PR title and a clean body, no trailer).
   open-ended text or resume fields); the Extension page asks each once, and the
   answer fills every form after that, on pages still open only fields still empty.
   Questions only the user's answers can answer never take a resume value.
+- Landed picks the resume for each job (its direction against the job), and the
+  file uploaded is always that resume's own (`resume_files`), never another
+  one's; one with no file isn't swapped for another's.
 - Workday questionnaire dropdowns take their real nearby / `aria-labelledby`
   question (up to 300 characters), never the `Select One Required` prompt.
   That prompt is empty, so an unknown question enters the Extension page queue;

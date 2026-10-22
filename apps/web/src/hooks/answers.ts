@@ -60,6 +60,16 @@ export function useKnownAnswers() {
 
 // ── files the extension uploads (resume, cover letter) ─────────────────────
 
+/** Each uploaded resume's own file (metadata): what a fill with it uploads. */
+export function useResumeFiles() {
+  const { store, ready } = useStore()
+  return useQuery({
+    queryKey: ['resume_files', store.kind],
+    enabled: ready,
+    queryFn: () => store.listResumeFiles(),
+  })
+}
+
 export function useApplicationFiles() {
   const { store, ready } = useStore()
   return useQuery({

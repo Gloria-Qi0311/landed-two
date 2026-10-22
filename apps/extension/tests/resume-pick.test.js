@@ -31,3 +31,64 @@ test('Chinese titles, and otherwise the current resume, then the master, then th
   expect(pickResumeForPage(page, [resume('old'), resume('new', { created_at: '2026-10-14T00:00:00Z' })]).resume.id).toBe('new')
   expect(pickResumeForPage(page, [])).toBeNull()
 })
+
+describe('Landed picks the resume per job (several directions, one resume each)', () => {
+  const pm = resume('pm', {
+    name: 'Alex_Rivera_PM_resume', is_current: true,
+    parsed_json: { basic: { name: 'Alex Rivera' }, skills: ['Figma', 'SQL', 'A/B testing'], experience: [{ title: 'Product Manager Intern', startDate: '2025-06' }] },
+  })
+  const data = resume('data', {
+    name: 'resume+(6)', created_at: '2026-10-12T00:00:00Z',
+    parsed_json: { basic: { name: 'Alex Rivera' }, skills: ['SQL', 'Python', 'Tableau', 'pandas'], experience: [{ title: 'Data Analyst Intern', startDate: '2025-01' }] },
+  })
+  const swe = version('swe', { role: 'Software Engineer, New Grad', company: 'Kestrel Pay', job_url: null, application_id: null })
+  const all = () => true
+
+  test('each job gets the resume of its direction, whatever the company', () => {
+    expect(pickResumeForPage({ title: 'Machina Labs - Product Management, Intern' }, [pm, data, swe], { hasFile: all })).toMatchObject({ resume: { id: 'pm' }, why: 'direction' })
+    expect(pickResumeForPage({ title: 'Data Analyst Intern at Bluefin Analytics', text: 'You will use SQL, Python and Tableau.' }, [pm, data, swe], { hasFile: all }).resume.id).toBe('data')
+    // A version made for one company's SWE role fits another company's SWE role too.
+    expect(pickResumeForPage({ title: 'Software Engineer - Northwind Robotics' }, [pm, data, swe], { hasFile: all }).resume.id).toBe('swe')
+    expect(pickResumeForPage({ title: '数据分析实习生 | 蓝鲸科技' }, [pm, resume('cn', { parsed_json: { intent: { apply_position: '数据分析' } } })], { hasFile: all }).resume.id).toBe('cn')
+  })
+
+  test('only resumes with a file to upload; the one with a file wins over a better fit without', () => {
+    expect(pickResumeForPage({ title: 'Product Manager Intern' }, [pm, data], { hasFile: (id) => id === 'data' })).toMatchObject({ resume: { id: 'data' }, why: 'only' })
+    // A tailored version without its PDF (too long for one page) isn't used either.
+    const tailored = version('tailored', { role: 'Product Manager Intern', company: 'Machina Labs', job_url: null, application_id: null })
+    expect(pickResumeForPage({ title: 'Product Manager Intern - Machina Labs' }, [tailored, pm, data], { hasFile: (id) => id !== 'tailored' }).resume.id).toBe('pm')
+    expect(pickResumeForPage({ title: 'Product Manager Intern - Machina Labs' }, [tailored, pm, data], { hasFile: all })).toMatchObject({ resume: { id: 'tailored' }, why: 'tailored' })
+    // None has a file: the current one, and it's said.
+    expect(pickResumeForPage({ title: 'Product Manager Intern' }, [pm, data], { hasFile: () => false })).toMatchObject({ resume: { id: 'pm' }, why: 'no_file', unsure: true })
+  })
+
+  test('a job neither fits well, or both fit alike: still the best, marked unsure', () => {
+    expect(pickResumeForPage({ title: 'Registered Nurse, Night Shift' }, [pm, data], { hasFile: all })).toMatchObject({ why: 'fits', unsure: true })
+    const pm2 = resume('pm2', { name: 'PM resume (old)', parsed_json: { experience: [{ title: 'Product Manager Intern' }] } })
+    expect(pickResumeForPage({ title: 'Product Manager Intern' }, [pm, pm2], { hasFile: all })).toMatchObject({ resume: { id: 'pm' }, unsure: true })
+  })
+})
+
+describe('directions the user (or Landed, at upload) gave each resume', () => {
+  const pm = resume('pm', { directions: ['Product Manager'], parsed_json: { skills: ['Figma', 'roadmaps', 'A/B testing'], experience: [{ title: 'Software Engineer Intern', start_date: '2024-06' }] } })
+  const data = resume('data', { directions: ['Data Analyst', 'Business Analyst'], parsed_json: { skills: ['SQL', 'Python', 'Tableau', 'A/B testing'] } })
+  const all = () => true
+
+  test('they win over what the latest titles say', () => {
+    // Its latest job was engineering, but the user says it's the PM resume.
+    expect(pickResumeForPage({ title: 'Product Manager, Payments' }, [pm, data], { hasFile: all })).toMatchObject({ resume: { id: 'pm' }, why: 'direction' })
+    expect(pickResumeForPage({ title: 'Business Analyst, Operations' }, [pm, data], { hasFile: all })).toMatchObject({ resume: { id: 'data' }, why: 'direction' })
+  })
+
+  test('a role between two directions: what the posting asks for decides', () => {
+    const job = { title: 'Product Analyst' }
+    const sqlHeavy = pickResumeForPage({ ...job, text: 'Own SQL dashboards in Tableau; Python a plus.' }, [pm, data], { hasFile: all })
+    expect(sqlHeavy).toMatchObject({ resume: { id: 'data' }, why: 'fits', composite: true })
+    const productHeavy = pickResumeForPage({ ...job, text: 'Write roadmaps, prototype in Figma, run A/B testing.' }, [pm, data], { hasFile: all })
+    expect(productHeavy).toMatchObject({ resume: { id: 'pm' }, composite: true })
+  })
+
+  test('no direction matches: the best score, unsure', () => {
+    expect(pickResumeForPage({ title: 'Registered Nurse' }, [pm, data], { hasFile: all })).toMatchObject({ why: 'fits', unsure: true, composite: false })
+  })
+})

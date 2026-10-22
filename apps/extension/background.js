@@ -412,8 +412,10 @@ function fillFrame(tabId, frameId, resume) {
       chrome.tabs.sendMessage(tabId, {
         action: 'fill',
         resume: resume.parsed_json,
-        // A tailored version's own PDF goes into the resume upload (lib/fill/files.js).
+        // The picked resume's own file goes into the resume upload, never
+        // another one's (lib/fill/files.js); its kind says whether it has one.
         resumeId: typeof resume.id === 'string' ? resume.id : null,
+        resumeKind: typeof resume.kind === 'string' ? resume.kind : null,
         aiTakeover: true,
       }, { frameId }, (response) => {
         const error = chrome.runtime.lastError
@@ -454,7 +456,12 @@ async function traceFill(tabId, resume, via, result, answered) {
 }
 
 /** via: popup | menu | assist (a tab Landed opened) — for the trace. */
-async function fillTab(tabId, resume, via = 'menu') {
+async function fillTab(tabId, picked, via = 'menu') {
+  // Once the Landed page hands over each upload's own file, a fill uploads
+  // only the picked resume's own file (its kind tells lib/fill/files.js);
+  // before that, the account's default file as always.
+  const known = self.LandedResumePick.fileKnowledge(assistResumes, await storedResumeFiles())
+  const resume = { ...picked, kind: known ? picked.kind || assistResumes.find((r) => r.id === picked.id)?.kind || null : null }
   const frames = [0, ...((await loadFormFrames())[tabId] || []).filter((id) => id !== 0)]
   const responses = await Promise.all(frames.map((frameId) => fillFrame(tabId, frameId, resume)))
   const answered = responses.filter((r) => !r.error)
@@ -661,7 +668,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ error: 'invalid fill request' })
     return true
   }
-  const resume = { parsed_json: msg.resume, id: typeof msg.resume_id === 'string' ? msg.resume_id : null, name: typeof msg.resume_name === 'string' ? msg.resume_name.slice(0, 120) : null }
+  const resume = {
+    parsed_json: msg.resume, id: typeof msg.resume_id === 'string' ? msg.resume_id : null,
+    name: typeof msg.resume_name === 'string' ? msg.resume_name.slice(0, 120) : null,
+    kind: typeof msg.resume_kind === 'string' ? msg.resume_kind : null,
+  }
   fillTab(msg.tabId, resume, 'popup').then(sendResponse, (error) => sendResponse({ error: String(error) }))
   return true
 })
@@ -681,15 +692,36 @@ function getTab(tabId) {
   })
 }
 
+/** The resume files the Landed page handed over (resume id → { file | null }):
+ *  uploads' originals and versions' one-page PDFs (bridge 'sync-version-pdf'). */
+function storedResumeFiles() {
+  const key = self.LandedConfig.LOCAL_VERSION_PDFS_KEY || 'landed:version-pdfs'
+  return new Promise((resolve) => {
+    try { chrome.storage.local.get(key, (r) => { void chrome.runtime.lastError; resolve((r && r[key]) || {}) }) }
+    catch { resolve({}) }
+  })
+}
+
+/** The job on a tab: its title and posting text (content.js 'page-job'). */
+function pageJob(tabId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(tabId, { action: 'page-job' }, { frameId: 0 }, (r) => { void chrome.runtime.lastError; resolve(r || null) })
+    } catch { resolve(null) }
+  })
+}
+
 /** "auto": the resume lib/resume-pick.js picks for this page — the version
- *  tailored for its job (or the application Landed opened it for), else the
- *  current one. */
+ *  tailored for its job, else the resume with a file whose direction fits
+ *  the job best, else the current one. */
 async function autoResumeFor(tabId) {
-  const [tab, tabs] = await Promise.all([getTab(tabId), loadAssistTabs()])
+  const [tab, tabs, job, stored] = await Promise.all([getTab(tabId), loadAssistTabs(), pageJob(tabId), storedResumeFiles()])
   const opened = tabs[tabId]
+  const files = self.LandedResumePick.fileKnowledge(assistResumes, stored)
   const pick = self.LandedResumePick.pickResumeForPage({
-    url: tab?.url || '', title: tab?.title || '', applicationId: opened?.application_id || null,
-  }, assistResumes)
+    url: tab?.url || '', title: tab?.title || '', jobTitle: job?.jobTitle || '', text: job?.text || '',
+    applicationId: opened?.application_id || null,
+  }, assistResumes, files || undefined)
   return pick ? pick.resume : null
 }
 

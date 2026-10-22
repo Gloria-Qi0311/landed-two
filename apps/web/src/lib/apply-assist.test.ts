@@ -1,11 +1,11 @@
 // Which resume "Open & autofill" fills with.
 import { describe, expect, test } from 'vitest'
-import { pickResumeFor } from './apply-assist'
+import { pickResumeFor, resumeChoiceFor } from './apply-assist'
 import type { DbResume } from './store/types'
 
 const resume = (id: string, over: Partial<DbResume> = {}): DbResume => ({
   id, user_id: 'local', name: id, file_path: null, parsed_json: { name: 'Me' } as never, is_current: false,
-  created_at: '2026-10-01T00:00:00Z', kind: 'source', master_json: null, target_json: null, ...over,
+  created_at: '2026-10-01T00:00:00Z', kind: 'source', master_json: null, target_json: null, directions: [], ...over,
 })
 const version = (id: string, target: Partial<NonNullable<DbResume['target_json']>>, created_at = '2026-10-10T00:00:00Z') =>
   resume(id, { kind: 'version', created_at, target_json: { role: 'x', company: null, job_url: null, jd_text: null, application_id: null, notes: { summary: '', picks: [] }, ...target } })
@@ -32,5 +32,66 @@ describe('pickResumeFor', () => {
     expect(pickResumeFor(app, [resume('cur', { is_current: true }), resume('master', { kind: 'master' })])?.why).toBe('master')
     expect(pickResumeFor(app, [resume('a'), resume('cur', { is_current: true })])).toMatchObject({ resume: { id: 'cur' }, why: 'current' })
     expect(pickResumeFor(app, [resume('empty', { kind: 'master', parsed_json: null })])).toBeNull()
+  })
+})
+
+describe('pickResumeFor: Landed picks the resume of the job\'s direction', () => {
+  const pm = resume('pm', {
+    name: 'Alex_Rivera_PM_resume', is_current: true,
+    parsed_json: { basic: { name: 'Alex Rivera' }, skills: ['Figma', 'SQL', 'A/B testing'], experience: [{ title: 'Product Manager Intern', startDate: '2025-06' }] } as never,
+  })
+  const data = resume('data', {
+    name: 'resume+(6)', created_at: '2026-10-12T00:00:00Z',
+    parsed_json: { basic: { name: 'Alex Rivera' }, skills: ['SQL', 'Python', 'Tableau', 'pandas'], experience: [{ title: 'Data Analyst Intern', startDate: '2025-01' }] } as never,
+  })
+  const job = (role: string, description: string | null = null) => ({ application_id: null, company: 'Bluefin Analytics', role, url: '', description })
+  const all = () => true
+
+  test('a product job gets the PM resume, a data job the data one; only resumes with a file', () => {
+    expect(pickResumeFor(job('Product Management, Intern'), [pm, data], all)).toMatchObject({ resume: { id: 'pm' }, why: 'direction' })
+    expect(pickResumeFor(job('Data Analyst Intern', 'SQL, Python and Tableau daily'), [pm, data], all)?.resume.id).toBe('data')
+    expect(pickResumeFor(job('Product Manager Intern'), [pm, data], (id) => id === 'data')).toMatchObject({ resume: { id: 'data' }, why: 'only' })
+    expect(pickResumeFor(job('Product Manager Intern'), [pm, data, resume('master', { kind: 'master' })], () => false)).toMatchObject({ resume: { id: 'master' }, why: 'no_file', unsure: true })
+  })
+
+  test('the same pick as the extension (lib/resume-pick.js), case by case', async () => {
+    const loaded = await import(/* @vite-ignore */ new URL('../../../extension/lib/resume-pick.js', import.meta.url).href)
+    const ext = (loaded.default ?? loaded) as {
+      pickResumeForPage: (page: { title: string; text?: string }, list: unknown[], opts?: { hasFile: (id: string) => boolean }) => { resume: { id: string }; why: string; unsure?: boolean; composite?: boolean } | null
+    }
+    const swe = version('swe', { role: 'Software Engineer, New Grad', company: 'Kestrel Pay' })
+    const cases: [string, string | null, (id: string) => boolean][] = [
+      ['Product Analyst', 'Own SQL dashboards in Tableau; Python a plus.', all],
+      ['Product Analyst', 'Write roadmaps, prototype in Figma, run A/B testing.', all],
+      ['Product Management, Intern', null, all],
+      ['Data Analyst Intern', 'You will use SQL, Python and Tableau.', all],
+      ['Software Engineer - Northwind Robotics', null, all],
+      ['Registered Nurse, Night Shift', null, all],
+      ['Product Manager Intern', null, (id) => id !== 'pm'],
+    ]
+    for (const [role, description, hasFile] of cases) {
+      const web = pickResumeFor(job(role, description), [pm, data, swe], hasFile)
+      const theirs = ext.pickResumeForPage({ title: role, text: description ?? '' }, [pm, data, swe].map((r) => ({ ...r, target: r.target_json })), { hasFile: (id) => id === 'swe' || hasFile(id) })
+      expect([role, web?.resume.id, web?.why, !!web?.unsure, !!web?.composite]).toEqual([role, theirs?.resume.id, theirs?.why, !!theirs?.unsure, !!theirs?.composite])
+    }
+  })
+})
+
+describe('the reason an application records', () => {
+  const pm = resume('pm', { name: 'PM resume', directions: ['Product Manager'], parsed_json: { skills: ['Figma', 'roadmaps'] } as never })
+  const data = resume('data', { name: 'Data resume', directions: ['Data Analyst'], parsed_json: { skills: ['SQL', 'Tableau', 'Python'] } as never })
+  const all = () => true
+  const job = (role: string, description: string | null = null) => ({ application_id: 'a1', company: 'Bluefin Analytics', role, url: '', description })
+
+  test('one direction, two directions, none', () => {
+    expect(pickResumeFor(job('Data Analyst Intern'), [pm, data], all)?.reason).toBe('the resume for Data Analyst roles')
+    expect(pickResumeFor(job('Product Analyst', 'SQL and Tableau every day'), [pm, data], all)?.reason)
+      .toBe('a Product Analyst role fits “Data resume” and “PM resume”; the posting asks for SQL, Tableau')
+    expect(pickResumeFor(job('Registered Nurse'), [pm, data], all)?.reason).toMatch(/^no resume is for Registered Nurse roles; the closest one/)
+  })
+
+  test('resumeChoiceFor keeps which and why', () => {
+    const pick = pickResumeFor(job('Data Analyst Intern'), [pm, data], all)!
+    expect(resumeChoiceFor(pick, new Date('2026-10-21T20:00:00.000Z'))).toEqual({ resume_id: 'data', name: 'Data resume', reason: 'the resume for Data Analyst roles', at: '2026-10-21T20:00:00.000Z' })
   })
 })

@@ -19,6 +19,8 @@ import {
 import { useApplications, useCompanies, useUpdateApplication } from './queries'
 import { useJobLeads, useRecordApplyClick, useSuggestions } from './inbox'
 import { useResumes } from './resumes'
+import { resumeChoiceFor } from '../lib/apply-assist'
+import { useResumeFiles } from './answers'
 import { useAutomations } from './automation'
 
 type AutoApplyControl = {
@@ -110,6 +112,12 @@ export function useAutoApplyRunner() {
   const leads = leadsQuery.data ?? []
   const resumes = resumesQuery.data ?? []
   const suggestions = suggestionsQuery.data ?? []
+  const resumeFiles = useResumeFiles().data
+  const hasFile = useMemo(() => {
+    if (!resumeFiles) return undefined
+    const ids = new Set(resumeFiles.map((f) => f.resume_id))
+    return (id: string) => ids.has(id)
+  }, [resumeFiles])
   const names = useMemo(() => new Map(companies.map((company) => [company.id, company.name])), [companies])
   const authorized = useMemo(() => new Set(leads
     .filter((lead) => lead.status === 'saved' && lead.application_id)
@@ -124,8 +132,9 @@ export function useAutoApplyRunner() {
     leads,
     suggestions,
     resumes,
+    hasFile,
     limit: Math.max(0, max - active),
-  }), [active, apps, leads, max, names, resumes, suggestions])
+  }), [active, apps, hasFile, leads, max, names, resumes, suggestions])
   const autoKey = plan.items.map((item) => item.app.id).join('|')
 
   useEffect(() => {
@@ -184,7 +193,8 @@ export function useAutoApplyRunner() {
         opened.push(item.app.id)
         record({ kind: 'application', id: item.app.id, role: item.app.role, stage: item.app.stage, company_name: item.company })
         try {
-          await update.mutateAsync({ id: item.app.id, patch: { next_step: APPLY_FILLING } })
+          // Which resume, and why, stays on the application (its drawer).
+          await update.mutateAsync({ id: item.app.id, patch: { next_step: APPLY_FILLING, resume_choice: resumeChoiceFor(item.resume) } })
         } catch {
           // The authorized tab is already running; one write failure must not
           // stop the rest of the queue.

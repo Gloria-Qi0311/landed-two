@@ -54,6 +54,23 @@ const applied = (company) => ({
 })
 
 describe('bridge handler', () => {
+  test('a file the extension can\'t keep (storage full) is an error the page shows, never dropped silently', async () => {
+    const handle = createBridgeHandler({
+      cfg, snapshotStore: memoryQueue([]).snapshotStore, pushMod, storage: {}, withLock: createQueueLock(), onQueueChanged: jest.fn(), version: '2.2',
+      chromeLocal: { async set() { throw new Error('QUOTA_BYTES quota exceeded') }, get(key, cb) { cb({}) } },
+    })
+    const V = '11111111-2222-4333-8444-555555555555'
+    const file = { id: V, name: 'PM resume.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.7').toString('base64') }
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file } }, FROM_WEB))
+      .toEqual({ ok: false, error: "Couldn't keep this resume's file: the extension's storage is full" })
+    expect(await handle({ type: 'sync-file', payload: { kind: 'resume', file } }, FROM_WEB))
+      .toEqual({ ok: false, error: "Couldn't keep the file: the extension's storage is full" })
+  })
+
+  test('the extension asks for unlimited storage: resumes\' files outgrow Chrome\'s 10 MB default', () => {
+    expect(require('../manifest.json').permissions).toContain('unlimitedStorage')
+  })
+
   test('version PDFs: the ids it has, one in, a null for a version that has none, one out', async () => {
     const { handle } = makeHandler()
     const V = '11111111-2222-4333-8444-555555555555'
@@ -63,10 +80,15 @@ describe('bridge handler', () => {
     expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file } }, FROM_WEB)).toEqual({ ok: true, data: { saved: true } })
     expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: W, hash: 'eeeeffff00001111', file: null } }, FROM_WEB)).toEqual({ ok: true, data: { saved: false } })
     expect(await handle({ type: 'version-pdf-ids' }, FROM_WEB)).toEqual({ ok: true, data: { [V]: 'aaaabbbbccccdddd', [W]: 'eeeeffff00001111' } })
-    // Not a PDF, no hash, not a Landed id: refused.
-    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file: { ...file, name: 'cv.docx' } } }, FROM_WEB)).toMatchObject({ ok: false })
+    // Not a resume file (PDF or Word), no hash, not a Landed id: refused.
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file: { ...file, name: 'photo.png', mime: 'image/png' } } }, FROM_WEB)).toMatchObject({ ok: false })
     expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, file } }, FROM_WEB)).toMatchObject({ ok: false })
     expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: '../x', hash: 'aaaabbbbccccdddd', file } }, FROM_WEB)).toMatchObject({ ok: false })
+    // An uploaded resume's own Word file is taken too (its original, not a PDF).
+    const UPLOAD = '33333333-3333-4333-8333-333333333333'
+    const docx = { id: UPLOAD, name: 'Alex Chen Resume.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', data: Buffer.from('PK word').toString('base64') }
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: UPLOAD, hash: 'aaaabbbbccccdddd', file: docx } }, FROM_WEB)).toMatchObject({ ok: true, data: { saved: true } })
+    await handle({ type: 'sync-version-pdf', payload: { resume_id: UPLOAD, remove: true } }, FROM_WEB)
     await handle({ type: 'sync-version-pdf', payload: { resume_id: V, remove: true } }, FROM_WEB)
     expect(await handle({ type: 'version-pdf-ids' }, FROM_WEB)).toEqual({ ok: true, data: { [W]: 'eeeeffff00001111' } })
   })

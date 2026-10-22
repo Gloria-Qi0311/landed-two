@@ -55,3 +55,27 @@ export function parseApplicationFile(raw: unknown): { ok: true; file: Applicatio
     },
   }
 }
+
+// ─── each resume's own file ───────────────────────────────────────────────
+// An uploaded resume keeps the file it was read from, so a fill with that
+// resume uploads that file (resume_files; one per resume).
+
+export type ResumeFile = {
+  id: string
+  resume_id: string
+  name: string
+  mime: string
+  size: number
+  created_at: string
+}
+
+/** Validate a resume's file: a uuid resume_id, then the same rules as an
+ *  application file (uuid id, .pdf/.doc/.docx name, base64 within the limit). */
+export function parseResumeFile(raw: unknown): { ok: true; file: ResumeFile & { data: string } } | { ok: false; error: string } {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  if (typeof r.resume_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(r.resume_id)) return { ok: false, error: 'resume_id must be a uuid' }
+  const parsed = parseApplicationFile({ ...r, kind: 'resume' })
+  if (!parsed.ok) return parsed
+  const { kind: _, ...file } = parsed.file
+  return { ok: true, file: { ...file, resume_id: r.resume_id } }
+}

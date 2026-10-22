@@ -704,7 +704,7 @@ describe('sync: local device <-> Landed Cloud', () => {
     assert.deepEqual(up.body, {
       companies: 2, companies_merged: 0, applications: 2, portal_connections: 1,
       portal_events: 2, resumes: 1, ai_runs: 1, agent_observations: 0, job_leads: 0, status_suggestions: 0,
-      job_searches: 0, agent_conversations: 0, application_answers: 0, application_files: 0,
+      job_searches: 0, agent_conversations: 0, application_answers: 0, application_files: 0, resume_files: 0,
     })
 
     const exp = await call('GET', '/api/export', { token: erin })
@@ -1507,6 +1507,62 @@ describe('agent chat history (Cloud)', () => {
     assert.equal((await call('POST', '/api/sync/upload', { token: fresh, body: device })).body.application_files, 1)
     assert.equal((await call('DELETE', '/api/application-files/resume', { token: owner })).status, 204)
     assert.deepEqual((await call('GET', '/api/application-files', { token: owner })).body, [])
+  })
+
+  test('a resume says what it is for; an application records which resume it was filled from', async () => {
+    const owner = await signup('directions@example.com')
+    const r = (await call('POST', '/api/resumes', { token: owner, body: { name: 'Data resume', parsed_json: { basic: { name: 'Alex Chen' } }, directions: ['Data Analyst', ' data analyst ', 'Business Analyst'] } })).body
+    assert.deepEqual(r.directions, ['Data Analyst', 'Business Analyst'], 'trimmed, no repeats')
+    assert.equal((await call('PATCH', `/api/resumes/${r.id}`, { token: owner, body: { directions: 'Data Analyst' } })).status, 400)
+    assert.equal((await call('PATCH', `/api/resumes/${r.id}`, { token: owner, body: { directions: Array(7).fill(0).map((_, i) => `Role ${i}`) } })).status, 400)
+    assert.deepEqual((await call('PATCH', `/api/resumes/${r.id}`, { token: owner, body: { directions: ['Product Analyst'] } })).body.directions, ['Product Analyst'])
+
+    const app = (await call('POST', '/api/applications', { token: owner, body: { company: { name: 'Bluefin Analytics' }, application: { role: 'Product Analyst' } } })).body
+    assert.equal(app.resume_choice, null)
+    const choice = { resume_id: r.id, name: 'Data resume', reason: 'a Product Analyst role fits two resumes; the posting asks for SQL', at: '2026-10-21T20:00:00.000Z' }
+    assert.deepEqual((await call('PATCH', `/api/applications/${app.id}`, { token: owner, body: { resume_choice: choice } })).body.resume_choice, choice)
+    assert.equal((await call('PATCH', `/api/applications/${app.id}`, { token: owner, body: { resume_choice: { name: 'x' } } })).status, 400)
+
+    const snap = (await call('GET', '/api/export', { token: owner })).body
+    assert.deepEqual(snap.resumes.find((x: any) => x.id === r.id).directions, ['Product Analyst'])
+    assert.deepEqual(snap.applications.find((x: any) => x.id === app.id).resume_choice, choice)
+  })
+
+  test('resume files: one per resume, only on your own resumes, gone with the resume, in snapshots', async () => {
+    const owner = await signup('resume-files@example.com')
+    const other = await signup('resume-files-other@example.com')
+    const pdf = Buffer.from('%PDF-1.4 fake resume').toString('base64')
+    const resume = (await call('POST', '/api/resumes', { token: owner, body: { name: 'Data resume', parsed_json: { basic: { name: 'Alex Chen' } } } })).body
+    const put = (token: string, resumeId: string, body: Record<string, unknown>) => call('PUT', `/api/resume-files/${resumeId}`, { token, body })
+    const saved = await put(owner, resume.id, { id: crypto.randomUUID(), name: 'Data resume.pdf', data: pdf })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    assert.deepEqual([saved.body.resume_id, saved.body.name, saved.body.size, saved.body.data], [resume.id, 'Data resume.pdf', 20, undefined])
+    const again = await put(owner, resume.id, { id: crypto.randomUUID(), name: 'Data resume v2.pdf', data: pdf })
+    assert.notEqual(again.body.id, saved.body.id, 'a replacement gets a new id')
+    assert.equal((await put(other, resume.id, { id: crypto.randomUUID(), name: 'x.pdf', data: pdf })).status, 404, "never onto another account's resume")
+    assert.equal((await put(owner, crypto.randomUUID(), { id: crypto.randomUUID(), name: 'x.pdf', data: pdf })).status, 404)
+    assert.equal((await put(owner, resume.id, { id: crypto.randomUUID(), name: 'photo.png', data: pdf })).status, 400)
+    assert.deepEqual((await call('GET', '/api/resume-files', { token: owner })).body.map((f: any) => [f.resume_id, f.name]), [[resume.id, 'Data resume v2.pdf']])
+    assert.equal((await call('GET', `/api/resume-files/${resume.id}/data`, { token: owner })).body.data, pdf)
+    assert.equal((await call('GET', `/api/resume-files/${resume.id}/data`, { token: other })).status, 404)
+
+    const snap = (await call('GET', '/api/export', { token: owner })).body
+    assert.equal(snap.resume_files[0].data, pdf)
+    // Into another account (ids are unique across accounts): the file follows its resume's new id.
+    const newId = crypto.randomUUID()
+    const device = {
+      ...snap,
+      resumes: snap.resumes.map((r: any) => ({ ...r, id: newId })),
+      resume_files: snap.resume_files.map((f: any) => ({ ...f, id: crypto.randomUUID(), resume_id: newId })),
+    }
+    const fresh = await signup('resume-files-fresh@example.com')
+    assert.equal((await call('POST', '/api/sync/upload', { token: fresh, body: device })).body.resume_files, 1)
+    const orphan = { ...snap, resumes: [], resume_files: snap.resume_files.map((f: any) => ({ ...f, id: crypto.randomUUID() })) }
+    const lone = await signup('resume-files-lone@example.com')
+    assert.equal((await call('POST', '/api/sync/upload', { token: lone, body: orphan })).body.resume_files, 0, 'not without its resume')
+
+    assert.equal((await call('DELETE', `/api/resumes/${resume.id}`, { token: owner })).status, 204)
+    assert.deepEqual((await call('GET', '/api/resume-files', { token: owner })).body, [], 'gone with the resume')
   })
 
   test('fill traces: Cloud accounts upload them, the paired computer reads one by ref', async () => {

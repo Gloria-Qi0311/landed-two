@@ -32,4 +32,5 @@ declare module '@lib/config.js' {
   export const WEB_ORIGINS: string[]
   export const SESSION_STORAGE_KEY: string
   export const LOCAL_RESUMES_KEY: string
+  export const LOCAL_VERSION_PDFS_KEY: string
 }

@@ -118,6 +118,7 @@ export function accountRoutes(sql: Sql) {
       // companies cascade to applications, connections and their events
       await tx`delete from companies where user_id = ${userId}`
       await tx`delete from portal_events where user_id = ${userId}`
+      await tx`delete from resume_files where user_id = ${userId}`
       await tx`delete from resumes where user_id = ${userId}`
       await tx`delete from ai_runs where user_id = ${userId}`
       await tx`delete from ai_provider_keys where user_id = ${userId}`

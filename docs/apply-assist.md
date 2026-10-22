@@ -53,13 +53,38 @@ fill tests run the same code as the browser.
 - **Extension popup**: one Fill button for the current tab (`fill-tab`).
 - **Open & autofill from Landed** (below).
 
-The resume is **automatic by default** (`resume_id: "auto"`). Each page gets the
-version tailored for its job: the application Landed opened it for, the target's
-link, or company + most of the role in the page title; else the current resume;
-else the master (`apps/extension/lib/resume-pick.js`, the same rule as
-`pickResumeFor` on the web). The page bridge sends each version's
-`{role, company, job_url, application_id}` with the resumes. The user can still
-choose one.
+**Landed picks the resume for each job** (product decision 2026-10-20: Landed
+is a fully automatic service, and a user applying to several kinds of roles has
+a resume for each; choosing it is Landed's job). `resume_id: "auto"` by default;
+`apps/extension/lib/resume-pick.js`, the same rule, words and weights as
+`pickResumeFor` on the web (a parity test runs both):
+
+1. The version tailored for this job: the application Landed opened it for, the
+   target's link, or company + most of the role in the page title.
+2. Else, of the resumes with **a file to upload** (an upload's own file, a
+   version's one-page PDF): **the one of this job's direction** (at least half
+   of a direction's words in the job title). Each upload says what it's for
+   (`resumes.directions`, set at upload to Landed's guess, `guessDirections`:
+   its intended position and latest titles without level or season; the user
+   can change it on My Resume, `DirectionsCard`, never required). One resume of
+   the job's direction → that one (`direction`). Several (a role between two
+   directions, "Product Analyst") → `composite`, and what the posting asks for
+   decides among them. None → the best overall, `unsure`. Scoring, when needed:
+   0.75 × the job title against the resume's direction (a version's target role;
+   an upload's intended position, its name minus the person's name and "resume",
+   its two latest job titles; abbreviations and word forms folded: PM = product
+   manager, "Product Management" = manager) + 0.25 × the share of its skills the
+   posting mentions. Under 0.3, or within 0.1 of the next one, it's `unsure`:
+   still picked, and said ("not sure, check it").
+3. None with a file: the current resume, then the master (`no_file`).
+
+The page's job title and posting text come from the tab (content.js `page-job`).
+**Which resume and why is recorded on the application** (`applications.resume_choice`
+`{resume_id, name, reason, at}`, written when auto apply or Open & autofill opens
+it, shown in the drawer: "Resume: Data resume · a Product Analyst role fits “Data
+resume” and “PM resume”; the posting asks for SQL, Tableau"). Nothing asks the
+user: Approve is the one decision, and the record is there to look at.
+The popup shows each tab's pick, why, and its file. The user can still choose one.
 
 The extension is a lightweight DOM bridge. It publishes only tab metadata and
 resume names, keeps resume contents in browser storage, receives menu commands,
@@ -417,9 +442,30 @@ only when the user clicks.
 
 ### Files to upload
 
-Same page: the user's own resume file and an optional cover letter, one per kind.
-The newest PDF or Word file uploaded on My Resume becomes the resume file
-(`keepResumeFile` in `lib/resume-tasks.ts`). Limits: .pdf/.doc/.docx ≤ 3 MB
+**The file uploaded is the picked resume's own, never another one's** (the form
+and the file must be the same resume). Each uploaded resume keeps the file it was
+read from (`resume_files`, migration 0023, Dexie v14; saved when its upload
+becomes a resume, `keepFileFor` in `lib/resume-tasks.ts`; My Resume shows it on
+the resume, `SourceFileCard`, with a way to add it when missing). A version's
+file is its one-page PDF (below). The Landed page hands every upload's file to
+the extension by resume id (bridge `sync-version-pdf`; `null` for one with no
+file, so the extension knows), and `loadApplicationFiles(resumeId, kind)` uses
+it. The extension keeps the newest 40 resumes' files and asks for
+`unlimitedStorage` (Chrome caps `storage.local` at 10 MB without it, and a few
+resumes' files are more; it adds no install warning). A hand-over that still
+fails comes back as an error, and the file's place says so (My Resume's file
+card, the Extension page's file slots: "Your browser extension couldn't keep
+this file…", `useFileHandoff`) instead of the file being dropped silently.
+A picked resume with no file of its own gets none, and the popup says so.
+Only the master (merged, no file of its own) gets the account's default file.
+Until the page has handed over uploads' files (an older Landed page), the
+extension keeps the old behavior: the default file. Uploads from before resumes
+kept their files get the account's file when it's named after them
+(`adoptKeptFiles`); older files were replaced and must be uploaded again.
+
+Same page: the account's default resume file and an optional cover letter, one
+per kind. The newest PDF or Word file uploaded on My Resume becomes the default
+(`keepResumeFile`). Limits: .pdf/.doc/.docx ≤ 3 MB
 (`packages/schema/src/application-files.ts`; `application_files`, Dexie v12,
 migration 0020, stored as base64 text so snapshots carry them; the list is
 metadata, bytes one file at a time).

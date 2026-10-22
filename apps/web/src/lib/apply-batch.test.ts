@@ -9,7 +9,7 @@ const app = (id: string, companyId: string, over: Record<string, unknown> = {}) 
 const resume = (): DbResume => ({
   id: '11111111-2222-4333-8444-555555555555', user_id: 'local', name: 'Master', file_path: null,
   parsed_json: { name: 'Alex' } as never, is_current: true, created_at: '2026-10-01T00:00:00Z',
-  kind: 'master', master_json: null, target_json: null,
+  kind: 'master', master_json: null, target_json: null, directions: [],
 })
 const lead = (application_id: string, score: number): DbJobLead => ({
   id: crypto.randomUUID(), user_id: 'local', fingerprint: crypto.randomUUID(), ats_key: null, canonical_url: null,

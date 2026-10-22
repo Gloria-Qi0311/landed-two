@@ -216,6 +216,36 @@ test("a fill with a tailored version uploads that version's one-page PDF; withou
   }
 }, 40_000)
 
+test("once each resume's own file is known, a fill uploads the picked resume's file and never another one's", async () => {
+  const PM = '11111111-1111-4111-8111-111111111111'
+  const OLD = '22222222-2222-4222-8222-222222222222'
+  const pmPdf = Buffer.from('%PDF-1.7 the PM resume itself').toString('base64')
+  stored['landed:version-pdfs'] = {
+    [PM]: { hash: 'aaaabbbbccccdddd', file: { id: PM, name: 'PM resume.pdf', mime: 'application/pdf', data: pmPdf } },
+    [OLD]: { hash: '0000000000000000', file: null }, // an upload whose file was replaced long ago
+  }
+  const fillAs = (resumeId, resumeKind) => new Promise((resolve) => onMessageListeners[0]({ action: 'fill', resume, resumeId, resumeKind, aiTakeover: false }, null, resolve))
+  const setForm = () => {
+    document.body.innerHTML = '<form><label for="resume">Resume/CV</label><input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx"></form>'
+    let files = []
+    Object.defineProperty($('#resume'), 'files', { configurable: true, get: () => files, set: (v) => { files = v } })
+  }
+  setForm()
+  await fillAs(PM, 'source')
+  expect($('#resume').files[0]?.size).toBe(Buffer.from(pmPdf, 'base64').length)
+
+  // No file of its own: none, and said, never the account's default (another resume's).
+  setForm()
+  const none = await fillAs(OLD, 'source')
+  expect($('#resume').files).toEqual([])
+  expect(none.missing_files).toContain('resume')
+
+  // The master (merged, no file of its own) gets the default.
+  setForm()
+  await fillAs('33333333-3333-4333-8333-333333333333', 'master')
+  expect($('#resume').files[0]?.size).toBe(Buffer.from(pdf, 'base64').length)
+}, 40_000)
+
 test('no saved resume file: reported, so the popup can say where to add it', async () => {
   for (const id of ['school', 'degree', 'country', 'city', 'auth', 'discipline', 'adult', 'onsite5']) wire(id, ['Yes', 'No'])
   stored['landed:application-files'] = {}

@@ -61,6 +61,7 @@ export function planApplyBatch({
   leads,
   suggestions,
   resumes,
+  hasFile,
   now = new Date(),
   limit = APPLY_BATCH_LIMIT,
 }: {
@@ -69,6 +70,8 @@ export function planApplyBatch({
   leads: DbJobLead[]
   suggestions: DbSuggestion[]
   resumes: DbResume[]
+  /** which resumes have their own file (lib/apply-assist.ts pickResumeFor); unknown while loading */
+  hasFile?: (resumeId: string) => boolean
   now?: Date
   limit?: number
 }): { items: BatchItem[]; skipped: BatchSkip[] } {
@@ -124,7 +127,9 @@ export function planApplyBatch({
       role: app.role,
       url: app.portal_application_url,
     }
-    const resume = pickResumeFor(target, resumes)
+    // Landed picks the resume of this job's direction, with its own file (the
+    // posting's text from the lead helps tell close directions apart).
+    const resume = pickResumeFor({ ...target, description: lead.description }, resumes, hasFile)
     if (!resume) {
       skipped.push({ app, company, reason: 'missing-resume', message: `${company} · ${app.role} needs a resume first` })
       continue

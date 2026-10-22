@@ -4,13 +4,18 @@
 // Data + rules: packages/schema/src/master-resume.ts; tasks: lib/resume-tasks.ts.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { masterStats, parseTarget, type Bullet, type MasterEducation, type MasterEntry, type MasterResume } from '@landed/schema/master-resume'
+import { guessDirections, masterStats, MAX_DIRECTIONS, parseTarget, type Bullet, type MasterEducation, type MasterEntry, type MasterResume } from '@landed/schema/master-resume'
 import { Icon } from './primitives'
 import { EditableList, EditableText } from './editable'
 import { formatRelative } from '../lib/time'
 import { flattenMaster, useResumeTask } from '../lib/resume-tasks'
 import type { DbResume } from '../lib/store'
 import { useResumeGroups, useResumes, useUpdateResume } from '../hooks/resumes'
+import { useResumeFiles } from '../hooks/answers'
+import { useFileHandoff } from '../hooks/extension-bridge'
+import { useStore } from '../lib/store'
+import { useQueryClient } from '@tanstack/react-query'
+import { MAX_FILE_BYTES } from '@landed/schema/application-files'
 import { basicsFound } from '../lib/resume-basics'
 import { agentFor, useRuntimes, type TaskKind } from '../hooks/runtimes'
 import { useApplications, useCompanies } from '../hooks/queries'
@@ -651,8 +656,8 @@ export function VersionPdfCard({ resume }: { resume: DbResume }) {
             {pdf.ok
               ? 'When the extension fills an application with this version, this PDF goes into the resume upload.'
               : pdf.reason === 'too_long'
-                ? `About ${pdf.overLines} line${pdf.overLines === 1 ? '' : 's'} too many. Shorten it below (fewer or shorter bullets) and the PDF is made again; until then the extension uploads your resume file.`
-                : `The PDF can't show Chinese, Japanese or Korean text yet (like “${pdf.reason === 'characters' ? pdf.sample : ''}”), so the extension uploads your resume file for this job.`}
+                ? `About ${pdf.overLines} line${pdf.overLines === 1 ? '' : 's'} too many. Shorten it below (fewer or shorter bullets) and the PDF is made again; until then Landed fills with one of your resumes that has a file, never this content under another file.`
+                : `The PDF can't show Chinese, Japanese or Korean text yet (like “${pdf.reason === 'characters' ? pdf.sample : ''}”), so Landed fills with one of your resumes that has a file instead.`}
           </div>
         )}
       </div>
@@ -661,6 +666,113 @@ export function VersionPdfCard({ resume }: { resume: DbResume }) {
           <Icon name="download" size={12} /> Download
         </button>
       )}
+    </div>
+  )
+}
+
+/** An uploaded resume's own file: what an application filled from this
+ *  resume gets as its resume upload. Without one, Landed doesn't pick this
+ *  resume to fill with (the file and the form must be the same resume), so
+ *  it can be added here. */
+export function SourceFileCard({ resume }: { resume: DbResume }) {
+  const { store } = useStore()
+  const qc = useQueryClient()
+  const file = (useResumeFiles().data ?? []).find((f) => f.resume_id === resume.id)
+  const [error, setError] = useState<string | null>(null)
+  const handoff = useFileHandoff((st) => st.errors[resume.id])
+  const [busy, setBusy] = useState(false)
+  const picker = useRef<HTMLInputElement>(null)
+  const add = async (picked: File | undefined) => {
+    if (!picked) return
+    setError(null)
+    if (!/\.(pdf|docx?)$/i.test(picked.name)) return setError('A PDF or Word file.')
+    if (picked.size > MAX_FILE_BYTES) return setError('Up to 3 MB.')
+    setBusy(true)
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader()
+        r.onload = () => { const url = String(r.result); resolve(url.slice(url.indexOf(',') + 1)) }
+        r.onerror = () => reject(new Error("Couldn't read the file."))
+        r.readAsDataURL(picked)
+      })
+      await store.saveResumeFile({ resume_id: resume.id, name: picked.name, data })
+      await qc.invalidateQueries({ queryKey: ['resume_files'] })
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div style={{ ...card, padding: 12, maxWidth: 760, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <Icon name="doc" size={14} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 500, color: file ? 'var(--fg)' : danger }}>
+          {file ? `Its file · ${file.name}` : 'No file for this resume'}
+        </div>
+        <div style={muted}>
+          {file
+            ? 'When Landed fills an application with this resume, this file goes into the resume upload, and no other.'
+            : 'Landed only fills with a resume whose own file it can attach, so the form and the file always match. Add this resume\'s PDF or Word file and Landed can use it again.'}
+        </div>
+        {error && <div style={{ ...muted, color: danger }}>{error}</div>}
+        {file && handoff && <div role="alert" style={{ ...muted, color: danger }}>Your browser extension couldn't keep this file, so applications can't upload it ({handoff}). Reload the extension, then this page.</div>}
+      </div>
+      <button type="button" className="btn-secondary" disabled={busy} onClick={() => picker.current?.click()} style={{ flexShrink: 0 }}>
+        <Icon name="upload" size={12} /> {busy ? 'Adding…' : file ? 'Replace' : 'Add its file'}
+      </button>
+      <input ref={picker} type="file" hidden accept=".pdf,.doc,.docx" onChange={(e) => { void add(e.target.files?.[0]); e.target.value = '' }} />
+    </div>
+  )
+}
+
+/** What an uploaded resume is for: Landed fills each application from the
+ *  resume of its job's kind. Set at upload as Landed's guess; the user can
+ *  change it here (never required). */
+export function DirectionsCard({ resume }: { resume: DbResume }) {
+  const update = useUpdateResume()
+  const own = Array.isArray(resume.directions) ? resume.directions : []
+  const guessed = own.length === 0
+  const shown = guessed ? guessDirections(resume.parsed_json) : own
+  const [draft, setDraft] = useState('')
+  const save = (next: string[]) => update.mutate({ id: resume.id, patch: { directions: next } })
+  const add = () => {
+    const role = draft.replace(/\s+/g, ' ').trim()
+    if (!role || role.length > 60) return
+    if (!shown.some((d) => d.toLowerCase() === role.toLowerCase()) && shown.length < MAX_DIRECTIONS) save([...shown, role])
+    setDraft('')
+  }
+  return (
+    <div style={{ ...card, padding: 12, maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Icon name="sparkle" size={13} />
+        <div style={{ fontSize: 12.5, fontWeight: 500 }}>Used for</div>
+        <div style={{ ...muted, fontSize: 11.5 }}>
+          {guessed ? "Landed's guess — change it if it's off. " : ''}Applications for these kinds of roles are filled from this resume and get its file.
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        {shown.map((d) => (
+          <span key={d} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '3px 8px', borderRadius: 999, background: 'var(--surface-2)', border: guessed ? '1px dashed var(--border-strong)' : '0.5px solid var(--border)' }}>
+            {d}
+            <button type="button" aria-label={`Remove ${d}`} disabled={update.isPending} onClick={() => save(shown.filter((x) => x !== d))}
+              style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--fg-muted)', display: 'flex' }}>
+              <Icon name="x" size={10} />
+            </button>
+          </span>
+        ))}
+        {shown.length < MAX_DIRECTIONS && (
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={shown.length ? 'Add a role' : 'e.g. Product Manager'} maxLength={60}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }} onBlur={add}
+            style={{ fontSize: 12, padding: '3px 8px', borderRadius: 999, border: '0.5px solid var(--border)', background: 'var(--surface)', color: 'var(--fg)', width: 150, fontFamily: 'inherit' }} />
+        )}
+        {guessed && shown.length > 0 && (
+          <button type="button" className="btn-secondary" style={{ fontSize: 11.5, padding: '2px 9px' }} disabled={update.isPending} onClick={() => save(shown)}>
+            Looks right
+          </button>
+        )}
+      </div>
+      {update.error && <div style={{ ...muted, color: danger }}>{(update.error as Error).message}</div>}
     </div>
   )
 }

@@ -2,7 +2,7 @@
 // server (apps/server). Active for accounts with Landed Cloud sync on.
 import { api } from '../api'
 import type {
-  DataStore, DbAgentObservation, DbApplication, DbApplicationAnswers, DbApplicationFile, DbConversation, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
+  DataStore, DbAgentObservation, DbApplication, DbApplicationAnswers, DbApplicationFile, DbResumeFile, DbConversation, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
 } from './types'
 
 export function createCloudStore(): DataStore {
@@ -79,6 +79,18 @@ export function createCloudStore(): DataStore {
     },
     saveApplicationFile: (input) => api.put<DbApplicationFile>(`/application-files/${input.kind}`, { id: crypto.randomUUID(), name: input.name, data: input.data }),
     deleteApplicationFile: async (kind) => { await api.del(`/application-files/${kind}`) },
+
+    listResumeFiles: () => api.get<DbResumeFile[]>('/resume-files'),
+    getResumeFileData: async (resumeId) => {
+      try {
+        return await api.get<{ id: string; data: string }>(`/resume-files/${resumeId}/data`)
+      } catch (e) {
+        if ((e as { status?: number }).status === 404) return null
+        throw e
+      }
+    },
+    saveResumeFile: (input) => api.put<DbResumeFile>(`/resume-files/${input.resume_id}`, { id: crypto.randomUUID(), name: input.name, data: input.data }),
+    deleteResumeFile: async (resumeId) => { await api.del(`/resume-files/${resumeId}`) },
 
     exportSnapshot: () => api.get<Snapshot>('/export'),
   }

@@ -19,7 +19,7 @@ const resume = normalizeResume({
 })
 const row = (over: Partial<DbResume>): DbResume => ({
   id: crypto.randomUUID(), user_id: 'u', name: 'Upload', file_path: null, parsed_json: resume, is_current: false,
-  created_at: '2026-10-01T00:00:00Z', kind: 'source', master_json: null, target_json: null, ...over,
+  created_at: '2026-10-01T00:00:00Z', kind: 'source', master_json: null, target_json: null, directions: [], ...over,
 })
 
 describe('chatContext', () => {
