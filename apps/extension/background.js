@@ -222,13 +222,8 @@ async function pollAllPortals() {
 // field labels plus the selected resume's flat values (and, to review a fill,
 // the filled form with sensitive questions left out). The host returns typed
 // key or option selections; content.js remains the only code that touches DOM.
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (!msg || msg.action !== 'native-assist') return
-  const request = msg.request
-  if (!request || !['ping', 'match_fields', 'choose_options', 'review_fill'].includes(request.type)) {
-    sendResponse({ ok: false, error: 'invalid native request' })
-    return true
-  }
+/** One request to Landed for Mac's host, one at a time. */
+function askNative(request) {
   const turn = nativeAssistQueue.catch(() => {}).then(() => new Promise((resolve) => {
     chrome.runtime.sendNativeMessage(NATIVE_HOST, request, (response) => {
       const error = chrome.runtime.lastError
@@ -237,9 +232,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     })
   }))
   nativeAssistQueue = turn.then(() => undefined, () => undefined)
-  turn.then(sendResponse, (error) => {
-    sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })
-  })
+  return turn.catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!msg || msg.action !== 'native-assist') return
+  const request = msg.request
+  if (!request || !['ping', 'match_fields', 'choose_options', 'review_fill'].includes(request.type)) {
+    sendResponse({ ok: false, error: 'invalid native request' })
+    return true
+  }
+  askNative(request).then(sendResponse)
   return true
 })
 
@@ -985,6 +988,9 @@ const handleBridge = self.LandedBridge.createBridgeHandler({
   openAndFill,
   takeAssistResults,
   onAnswersSynced: () => { void fillAnsweredTabs() },
+  // What an imported spreadsheet's statuses mean (bridge-handler.js sends
+  // only the status words; the host asks the user's own agent).
+  classifyStatuses: (request) => askNative(request),
 })
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

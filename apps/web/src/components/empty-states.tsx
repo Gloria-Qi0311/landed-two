@@ -2,7 +2,7 @@
 import React from 'react';
 import { Icon } from './primitives';
 
-export const EmptyApplicationsView = ({ onAddManual, onTrackStatus }: { onAddManual: () => void; onTrackStatus: () => void }) => (
+export const EmptyApplicationsView = ({ onAddManual, onTrackStatus, onImport }: { onAddManual: () => void; onTrackStatus: () => void; onImport: () => void }) => (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', overflowY: 'auto' }}>
     <div style={{ maxWidth: 760, width: '100%' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: 28 }}>
@@ -63,11 +63,12 @@ export const EmptyApplicationsView = ({ onAddManual, onTrackStatus }: { onAddMan
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fg)', marginBottom: 2 }}>Coming from a spreadsheet?</div>
           <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-            Import a CSV — we'll map columns to fields and merge duplicates by company + role.
+            Import a CSV, or paste the cells from Excel or Google Sheets. Landed reads the columns, shows you every row first, and
+            leaves out ones already here.
           </div>
         </div>
-        <button className="btn-secondary" style={{ fontSize: 11.5, flexShrink: 0 }}>
-          Import CSV
+        <button className="btn-secondary" style={{ fontSize: 11.5, flexShrink: 0 }} onClick={onImport}>
+          Import
         </button>
       </div>
     </div>

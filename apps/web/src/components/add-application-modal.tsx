@@ -24,7 +24,7 @@ export type NewApplication = {
   companyName: string; role: string; team: string; stage: string; salary: string; location: string; source: string; notes: string;
 };
 
-export function AddApplicationModal({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (input: NewApplication) => Promise<unknown> }) {
+export function AddApplicationModal({ open, onClose, onAdd, onImport }: { open: boolean; onClose: () => void; onAdd: (input: NewApplication) => Promise<unknown>; onImport?: () => void }) {
   const [companyId, setCompanyId] = useState('');
   const [role, setRole] = useState('');
   const [team, setTeam] = useState('');
@@ -115,6 +115,17 @@ export function AddApplicationModal({ open, onClose, onAdd }: { open: boolean; o
         </div>
 
         <div style={{ padding: '14px 18px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Many at once: the applications already tracked in a spreadsheet. */}
+          {onImport && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 12, borderBottom: '0.5px solid var(--border)' }}>
+              <div style={{ flex: 1, fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.4 }}>
+                Already tracking applications in a spreadsheet? Add them all at once: a CSV, or cells pasted from Excel or Google Sheets.
+              </div>
+              <button type="button" className="btn-secondary" onClick={onImport} style={{ fontSize: 12, flexShrink: 0 }}>
+                <Icon name="upload" size={12} /> Import a spreadsheet
+              </button>
+            </div>
+          )}
           <div>
             <label htmlFor="aam-company" style={FIELD.label}>Company *</label>
             <select

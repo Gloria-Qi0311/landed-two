@@ -279,6 +279,14 @@ next action the user sees on the card and in the drawer, survives local/cloud
 sync and backups, and can be edited by the user. The extension result queue
 contains no application answers.
 
+## Applications imported from a spreadsheet
+
+A spreadsheet import ([pipeline.md](pipeline.md#importing-a-spreadsheet)) marks
+the leads it already covers as `already_applied` (linked to the application),
+with the processor's `applicationForPosting`: the same posting or link, or the
+same employer and the same or a nearly identical title. A search after that
+doesn't list them again, by the same rule.
+
 ## Left for later PRs
 
 - Optional user-configurable daily limits. They must not weaken the per-job

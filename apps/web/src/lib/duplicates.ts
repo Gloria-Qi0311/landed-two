@@ -17,7 +17,7 @@ export const DUP = 'dup:'
 export const dupKey = (ids: string[]) => DUP + [...ids].sort().join('+')
 export const isDupQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) => s.dedupe_key.startsWith(DUP)
 
-function samePosting(a: AppLike, b: AppLike): boolean {
+export function samePosting(a: AppLike, b: AppLike): boolean {
   const ats = atsJobKey(a.portal_application_url)
   const other = atsJobKey(b.portal_application_url)
   // Two postings on job boards are one application only if they're the same

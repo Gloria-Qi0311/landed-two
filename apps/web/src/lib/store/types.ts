@@ -232,8 +232,11 @@ export type PortalEventInput = {
 
 export type AiRunInput = Pick<DbAiRun, 'task' | 'provider' | 'prompt_text' | 'response_text' | 'parsed_json' | 'parse_format'>
 
-export type DemoImport = {
-  companies: CompanyInput[]
+/** A batch of applications (a spreadsheet, or demo data). Each
+ *  `company_name` is found or created by exact name, like addApplication;
+ *  `companies` only carries extra details for the ones it creates. */
+export type ApplicationsImport = {
+  companies?: CompanyInput[]
   applications: (ApplicationInput & { company_name: string })[]
 }
 
@@ -290,7 +293,8 @@ export interface DataStore {
    *  questions about it are dropped; job leads and resolved suggestions keep
    *  their rows but lose the link (the server's foreign keys do the same). */
   deleteApplication(id: string): Promise<void>
-  importDemo(data: DemoImport): Promise<{ companies: number; applications: number }>
+  /** All or nothing; at most 2000 applications. `companies` counts the ones it created. */
+  importApplications(data: ApplicationsImport): Promise<{ companies: number; applications: DbApplication[] }>
 
   listResumes(): Promise<DbResume[]> // created_at desc
   /** At most one `master` per account (a second is a 409). */

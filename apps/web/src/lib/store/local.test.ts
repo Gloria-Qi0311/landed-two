@@ -66,17 +66,26 @@ describe('applications + companies', () => {
     await expect(store.deleteApplication(a.id)).rejects.toThrow(/not found/)
   })
 
-  test('importDemo maps applications to companies by name', async () => {
+  test('importApplications finds or creates each company by name and returns the new rows', async () => {
     const store = fresh()
-    const res = await store.importDemo({
-      companies: [{ name: 'Linear' }, { name: 'Ramp' }],
+    const linear = await store.addApplication({ name: 'Linear' }, { role: 'Designer' })
+    const res = await store.importApplications({
+      companies: [{ name: 'Ramp', hue: 20 }],
       applications: [
         { company_name: 'Linear', role: 'Eng' },
         { company_name: 'Ramp', role: 'Ops', starred: true },
-        { company_name: 'Unknown', role: 'skipped' },
+        { company_name: ' Kestrel Pay ', role: 'Analyst', stage: 'phone' },
+        { company_name: 'Ramp', role: 'Finance' },
       ],
     })
-    expect(res).toEqual({ companies: 2, applications: 2 })
+    expect(res.companies).toBe(2)
+    expect(res.applications.map((a) => a.role)).toEqual(['Eng', 'Ops', 'Analyst', 'Finance'])
+    expect(res.applications[0].company_id).toBe(linear.company_id)
+    expect(res.applications[1].company_id).toBe(res.applications[3].company_id)
+    expect(res.applications[2].stage).toBe('interview')
+    expect((await store.listCompanies()).map((c) => c.name).sort()).toEqual(['Kestrel Pay', 'Linear', 'Ramp'])
+    await expect(store.importApplications({ applications: [{ company_name: 'Ramp', role: '' }] })).rejects.toThrow(/role/)
+    expect(await store.listApplications()).toHaveLength(5) // all or nothing
   })
 })
 

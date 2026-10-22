@@ -65,6 +65,13 @@ messages (PR title and a clean body, no trailer).
   observation id per posting, so refreshing never adds a source twice.
 - Which companies an account follows (for their job boards) is worked out in the
   browser and never sent to the server.
+- A spreadsheet import adds nothing until the user confirms the preview, never
+  merges, only moves a stage forward, and never reads a password column. "Not
+  applied yet" in any wording ("待申请", "Not yet applied") is a lead, and an
+  unreadable status is Applied only when the row has a date. Statuses the rules
+  can't read (only those words) go to the user's own agent (`classify_statuses`);
+  the preview lists every status with its stage and who read it. The one move back:
+  Applied with no applied date to Leads, when the sheet plainly says not applied.
 - Hard filters only act on what a posting says outright; not sure means not
   filtered. Filtered leads are hidden, never deleted, and one the user puts back
   stays back.

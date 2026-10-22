@@ -509,19 +509,25 @@ describe('data isolation + CRUD', () => {
     })).status, 400)
   })
 
-  test('demo import maps applications to companies by name', async () => {
+  test('import finds or creates each company by name and returns the new rows', async () => {
+    const existing = await call('POST', '/api/applications', { token: bob, body: { company: { name: 'Linear' }, application: { role: 'Designer' } } })
     const res = await call('POST', '/api/import', {
       token: bob,
       body: {
-        companies: [{ name: 'Figma', hue: 10 }, { name: 'Linear' }],
+        companies: [{ name: 'Figma', hue: 10 }],
         applications: [
           { company_name: 'Figma', role: 'Designer', stage: 'phone', starred: true },
           { company_name: 'Linear', role: 'Engineer' },
-          { company_name: 'Unknown Co', role: 'skipped' },
+          { company_name: 'Kestrel Pay', role: 'Analyst', stage: 'applied', applied_at: '2026-09-15T12:00:00.000Z' },
         ],
       },
     })
-    assert.deepEqual(res.body, { companies: 2, applications: 2 })
+    assert.equal(res.status, 201)
+    assert.equal(res.body.companies, 2) // Figma and Kestrel Pay; Linear was already there
+    assert.deepEqual(res.body.applications.map((a: { role: string }) => a.role), ['Designer', 'Engineer', 'Analyst'])
+    assert.equal(res.body.applications[0].stage, 'interview') // legacy phone, normalized
+    assert.equal(res.body.applications[1].company_id, existing.body.company_id)
+    assert.equal((await call('POST', '/api/import', { token: bob, body: { applications: [{ company_name: ' ', role: 'x' }] } })).status, 400)
   })
 
   test('profile onboarding flag round-trips', async () => {

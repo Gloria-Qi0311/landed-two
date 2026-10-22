@@ -26,7 +26,7 @@ function memoryQueue(events) {
   }
 }
 
-function makeHandler(events = [], openAndFill, takeAssistResults) {
+function makeHandler(events = [], openAndFill, takeAssistResults, classifyStatuses) {
   const q = memoryQueue(events)
   const saved = {}
   const onQueueChanged = jest.fn()
@@ -43,6 +43,7 @@ function makeHandler(events = [], openAndFill, takeAssistResults) {
     openAndFill,
     takeAssistResults,
     onAnswersSynced,
+    classifyStatuses,
   })
   return { handle, q, saved, onQueueChanged, onAnswersSynced }
 }
@@ -167,6 +168,17 @@ describe('bridge handler', () => {
     expect(await handle({ type: 'assist-open', payload: { url: 'https://x.com/' } }, FROM_WEB)).toMatchObject({ ok: false })
     expect(await handle({ type: 'assist-open', payload: { url: 'https://x.com/', resume_id: 'r1' } }, { origin: 'https://evil.example' })).toMatchObject({ ok: false })
     expect(open).toHaveBeenCalledTimes(2)
+  })
+
+  test('classify-statuses sends only distinct status words and returns stages for those', async () => {
+    const classifyStatuses = jest.fn(async () => ({ ok: true, model: 'Claude Code', stages: { 待申请: { stage: 'saved', note: null }, other: { stage: 'offer', note: null } } }))
+    const { handle } = makeHandler([], undefined, undefined, classifyStatuses)
+    const res = await handle({ type: 'classify-statuses', payload: { statuses: [' 待申请 ', '待申请', '已申请', 42, ''], company: 'Bluefin' } }, FROM_WEB)
+    expect(classifyStatuses).toHaveBeenCalledWith({ type: 'classify_statuses', statuses: ['待申请', '已申请'] })
+    expect(res).toEqual({ ok: true, data: { stages: { 待申请: { stage: 'saved', note: null } }, model: 'Claude Code' } })
+    classifyStatuses.mockResolvedValueOnce({ ok: false, error: 'Landed for Mac is not installed' })
+    expect(await handle({ type: 'classify-statuses', payload: { statuses: ['x'] } }, FROM_WEB)).toEqual({ ok: false, error: 'Landed for Mac is not installed' })
+    expect((await handle({ type: 'classify-statuses', payload: { statuses: ['x'] } }, { origin: 'https://evil.example' })).ok).toBe(false)
   })
 
   test('take-assist-results hands independent page results over once', async () => {

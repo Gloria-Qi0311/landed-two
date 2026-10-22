@@ -224,7 +224,7 @@ export function useImportDemoData() {
         }
       }).filter((a): a is NonNullable<typeof a> => a !== null)
 
-      return store.importDemo({ companies, applications })
+      return store.importApplications({ companies, applications })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['applications'] })

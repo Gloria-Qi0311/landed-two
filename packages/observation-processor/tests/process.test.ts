@@ -91,6 +91,17 @@ describe('job_discovered → leads', () => {
     expect(byTitle.status).toBe('already_applied')
   })
 
+  test('a nearly identical title at the same employer is the same job; another posting id is not', () => {
+    const c = ctx({ companies, applications: [app('app-1', 'co-acme', 'SDE Intern', 'applied', null)] })
+    expect(run([job({ title: 'Software Engineer Intern', company: 'Acme' })], c).ctx.leads[0]).toMatchObject({ status: 'already_applied', application_id: 'app-1' })
+    expect(run([job({ title: 'Data Analyst', company: 'Acme' })], c).ctx.leads[0].status).toBe('new')
+    expect(run([job({ title: 'Software Engineer Intern', company: 'Globex' })], c).ctx.leads[0].status).toBe('new')
+    const posted = ctx({ companies, applications: [app('app-2', 'co-acme', 'Senior Software Engineer, Platform', 'applied', 'https://boards.greenhouse.io/acme/jobs/111')] })
+    const similar = { title: 'Senior Software Engineer, Platform Team', company: 'Acme' }
+    expect(run([job(similar)], posted).ctx.leads[0].status).toBe('already_applied')
+    expect(run([job({ ...similar, job_url: 'https://boards.greenhouse.io/acme/jobs/999' })], posted).ctx.leads[0].status).toBe('new')
+  })
+
   test('merging fills gaps, never overwrites, and keeps dismissed leads dismissed', () => {
     const first = run([job({ title: 'PM', company: 'Acme' })], ctx()).ctx
     const dismissed = { ...first, leads: first.leads.map((l) => ({ ...l, status: 'dismissed' as const, title: 'User-edited title' })) }

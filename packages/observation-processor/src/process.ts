@@ -36,14 +36,27 @@ function sameJob(lead: JobLead, keys: { ats: string | null; url: string | null; 
   return recent && keys.company === lead.company_key && keys.title === lead.title_key && locationsCompatible(keys.location, lead.location)
 }
 
-function applicationForJob(ctx: Context, keys: { ats: string | null; url: string | null; company: string; title: string }): ApplicationRef | undefined {
-  const companyById = new Map(ctx.companies.map((c) => [c.id, companyKey(c.name)]))
-  return ctx.applications.find((a) => {
-    const appUrl = a.portal_application_url
-    if (keys.ats && atsJobKey(appUrl) === keys.ats) return true
-    if (keys.url && canonicalUrl(appUrl) === keys.url) return true
-    return companyById.get(a.company_id) === keys.company && titleKey(a.role) === keys.title
-  })
+/** Titles this close are one job: a spreadsheet's "SDE Intern" and the
+ *  posting's "Software Engineer Intern". */
+const SAME_JOB_TITLE = 0.8
+
+/** The application a found posting is already in: the same job-board posting
+ *  or link; else, at the same employer, the same title or a nearly identical
+ *  one (not when both are job-board postings with different ids). Also used
+ *  to mark leads found before the application was added. */
+export function applicationForPosting(
+  posting: { ats_key: string | null; canonical_url: string | null; company_key: string; title: string },
+  applications: ApplicationRef[],
+  companies: { id: string; name: string }[],
+): ApplicationRef | undefined {
+  const byLink = applications.find((a) => (posting.ats_key && atsJobKey(a.portal_application_url) === posting.ats_key)
+    || (posting.canonical_url && canonicalUrl(a.portal_application_url) === posting.canonical_url))
+  if (byLink) return byLink
+  const keyOf = new Map(companies.map((c) => [c.id, companyKey(c.name)]))
+  const here = applications.filter((a) => keyOf.get(a.company_id) === posting.company_key)
+  const title = titleKey(posting.title)
+  return here.find((a) => titleKey(a.role) === title)
+    ?? here.find((a) => !(posting.ats_key && atsJobKey(a.portal_application_url)) && titleSimilarity(a.role, posting.title) >= SAME_JOB_TITLE)
 }
 
 function processJob(o: Observation, ctx: Context, opts: ProcessOptions): Outcome {
@@ -77,7 +90,7 @@ function processJob(o: Observation, ctx: Context, opts: ProcessOptions): Outcome
     return { status: 'processed', result: { lead_id: lead.id, merged: true }, effects: [{ type: 'save_lead', lead }] }
   }
 
-  const app = applicationForJob(ctx, keys)
+  const app = applicationForPosting({ ats_key: keys.ats, canonical_url: keys.url, company_key: keys.company, title }, ctx.applications, ctx.companies)
   const lead: JobLead = {
     id: opts.newId(),
     fingerprint: keys.ats ?? (keys.url ? `url:${keys.url}` : `job:${keys.company}|${keys.title}|${(location ?? '').toLowerCase()}`),

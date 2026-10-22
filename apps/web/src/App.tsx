@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
@@ -28,6 +28,7 @@ import {
 } from './hooks/queries';
 import { Sidebar, PageHeader } from './components/shell';
 import { ExportApplicationsButton } from './components/export-button';
+import { ImportApplicationsModal } from './components/import-applications';
 import { LoginScreen, OnboardingTour, ProfileMenu } from './components/auth';
 import { EmptyDeviceNotice, OfflineNotice, RestoreBackupDialog, TurnOffCloudDialog, TurnOnCloudDialog } from './components/cloud';
 import { RecoveryCodesDialog } from './components/recovery-codes';
@@ -121,6 +122,9 @@ export function App() {
 function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string) => void }) {
   const [openApp, setOpenApp] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  // Importing a spreadsheet: from Add, or the empty board.
+  const [importOpen, setImportOpen] = useState(false);
+  const closeImport = useCallback(() => setImportOpen(false), []);
 
   const user = useAuth((s) => s.user)!;
   const account = { mode: user.cloud_sync ? ('cloud' as const) : ('local' as const), email: user.email };
@@ -278,6 +282,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
                   onOpenApp={setOpenApp}
                   onMoveCard={(id, stage) => updateApp.mutate({ id, patch: { stage } })}
                   onOpenAddModal={() => setAddModalOpen(true)}
+                  onOpenImport={() => setImportOpen(true)}
                   onImportDemo={() => importDemo.mutate()}
                   importing={importDemo.isPending}
                 />
@@ -317,7 +322,9 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
         onAdd={(input: Parameters<typeof addApp.mutateAsync>[0]) => addApp.mutateAsync(input)}
+        onImport={() => { setAddModalOpen(false); setImportOpen(true) }}
       />
+      <ImportApplicationsModal key="import" open={importOpen} onClose={closeImport} />
     </div>
   );
 }
@@ -329,6 +336,7 @@ function ApplicationsPage({
   onOpenApp,
   onMoveCard,
   onOpenAddModal,
+  onOpenImport,
   onImportDemo,
   importing,
 }: {
@@ -338,6 +346,7 @@ function ApplicationsPage({
   onOpenApp: (id: string) => void;
   onMoveCard: (id: string, stage: string) => void;
   onOpenAddModal: () => void;
+  onOpenImport: () => void;
   onImportDemo: () => void;
   importing: boolean;
 }) {
@@ -392,7 +401,7 @@ function ApplicationsPage({
             </>
           }
         />
-        <EmptyApplicationsView onAddManual={onOpenAddModal} onTrackStatus={() => navigate('/automation')} />
+        <EmptyApplicationsView onAddManual={onOpenAddModal} onTrackStatus={() => navigate('/automation')} onImport={onOpenImport} />
       </>
     );
   }

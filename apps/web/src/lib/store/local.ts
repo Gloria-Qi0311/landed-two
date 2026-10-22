@@ -18,7 +18,7 @@ import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
   type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbApplicationAnswers, type DbApplicationFile, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
-  type DbPortalEvent, type DbResume, type DemoImport, type PortalEventInput, type Snapshot,
+  type DbPortalEvent, type DbResume, type ApplicationsImport, type PortalEventInput, type Snapshot,
 } from './types'
 
 const LOCAL_USER = 'local'
@@ -333,24 +333,32 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         return next
       })
     },
-    async importDemo(data: DemoImport) {
+    async importApplications(data: ApplicationsImport) {
+      if ((data.companies?.length ?? 0) > 500 || data.applications.length > 2000) throw new LocalStoreError(400, 'import too large')
       askPersist()
       return db.transaction('rw', db.companies, db.applications, async () => {
         const at = now()
+        const details = new Map((data.companies ?? []).map((co) => [required(co.name, 'company name').trim(), co]))
         const nameToId = new Map<string, string>()
-        for (const co of data.companies) {
-          const row = companyRow(co, at)
-          await db.companies.add(row)
-          nameToId.set(row.name, row.id)
+        let companies = 0
+        const companyId = async (name: string) => {
+          let id = nameToId.get(name) ?? (await db.companies.where('name').equals(name).first())?.id
+          if (!id) {
+            const row = companyRow({ ...details.get(name), name }, at)
+            await db.companies.add(row)
+            companies++
+            id = row.id
+          }
+          nameToId.set(name, id)
+          return id
         }
-        let applications = 0
+        const applications: DbApplication[] = []
         for (const { company_name, ...a } of data.applications) {
-          const cid = nameToId.get(company_name.trim())
-          if (!cid) continue
-          await db.applications.add(applicationRow(cid, a, at))
-          applications++
+          const row = applicationRow(await companyId(required(company_name, 'company name').trim()), a, at)
+          await db.applications.add(row)
+          applications.push(row)
         }
-        return { companies: nameToId.size, applications }
+        return { companies, applications }
       })
     },
 

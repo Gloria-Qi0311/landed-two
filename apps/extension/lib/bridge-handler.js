@@ -20,6 +20,8 @@
 //                 so the "thanks for applying" page lands on that one. Only
 //                 a linked application + lead may carry submit authorization.
 //   take-assist-results  fill-ready / human-blocker results, delivered once
+//   classify-statuses  what an imported spreadsheet's statuses mean: only the
+//                 status words go to the user's own agent through Landed for Mac
 //   hello         presence + version check
 //
 // Requests arrive from lib/web-bridge.js (a content script injected only on
@@ -112,7 +114,7 @@
   }
 
   function createBridgeHandler(deps) {
-    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced } = deps
+    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced, classifyStatuses } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
 
     return async function handle(msg, sender) {
@@ -265,6 +267,18 @@
         case 'take-assist-results': {
           const results = takeAssistResults ? await takeAssistResults() : []
           return { ok: true, data: { results: Array.isArray(results) ? results.slice(0, 50) : [] } }
+        }
+
+        case 'classify-statuses': {
+          const statuses = [...new Set((Array.isArray(msg.payload?.statuses) ? msg.payload.statuses : [])
+            .map((t) => (typeof t === 'string' ? t.replace(/\s+/g, ' ').trim().slice(0, 80) : ''))
+            .filter(Boolean))].slice(0, 40)
+          if (statuses.length === 0) return { ok: false, error: 'no statuses' }
+          if (!classifyStatuses) return { ok: false, error: 'this browser cannot ask your agent' }
+          const res = await classifyStatuses({ type: 'classify_statuses', statuses })
+          if (!res || !res.ok) return { ok: false, error: (res && res.error) || 'your agent did not answer' }
+          const stages = res.stages && typeof res.stages === 'object' ? res.stages : {}
+          return { ok: true, data: { stages: Object.fromEntries(statuses.filter((t) => stages[t]).map((t) => [t, stages[t]])), model: typeof res.model === 'string' ? res.model : null } }
         }
 
         default:

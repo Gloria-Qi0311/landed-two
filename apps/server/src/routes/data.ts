@@ -145,8 +145,10 @@ export function dataRoutes(sql: Sql, config: Config) {
     return c.json(row)
   })
 
-  // Bulk import (demo data). Body: { companies: [{name, ...}], applications:
-  // [{company_name, role, ...}] } — applications reference companies by name.
+  // Bulk import (a spreadsheet, or demo data). Body: { companies: [{name, ...}],
+  // applications: [{company_name, role, ...}] }. Applications reference
+  // companies by name; each name is found or created like POST /applications
+  // (exact name), whether or not it's in `companies`. Returns the new rows.
   app.post('/import', async (c) => {
     const userId = c.get('user').id
     const body = await jsonBody<{ companies?: Row[]; applications?: Row[] }>(c)
@@ -154,27 +156,36 @@ export function dataRoutes(sql: Sql, config: Config) {
     const applications = Array.isArray(body.applications) ? body.applications : []
     if (companies.length > 500 || applications.length > 2000) fail(400, 'import too large')
 
-    const counts = await sql.begin(async (tx) => {
+    const result = await sql.begin(async (tx) => {
+      const details = new Map<string, Row>()
+      for (const co of companies) details.set(requireString(co.name, 'companies[].name').trim(), co)
       const nameToId = new Map<string, string>()
-      for (const co of companies) {
-        const name = requireString(co.name, 'companies[].name').trim()
-        const [row] = await tx<{ id: string }[]>`
-          insert into companies ${tx({ ...pick(co, COMPANY_FIELDS), name, user_id: userId })}
-          returning id`
-        nameToId.set(name, row.id)
+      let created = 0
+      const companyId = async (name: string) => {
+        const known = nameToId.get(name)
+        if (known) return known
+        const [existing] = await tx<{ id: string }[]>`
+          select id from companies where user_id = ${userId} and name = ${name}
+          order by created_at limit 1`
+        const id = existing?.id ?? (await tx<{ id: string }[]>`
+          insert into companies ${tx({ ...pick(details.get(name) ?? {}, COMPANY_FIELDS), name, user_id: userId })}
+          returning id`)[0].id
+        if (!existing) created++
+        nameToId.set(name, id)
+        return id
       }
-      let inserted = 0
+      const rows: Row[] = []
       for (const a of applications) {
-        const companyId = nameToId.get(String(a.company_name ?? '').trim())
-        if (!companyId) continue
+        const name = requireString(a.company_name, 'applications[].company_name').trim()
         requireString(a.role, 'applications[].role')
-        await tx`
-          insert into applications ${tx({ ...applicationColumns(sql, a, APPLICATION_FIELDS, { create: true }), user_id: userId, company_id: companyId })}`
-        inserted++
+        const [row] = await tx`
+          insert into applications ${tx({ ...applicationColumns(sql, a, APPLICATION_FIELDS, { create: true }), user_id: userId, company_id: await companyId(name) })}
+          returning *`
+        rows.push(row)
       }
-      return { companies: nameToId.size, applications: inserted }
+      return { companies: created, applications: rows }
     })
-    return c.json(counts, 201)
+    return c.json(result, 201)
   })
 
   // ── resumes ───────────────────────────────────────────────────────────

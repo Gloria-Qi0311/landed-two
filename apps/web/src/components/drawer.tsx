@@ -165,8 +165,9 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onDele
           </div>
           <div>
             <div style={label}>Remote</div>
-            <select aria-label="Remote" value={app.remote || 'Hybrid'} onChange={(e) => onUpdate(app.id, { remote: e.target.value })}
+            <select aria-label="Remote" value={app.remote || ''} onChange={(e) => onUpdate(app.id, { remote: e.target.value })}
               style={{ fontSize: 12.5, fontFamily: 'inherit', padding: '1px 4px', border: '0.5px solid var(--border)', borderRadius: 5, background: 'var(--surface)', color: 'var(--fg)' }}>
+              {!app.remote && <option value="" disabled>Not set</option>}
               {REMOTES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>

@@ -14,7 +14,7 @@ export function createCloudStore(): DataStore {
     addApplication: (company, application) => api.post<DbApplication>('/applications', { company, application }),
     updateApplication: (id, patch) => api.patch<DbApplication>(`/applications/${id}`, patch),
     deleteApplication: (id) => api.del(`/applications/${id}`),
-    importDemo: (data) => api.post('/import', data),
+    importApplications: (data) => api.post('/import', data),
 
     listResumes: () => api.get<DbResume[]>('/resumes'),
     addResume: (input) => api.post<DbResume>('/resumes', input),
