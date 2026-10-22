@@ -3,7 +3,8 @@
 How to run Landed on your own machine, how changes get in, and how they ship.
 The rules every change follows (local-first data, what agents may do, the
 Apply Assist safety rules, visual style) are in [CLAUDE.md](CLAUDE.md). Claude
-Code reads it on every session. How the parts fit together is in
+Code reads it on every session. What Landed is, the pipeline every job goes
+through and how the parts fit together are in
 [docs/architecture.md](docs/architecture.md), and each area has its own doc in
 [docs/](docs/): read the one for the area you're changing first.
 
