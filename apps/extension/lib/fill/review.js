@@ -118,6 +118,9 @@ function fillReport() {
     if (!item.value) item.source = '';
     else if (!item.source) item.source = 'page';
     if (neverSent(item.question)) { leftOut++; continue; }
+    // Another country's work authorization or sponsorship: the facts (about
+    // the US) don't answer it, so the reviewer mustn't pick from them.
+    if (CA.asksAboutAnotherCountry(item.question)) continue;
     items.push({ id: item.group ? item.group[0].getAttribute('data-landed-field-id') || id : id, ...item });
     if (items.length >= 60) break;
   }

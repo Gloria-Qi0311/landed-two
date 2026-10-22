@@ -267,6 +267,16 @@ voluntary EEO, LinkedIn / GitHub / website links, "18 or older", "onsite N days 
 week", plus free "other questions" (`packages/schema/src/application-answers.ts`,
 `parseApplicationAnswers`).
 
+Work authorization and sponsorship are about the US. A question that names
+another country and not the US ("Are you authorized to work in the United
+Kingdom?", "Do you require sponsorship to work in Germany?", 新加坡…) isn't what
+they say: `classify` doesn't map it to them (`asksAboutAnotherCountry` in
+`lib/choice-answers.js`), the local model isn't asked to pick it from them
+(`choose_options`, `match_fields`), and the review doesn't see it. It stays
+yellow and is asked once as its own question; `sameQuestion` answers it after
+that. "The US or Canada" and "the country where this job is located" still take
+the saved answers.
+
 **What Landed already knows is filled in on its own** (product decision
 2026-10-19). Many of these questions are answered by the resume (master, else
 current) or the active job search. `useKnownAnswers` (`apps/web/src/hooks/answers.ts`,

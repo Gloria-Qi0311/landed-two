@@ -234,7 +234,7 @@ export function ApplicationAnswersPane() {
 
         <Section title="Work eligibility">
           <Row label="18 years of age or older?">{yesNo('adult')}</Row>
-          <Row label="Legally authorized to work in the US?" help="Or the country of the job.">{yesNo('work_authorized')}</Row>
+          <Row label="Legally authorized to work in the US?" help="A question about another country (“authorized to work in the UK?”) is asked on its own.">{yesNo('work_authorized')}</Row>
           <Row label="Need visa sponsorship, now or later?" help="Includes OPT / STEM OPT / CPT that will need H-1B." from={from('needs_sponsorship')}>{yesNo('needs_sponsorship')}</Row>
         </Section>
 

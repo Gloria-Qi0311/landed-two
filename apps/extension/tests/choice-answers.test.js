@@ -45,6 +45,16 @@ describe('classify', () => {
     ['GitHub URL', 'github'],
     ['How did you hear about this job? (LinkedIn, Indeed, a friend…)', 'heard_from'],
     ['Are you a resident of China or South Korea?', null],
+    // The saved answers are about the US: another country's is its own question.
+    ['Are you legally authorized to work in the United Kingdom?', null],
+    ['Do you have the right to work in the UK?', null],
+    ['Are you authorized to work in Canada?', null],
+    ['Do you require sponsorship to work in Germany?', null],
+    ['您是否拥有在新加坡合法工作的权利？', null],
+    ['Are you authorized to work in the US or Canada?', 'work_authorized'],
+    ['Are you legally authorized to work in the country in which this job is located?', 'work_authorized'],
+    ['Will you require visa sponsorship (e.g. H-1B, TN) to work for us?', 'needs_sponsorship'],
+    ['您是否需要签证担保？', 'needs_sponsorship'],
     ['Email address', null],
     ['Is the residential address you provided in your application different from your permanent address?', null],
   ])('%s → %s', (label, kind) => {

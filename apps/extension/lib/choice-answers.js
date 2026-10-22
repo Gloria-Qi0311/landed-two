@@ -72,12 +72,30 @@
     ['signature_name', /(^your (full )?name$|signature|^full legal name$|^legal name$)/, 40],
   ];
 
+  // The saved work authorization and sponsorship answers are about the US
+  // ("Legally authorized to work in the US?"). A question about another
+  // country isn't what they say: "Authorized to work in the United Kingdom?"
+  // is its own question, asked once and answered by sameQuestion after that.
+  const OTHER_COUNTRY = /\b(united kingdom|u\.?k|great britain|britain|england|scotland|wales|ireland|canada|mexico|brazil|germany|france|netherlands|spain|italy|switzerland|sweden|norway|denmark|finland|poland|portugal|austria|belgium|european union|eu|eea|australia|new zealand|india|singapore|japan|china|hong kong|taiwan|korea|israel|united arab emirates|uae)\b|英国|加拿大|德国|法国|荷兰|澳大利亚|新西兰|新加坡|日本|中国|香港|台湾|韩国|欧盟|印度/;
+  const US = /\b(united states|u\.?s\.?a?|america)\b|美国/;
+
+  /** A work authorization or sponsorship question about a country other
+   *  than the US (not the saved answers' question). */
+  function asksAboutAnotherCountry(label) {
+    const n = norm(label);
+    return /(sponsor|签证|visa|authori[sz]|eligible|permitted|entitled|right to work|work permit|工作许可|合法.{0,6}工作)/.test(n)
+      && OTHER_COUNTRY.test(n) && !US.test(n);
+  }
+
   function classify(label) {
     const n = norm(label);
     if (!n) return null;
     for (const [kind, pattern, maxLen] of RULES) {
       if (maxLen && n.length > maxLen) continue;
-      if (pattern.test(n)) return kind;
+      if (pattern.test(n)) {
+        if ((kind === 'work_authorized' || kind === 'needs_sponsorship') && asksAboutAnotherCountry(n)) return null;
+        return kind;
+      }
     }
     return null;
   }
@@ -389,7 +407,7 @@
     'previously_employed', 'non_compete', 'talent_network',
   ]);
 
-  const api = { namesEmployer, ANSWERS_KEY, FILES_KEY, fileKind, sameText, norm, classify, answerFor, pickOption, answerFlat, answerFacts, questionKey, sameQuestion, customAnswerFor, ASKABLE_KEYS, ANSWER_ONLY };
+  const api = { namesEmployer, ANSWERS_KEY, FILES_KEY, fileKind, sameText, norm, classify, asksAboutAnotherCountry, answerFor, pickOption, answerFlat, answerFacts, questionKey, sameQuestion, customAnswerFor, ASKABLE_KEYS, ANSWER_ONLY };
   global.LandedChoiceAnswers = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -137,6 +137,9 @@ messages (PR title and a clean body, no trailer).
   never date of birth, street address, work authorization, EEO or consent.
 - "Worked here before?" is answered from the resume's employers, never from one
   saved yes/no for every company.
+- Work authorization and sponsorship answers are about the US. A question naming
+  another country (not the US) is its own question, asked once; neither the rules,
+  the model nor the review answer it from them.
 - A Work Experience or Education entry takes that job's or school's own values,
   every job and internship one entry; page-wide rules and the model never fill them.
 - Models see field labels and key names, never values: `match_fields` (Ollama, else
