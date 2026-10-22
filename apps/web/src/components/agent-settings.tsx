@@ -46,6 +46,7 @@ export function AgentSettings() {
   const connections = useAgentConnections()
   const observations = useAgentObservations(50)
   const [created, setCreated] = useState<{ connection: AgentConnection; token: string } | null>(null)
+  const [selected, setSelected] = useState<AgentChoiceId | null>(null)
 
   const names = new Map((connections.data ?? []).map((c) => [c.id, c.display_name]))
   const active = (connections.data ?? []).filter((c) => !c.revoked_at)
@@ -67,15 +68,15 @@ export function AgentSettings() {
 
         <RuntimePanel />
 
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>
-          Cloud agents (ChatGPT, Claude, Gemini, Meta Muse…)
-        </div>
+        <AgentPicker connections={active} selected={selected} onSelect={setSelected} />
 
-        <ConnectorCard connections={active} />
-
-        {created
-          ? <SetupPanel created={created} onDone={() => setCreated(null)} />
-          : <ConnectForm onCreated={setCreated} />}
+        {created ? (
+          <SetupPanel created={created} onDone={() => { setCreated(null); setSelected(null) }} />
+        ) : selected ? (
+          AGENT_CHOICES.find((choice) => choice.id === selected)?.kind === 'token'
+            ? <ConnectForm key={selected} initialProvider={selected === 'meta_muse' ? 'meta_muse' : 'other'} onCreated={setCreated} />
+            : <ConnectorSetup choice={AGENT_CHOICES.find((choice) => choice.id === selected)!} connections={active} />
+        ) : null}
 
         <Card title={`Connections${active.length ? ` (${active.length} active)` : ''}`}>
           {connections.isLoading && <Muted>Loading…</Muted>}
@@ -119,35 +120,32 @@ export function AgentSettings() {
   )
 }
 
-function ConnectForm({ onCreated }: { onCreated: (c: { connection: AgentConnection; token: string }) => void }) {
+function ConnectForm({ initialProvider, onCreated }: {
+  initialProvider: string
+  onCreated: (c: { connection: AgentConnection; token: string }) => void
+}) {
   const create = useCreateAgentConnection()
-  const [provider, setProvider] = useState<string>(AGENT_PROVIDERS[0].id)
   const [name, setName] = useState('')
-  const label = AGENT_PROVIDERS.find((p) => p.id === provider)?.label ?? provider
+  const label = AGENT_PROVIDERS.find((p) => p.id === initialProvider)?.label ?? initialProvider
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    const res = await create.mutateAsync({ provider, display_name: name.trim() || label })
+    const res = await create.mutateAsync({ provider: initialProvider, display_name: name.trim() || label })
     setName('')
     onCreated(res)
   }
 
   return (
-    <Card title="Personal agents (Meta Muse, Manus, OpenClaw…): connect with a key">
-      <form onSubmit={submit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>
-          Agent
-          <select value={provider} onChange={(e) => setProvider(e.target.value)} style={{ padding: '6px 8px', fontSize: 12.5, fontFamily: 'inherit' }}>
-            {AGENT_PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-          </select>
-        </label>
+    <Card title="Create a private connection key">
+      <Muted>For Meta Muse, Manus, OpenClaw and agents that connect with an API key. Create it here, then paste the one-time setup message into that agent.</Muted>
+      <form onSubmit={submit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 12 }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, flex: 1, minWidth: 200 }}>
           Name (optional)
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder={`${label} — job search`} maxLength={120}
             style={{ padding: '6px 10px', fontSize: 12.5, fontFamily: 'inherit' }} />
         </label>
         <button type="submit" className="btn-primary" disabled={create.isPending} style={{ opacity: create.isPending ? 0.6 : 1 }}>
-          <Icon name="plus" size={12} /> {create.isPending ? 'Creating…' : 'Create connection'}
+          <Icon name="plus" size={12} /> {create.isPending ? 'Creating…' : `Add ${label}`}
         </button>
       </form>
       {create.error && <div style={{ marginTop: 8 }}><ErrorText message={(create.error as Error).message} /></div>}
@@ -259,12 +257,117 @@ function CopyField({ value, mono = true, rows }: { value: string; mono?: boolean
   )
 }
 
-const CONNECTOR_STEPS: { name: string; steps: ReactNode }[] = [
-  { name: 'Claude (claude.ai, desktop, mobile)', steps: <>Settings → Connectors → <b>Add custom connector</b> → paste the URL → Add, then Connect.</> },
-  { name: 'ChatGPT', steps: <>Settings → Apps → Advanced settings → turn on <b>Developer mode</b> → Create app → paste the URL, authentication OAuth.</> },
-  { name: 'Gemini', steps: <>gemini.google.com → Settings → <b>Connected apps</b> → Add custom app → paste the URL (personal accounts in the US for now).</> },
-  { name: 'Claude Code · Codex · Cursor', steps: <><code>claude mcp add --transport http landed URL</code> · <code>codex mcp add landed --url URL</code> · Cursor: Settings → MCP → Add new MCP server → URL.</> },
+type AgentChoiceId = 'codex' | 'chatgpt' | 'claude' | 'gemini' | 'meta_muse' | 'other'
+type AgentChoice = {
+  id: AgentChoiceId
+  label: string
+  mark: string
+  description: string
+  kind: 'connector' | 'token'
+  match?: RegExp
+  steps?: ReactNode
+}
+
+const AGENT_CHOICES: AgentChoice[] = [
+  {
+    id: 'codex', label: 'Codex', mark: 'CX', kind: 'connector', match: /codex/i,
+    description: 'One-click on this Mac',
+    steps: <><code>codex mcp add landed --url URL</code>, then finish sign-in and click <b>Allow</b>.</>,
+  },
+  {
+    id: 'chatgpt', label: 'ChatGPT', mark: 'GPT', kind: 'connector', match: /chatgpt|openai/i,
+    description: 'Custom app with OAuth',
+    steps: <>Settings → Apps → Advanced settings → turn on <b>Developer mode</b> → Create app → paste the URL → choose OAuth.</>,
+  },
+  {
+    id: 'claude', label: 'Claude', mark: 'CL', kind: 'connector', match: /claude/i,
+    description: 'Claude.ai, desktop or mobile',
+    steps: <>Settings → Connectors → <b>Add custom connector</b> → paste the URL → Add → Connect.</>,
+  },
+  {
+    id: 'gemini', label: 'Gemini', mark: 'GM', kind: 'connector', match: /gemini/i,
+    description: 'Google custom app',
+    steps: <>gemini.google.com → Settings → <b>Connected apps</b> → Add custom app → paste the URL.</>,
+  },
+  {
+    id: 'meta_muse', label: 'Meta Muse', mark: 'MM', kind: 'token',
+    description: 'Connect with a private key',
+  },
+  {
+    id: 'other', label: 'Other agent', mark: '+', kind: 'token',
+    description: 'Manus, OpenClaw, Cursor…',
+  },
 ]
+
+const choiceConnected = (choice: AgentChoice, connections: AgentConnection[]) => connections.some((connection) => {
+  if (choice.kind === 'token') return connection.provider === choice.id
+  return connection.provider === 'mcp' && !!choice.match?.test(connection.display_name)
+})
+
+function AgentPicker({ connections, selected, onSelect }: {
+  connections: AgentConnection[]
+  selected: AgentChoiceId | null
+  onSelect: (id: AgentChoiceId | null) => void
+}) {
+  const url = `${window.location.origin}/mcp`
+  return (
+    <Card title="Add an agent" right={connections.length ? <span style={{ fontSize: 11, color: 'oklch(0.45 0.13 155)' }}>{connections.length} connected</span> : null}>
+      <Muted>Pick the agent you use. Landed shows only the next step for that agent; connection URLs and keys stay out of the way.</Muted>
+      <div role="list" aria-label="Agents you can add" style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(178px, 1fr))', gap: 8, marginTop: 12,
+      }}>
+        {AGENT_CHOICES.map((choice) => {
+          const connected = choiceConnected(choice, connections)
+          const picked = selected === choice.id
+          return (
+            <button key={choice.id} type="button" role="listitem" aria-pressed={picked}
+              onClick={() => onSelect(picked ? null : choice.id)}
+              style={{
+                minHeight: 88, padding: 12, borderRadius: 9, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', color: 'var(--fg)',
+                display: 'grid', gridTemplateColumns: '34px 1fr', columnGap: 10, rowGap: 5, alignItems: 'center',
+                background: picked ? 'color-mix(in oklch, var(--accent) 7%, var(--surface))' : 'var(--surface-2)',
+                border: `1px solid ${picked ? 'var(--accent)' : 'var(--border)'}`,
+              }}>
+              <span aria-hidden="true" style={{
+                gridRow: '1 / span 2', width: 32, height: 32, borderRadius: 8, display: 'grid', placeItems: 'center',
+                background: 'var(--surface)', border: '0.5px solid var(--border)', fontSize: choice.mark.length > 2 ? 9 : 11,
+                fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--accent)',
+              }}>{choice.mark}</span>
+              <span style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12.5, fontWeight: 600 }}>
+                {choice.label}
+                {connected && <span style={{ fontSize: 10, fontWeight: 500, color: 'oklch(0.45 0.13 155)' }}>Connected</span>}
+                {picked && <span style={{ marginLeft: 'auto', color: 'var(--accent)', display: 'flex' }}><Icon name="check" size={12} /></span>}
+              </span>
+              <span style={{ fontSize: 11, lineHeight: 1.35, color: 'var(--fg-muted)' }}>{choice.description}</span>
+            </button>
+          )
+        })}
+      </div>
+      <details style={{ marginTop: 12, fontSize: 12 }}>
+        <summary style={{ color: 'var(--fg-muted)', cursor: 'pointer', userSelect: 'none' }}>Advanced: connect with a URL or setup prompt</summary>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+          <CopyField value={url} />
+          {isPrivateOrigin() && <PrivateOriginNotice />}
+          <div style={{ color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+            Claude Code: <code>claude mcp add --transport http landed URL</code> · Codex: <code>codex mcp add landed --url URL</code> · Cursor: Settings → MCP → Add new MCP server.
+          </div>
+          <CopyField value={scheduledPrompt()} mono={false} rows={3} />
+        </div>
+      </details>
+    </Card>
+  )
+}
+
+function PrivateOriginNotice() {
+  return (
+    <div style={{
+      fontSize: 11.5, padding: '7px 10px', borderRadius: 6, lineHeight: 1.5,
+      background: 'oklch(0.97 0.03 70)', border: '0.5px solid oklch(0.86 0.07 70)', color: 'oklch(0.38 0.1 60)',
+    }}>
+      Agents in the cloud cannot reach {window.location.host}. Use Landed's public HTTPS address; agents on this computer can connect here now.
+    </div>
+  )
+}
 
 const codexConnectLink = (url: string) =>
   `landed://connect-agent?agent=codex&url=${encodeURIComponent(url)}`
@@ -312,45 +415,26 @@ function CodexConnect({ url, connected }: { url: string; connected: boolean }) {
   )
 }
 
-function ConnectorCard({ connections }: { connections: AgentConnection[] }) {
+function ConnectorSetup({ choice, connections }: { choice: AgentChoice; connections: AgentConnection[] }) {
   const url = `${window.location.origin}/mcp`
-  const codexConnected = connections.some((c) => c.provider === 'mcp' && /codex/i.test(c.display_name))
   const onMac = /Mac/i.test(navigator.platform || navigator.userAgent)
+  const connected = choiceConnected(choice, connections)
+  if (choice.id === 'codex' && onMac) {
+    return (
+      <Card title="Connect Codex">
+        <CodexConnect url={url} connected={connected} />
+      </Card>
+    )
+  }
   return (
-    <Card title="Connect an AI agent">
+    <Card title={`${connected ? 'Connect another' : 'Connect'} ${choice.label}`}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Muted>
-          Any agent that takes remote MCP connectors can work for you here, on your own subscription: it gets Landed's tasks (a job
-          search for your confirmed direction; an email check if you turned those on and it can read your mail) and hands results
-          back, which land in Leads and on your applications like any agent's.
-        </Muted>
-        {onMac && <CodexConnect url={url} connected={codexConnected} />}
-        <details style={{ fontSize: 12 }}>
-          <summary style={{ color: 'var(--fg-muted)', cursor: 'pointer', userSelect: 'none' }}>
-            Connect another agent manually
-          </summary>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-            <CopyField value={url} />
-            {isPrivateOrigin() && (
-              <div style={{
-                fontSize: 11.5, padding: '7px 10px', borderRadius: 6, lineHeight: 1.5,
-                background: 'oklch(0.97 0.03 70)', border: '0.5px solid oklch(0.86 0.07 70)', color: 'oklch(0.38 0.1 60)',
-              }}>
-                Agents in the cloud can't reach {window.location.host}. Use Landed's public HTTPS address once it's deployed; agents on this
-                computer (Claude Code, Codex, Cursor) can connect to this one now.
-              </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {CONNECTOR_STEPS.map((s) => (
-                <div key={s.name} style={{ fontSize: 12, lineHeight: 1.55 }}>
-                  <span style={{ fontWeight: 600 }}>{s.name}:</span> <span style={{ color: 'var(--fg-muted)' }}>{s.steps}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </details>
-        <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4 }}>Then ask it — or give it a scheduled task (e.g. every morning):</div>
-        <CopyField value={scheduledPrompt()} mono={false} rows={3} />
+        <Muted>Copy this address into {choice.label}. After its sign-in window opens, approve Landed once; the connection then appears here automatically.</Muted>
+        <CopyField value={url} />
+        {isPrivateOrigin() && <PrivateOriginNotice />}
+        <div style={{ padding: '9px 11px', borderRadius: 7, background: 'var(--surface-2)', border: '0.5px solid var(--border)', fontSize: 12, lineHeight: 1.55 }}>
+          {choice.steps}
+        </div>
       </div>
     </Card>
   )
