@@ -13,6 +13,7 @@ import { isDupQuestion } from '../lib/duplicates'
 import { useApplications, useCompanies } from '../hooks/queries'
 import { useSuggestionActions, useSuggestions } from '../hooks/inbox'
 import type { DbSuggestion } from '../lib/store'
+import { useAutomationSync } from '../lib/automation-sync'
 
 type AppShape = { id: string; companyId: string; role: string; stage: string }
 type CompanyShape = { id: string; name: string }
@@ -150,6 +151,20 @@ function RecentRow({ s, first, label }: { s: DbSuggestion; first: boolean; label
           <button type="button" className="btn-secondary" disabled={undo.isPending} onClick={() => undo.mutate(s)}>Undo</button>
         )}
       </span>
+    </div>
+  )
+}
+
+/** While an email check runs (asked for after an import, or Run now): one
+ *  quiet line, so nobody waits on a window for it. What it finds shows up
+ *  below as updates. */
+export function EmailCheckRunning() {
+  const running = useAutomationSync((st) => st.runNow.includes('email_check') || !!st.output?.state.email_check?.running)
+  if (!running) return null
+  return (
+    <div role="status" style={{ padding: '10px 28px 0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--fg-muted)' }}>
+      <Icon name="inbox" size={13} />
+      Reading your email in the background: updates show up here as they come in.
     </div>
   )
 }

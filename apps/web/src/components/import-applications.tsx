@@ -36,6 +36,12 @@ const input: CSSProperties = {
   border: '0.5px solid var(--border)', borderRadius: 6, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
 }
 
+/** How far back to read email for an import: from its oldest applied date (a
+ *  week at least), at most 90 days. */
+function daysToRead(earliest: string | null): number {
+  return earliest ? Math.min(MAX_EMAIL_DAYS, Math.max(7, Math.ceil((Date.now() - Date.parse(earliest)) / DAY) + 1)) : MAX_EMAIL_DAYS
+}
+
 type Sheet = { table: { line: number; cells: string[] }[]; header: number; mapping: ColumnUse[] }
 
 /** The emails a run can bring these up to date from, if this account's computer reads email. */
@@ -134,7 +140,14 @@ export function ImportApplicationsModal({ open, onClose }: { open: boolean; onCl
   const doImport = async () => {
     setBusy(true); setError(null)
     try {
-      setDone(await runImport(store, plan))
+      const outcome = await runImport(store, plan)
+      setDone(outcome)
+      // Brought up to date from email on its own, in the background: the user
+      // needn't wait here (the Applications page says while it runs).
+      if (canReadEmail && outcome.added.length + outcome.updated.length > 0) {
+        requestRunNow('email_check', { rescanDays: daysToRead(outcome.earliest) })
+        setEmailAsked(true)
+      }
     } catch (e) {
       setError(`Couldn't import: ${(e as Error).message}`)
     } finally {
@@ -159,9 +172,7 @@ export function ImportApplicationsModal({ open, onClose }: { open: boolean; onCl
       void qc.invalidateQueries({ queryKey: ['job_leads'] })
     }
   }
-  const emailDays = done?.earliest
-    ? Math.min(MAX_EMAIL_DAYS, Math.max(7, Math.ceil((Date.now() - Date.parse(done.earliest)) / DAY) + 1))
-    : MAX_EMAIL_DAYS
+  const emailDays = daysToRead(done?.earliest ?? null)
 
   let body: ReactNode
   if (done) {
@@ -180,13 +191,17 @@ export function ImportApplicationsModal({ open, onClose }: { open: boolean; onCl
           </div>
         )}
         <div style={muted}>
-          Your sheet says where each one stood when you saved it. Emails since then (an interview invite, a rejection) can bring them up to date.
+          {emailAsked
+            ? <>Your sheet says where each one stood when you saved it. Landed is reading your email from the last {emailDays} days in the background to bring them up to date (an interview invite, a rejection). You can close this: updates show up on the board as they come in, and ones it isn't sure about ask you first.</>
+            : 'Your sheet says where each one stood when you saved it. Emails since then (an interview invite, a rejection) can bring them up to date.'}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {canReadEmail ? (
-            <button type="button" className="btn-primary" disabled={emailAsked}
+          {emailAsked ? (
+            <button type="button" className="btn-primary" onClick={onClose}>Done</button>
+          ) : canReadEmail ? (
+            <button type="button" className="btn-primary"
               onClick={() => { requestRunNow('email_check', { rescanDays: emailDays }); setEmailAsked(true) }}>
-              <Icon name="inbox" size={13} /> {emailAsked ? 'Reading your email…' : `Update them from email (last ${emailDays} days)`}
+              <Icon name="inbox" size={13} /> Update them from email (last {emailDays} days)
             </button>
           ) : (
             <button type="button" className="btn-secondary" onClick={() => { onClose(); navigate('/automation') }}>
@@ -195,12 +210,6 @@ export function ImportApplicationsModal({ open, onClose }: { open: boolean; onCl
           )}
           <button type="button" className="btn-secondary" disabled={busy} onClick={() => void undo()}>Undo the import</button>
         </div>
-        {emailAsked && (
-          <div style={muted}>
-            Your agent reads the last {emailDays} days on your computer; updates show up on the board as they come in (ones it isn't sure
-            about ask you first). Older applications keep the status from your sheet.
-          </div>
-        )}
       </div>
     )
   } else if (!sheet) {
