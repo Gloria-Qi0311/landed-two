@@ -49,6 +49,8 @@ export type ApplyAssistResult = {
   at: string
   /** the fill's trace (`landed fill-trace <ref>`), when the extension kept one */
   trace_ref: string | null
+  /** open-ended answers the user's agent wrote for it (kept on the application) */
+  open_answers: { question: string; answer: string }[]
 }
 
 const ACTIVE_COMPANY_STAGES = new Set(['oa', 'interview', 'phone', 'onsite', 'offer'])
@@ -183,6 +185,12 @@ export function parseApplyAssistResults(raw: unknown): ApplyAssistResult[] {
       review: Number.isSafeInteger(Number(r.review)) ? Math.max(0, Number(r.review)) : 0,
       at: typeof r.at === 'string' && !Number.isNaN(Date.parse(r.at)) ? r.at : new Date().toISOString(),
       trace_ref: typeof r.trace_ref === 'string' && FILL_TRACE_REF.test(r.trace_ref) ? r.trace_ref : null,
+      open_answers: (Array.isArray(r.open_answers) ? r.open_answers : []).slice(0, 10).flatMap((a: unknown) => {
+        const x = a && typeof a === 'object' ? a as Record<string, unknown> : {}
+        const question = typeof x.question === 'string' ? x.question.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+        const answer = typeof x.answer === 'string' ? x.answer.trim().slice(0, 4000) : ''
+        return question && answer ? [{ question, answer }] : []
+      }),
     }]
   })
 }

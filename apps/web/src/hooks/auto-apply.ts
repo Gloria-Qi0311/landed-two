@@ -20,6 +20,7 @@ import { useApplications, useCompanies, useUpdateApplication } from './queries'
 import { useJobLeads, useRecordApplyClick, useSuggestions } from './inbox'
 import { useResumes } from './resumes'
 import { askAgentToPick, resumeChoiceFor, type AgentPick, type AskAgent } from '../lib/apply-assist'
+import { openAnswerExamples } from '../lib/open-answers'
 import { useResumeFiles } from './answers'
 import { useAutomations } from './automation'
 
@@ -182,6 +183,7 @@ export function useAutoApplyRunner() {
     }
 
     useAutoApplyControl.setState({ busy: true, note: null })
+    const examples = openAnswerExamples(apps)
     const opened: string[] = []
     const failed: string[] = []
     try {
@@ -195,6 +197,9 @@ export function useAutoApplyRunner() {
           application_id: item.target.application_id,
           lead_id: item.target.lead_id,
           submit_authorized: true,
+          // For open-ended answers: the job, and the user's own edited answers.
+          job: { role: item.app.role, company: item.company, description: item.description ?? '' },
+          examples,
         })
         if (!res.ok) {
           failed.push(`${item.company} · ${item.app.role}`)
@@ -223,7 +228,7 @@ export function useAutoApplyRunner() {
     } finally {
       useAutoApplyControl.setState({ busy: false })
     }
-  }, [active, extension.data, max, plan, record, update])
+  }, [active, apps, extension.data, max, plan, record, update])
 
   useEffect(() => {
     if (!loaded || appsQuery.isLoading || companiesQuery.isLoading || leadsQuery.isLoading || resumesQuery.isLoading || suggestionsQuery.isLoading || extension.isLoading || busy) return

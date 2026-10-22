@@ -35,6 +35,7 @@ holds the message listener and `handleFill`.
 | `experience.js` | Work Experience and Education sections on English forms (Workday's "My Experience"): one entry per job and school |
 | `ai.js` | Asking the local model for unknown labels and unanswered choices |
 | `review.js` | Where each value came from; the fill report; the agent review after a fill |
+| `open-answers.js` | Open-ended questions ("Why us?"): the user's agent writes and checks them |
 | `unanswered.js` | Empty questions worth asking the user once; filling them on open pages once answered |
 | `trace.js` | What this fill did, step by step: phases, model calls, every field's source or why it was left |
 | `frames.js` | A sub-frame showing a form reports itself to the service worker |
@@ -121,6 +122,7 @@ Deterministic DOM rules run first. Fields are outlined green (filled) or yellow
 3. **Files**: the resume file and cover letter go into upload fields.
 4. **Unknown labels** go to `apps/daemon/src/native-host.ts` → `match_fields`.
 5. **Unanswered choices** go to `native-host.ts` → `choose_options`.
+5b. **Open-ended questions** ("Why us?") go to `native-host.ts` → `draft_answers` (below).
 6. **Review**: the user's own agent checks the filled form → `review_fill` (below).
 7. **Still empty**: the questions worth asking go to the Extension page, once (below).
 
@@ -170,6 +172,9 @@ the field's own root, and the outline styles are injected there too.
   index (≥ 0.85), and the extension clicks that existing option.
 - **`review_fill`** (below) sends filled values to the user's own agent, with
   sensitive questions left out.
+- **`draft_answers`** ("Open-ended questions", above) is the one request where
+  the agent writes text: answers from the posting and the resume's experience
+  (never contact details), passed by a second check before they go in.
 - **`pick_resume`** (above, "Between close resumes") sends a posting and the
   candidate resumes' directions, titles and skills to the user's own agent; it
   names a candidate or nothing.
@@ -283,6 +288,43 @@ about 1.5k tokens a call.
    page itself are only flagged. Changed and flagged fields turn yellow with the
    reason (`data-landed-note`, also the field's tooltip) and join the review list.
    The popup says what the agent changed and how many to look at.
+
+### Open-ended questions
+
+Product decision (2026-10-22, #98, as a fully automatic service): Approve is the
+user's one decision, so an approved application doesn't stop at "Why do you want
+to work here?". `lib/fill/open-answers.js`, after the model step:
+
+- **Which**: empty textareas nothing else answered, and one-line boxes that
+  plainly ask for an essay ("Why…", "Describe…", "Tell us…"); required ones, and
+  optional ones only when they ask why (interest, motivation). Never sensitive
+  questions (`neverSent`), links, salary or dates. Limits from the field's
+  `maxlength` and its label or hint ("max 500 characters", "200 words", "300字");
+  none given: about 180 words. The resume summary no longer fills a question
+  about the job or one experience ("What interests you about this role?",
+  "Tell us about a project"): `field-detect.js` `SUMMARY_QUESTION_*`.
+- **Who writes**: the user's own agent, `draft_answers` (their Claude Code with no
+  tools, `sonnet`, else local Ollama). It gets the job (title, company, posting
+  text: the lead's, else the page's), the resume this application is filled from
+  (experience, internships, projects, education, skills, summary: never the name,
+  contact details or address) and up to four answers the user edited before, as
+  their voice. It may only use the resume's facts and the posting; a question
+  the facts can't answer truthfully gets no answer.
+- **The check**: a second call reads every answer against the same facts and
+  passes only ones that claim nothing the resume doesn't say, answer the
+  question and say nothing about the company the posting doesn't. The host also
+  drops answers over their limit or with a placeholder. Only passed answers go
+  in: green, source `draft` (not sent to `review_fill` again), with a note.
+- **No agent, or nothing passed**: the field stays empty. A required one is
+  yellow (`开放题`, "needs an answer to an open-ended question") and an approved
+  application stops with that reason; an optional one stays blank.
+- **Kept**: what was written goes back with the fill result
+  (`open_answers`, the assist results queue) and onto the application
+  (`applications.open_answers`, migration 0024, Dexie v15). The drawer shows
+  them under "Answers sent"; the user can edit one, and edited ones are the
+  examples the agent follows next time (`openAnswerExamples`). A Landed-opened
+  tab keeps what it wrote (`drafted`, by question), so a reload or the form's
+  next page doesn't ask the agent again.
 
 ### Questions a fill couldn't answer
 

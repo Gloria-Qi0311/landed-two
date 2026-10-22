@@ -65,7 +65,7 @@ function unansweredQuestions(manual) {
     // Another country's work authorization or sponsorship is yellow as a
     // legal question, but the saved (US) answers don't say: asked once.
     const otherCountry = item.hint === '敏感信息' && CA.asksAboutAnotherCountry(item.label);
-    if (['敏感信息', '文件上传', '富文本', '多条目', '日期'].includes(item.hint) && !otherCountry) continue;
+    if (['敏感信息', '文件上传', '富文本', '多条目', '日期', '开放题'].includes(item.hint) && !otherCountry) continue;
     const el = deepAll(`[data-landed-field-id="${item.id}"]`)[0];
     const field = el && describe(el, groups);
     if (!field || !field.empty) continue;

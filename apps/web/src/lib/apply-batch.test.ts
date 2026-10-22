@@ -91,7 +91,7 @@ describe('apply-assist results', () => {
   test('bounds and validates extension results', () => {
     const application_id = '11111111-2222-4333-8444-555555555555'
     expect(parseApplyAssistResults([{ application_id, tab_id: 7, status: 'blocked', blocker: 'captcha', message: 'Needs you', filled: 2, review: 1, at: '2026-10-19T12:00:00Z' }]))
-      .toEqual([{ application_id, lead_id: null, tab_id: 7, status: 'blocked', blocker: 'captcha', message: 'Needs you', filled: 2, review: 1, at: '2026-10-19T12:00:00Z', trace_ref: null }])
+      .toEqual([{ application_id, lead_id: null, tab_id: 7, status: 'blocked', blocker: 'captcha', message: 'Needs you', filled: 2, review: 1, at: '2026-10-19T12:00:00Z', trace_ref: null, open_answers: [] }])
     expect(parseApplyAssistResults([{ tab_id: 7, status: 'ready', trace_ref: 'K7Q2MX' }])[0].trace_ref).toBe('K7Q2MX')
     expect(parseApplyAssistResults([{ tab_id: 7, status: 'ready', trace_ref: '<script>' }])[0].trace_ref).toBeNull()
     expect(parseApplyAssistResults([{ tab_id: 'x', status: 'ready' }, null])).toEqual([])

@@ -6,6 +6,7 @@
 // layer (toAppShape etc.) is unchanged. Bad enum values / foreign ids /
 // cross-user references are rejected by Postgres (see migrations/0001) and
 // mapped to 400 by the app-level error handler.
+import { parseOpenAnswers } from '@landed/schema/open-answers'
 import { MAX_DIRECTIONS, parseDirections, parseMasterResume, parseResumeChoice, parseTailorNotes, parseTarget, parseWaitingFile } from '@landed/schema/master-resume'
 import { normalizeStage, parseDeadline, parseInterviews, STAGE_VALUES } from '@landed/schema/pipeline'
 import { Hono } from 'hono'
@@ -18,11 +19,11 @@ import { encryptSecret } from '../secrets.ts'
 const APPLICATION_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
   'referral', 'source', 'job_id', 'portal_application_url', 'notes', 'starred', 'last_activity_at', 'interviews',
-  'deadline', 'resume_choice',
+  'deadline', 'resume_choice', 'open_answers',
 ] as const
 const APPLICATION_PATCH_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline', 'resume_choice',
+  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline', 'resume_choice', 'open_answers',
 ] as const
 const COMPANY_FIELDS = ['name', 'hue', 'logo_chars', 'sector', 'loc', 'portal_url'] as const
 
@@ -60,6 +61,11 @@ function applicationColumns(sql: Sql, input: Row, fields: readonly string[], opt
     const choice = parseResumeChoice(out.resume_choice)
     if (choice === undefined) fail(400, 'resume_choice needs a resume id and a name')
     out.resume_choice = choice && sql.json(choice)
+  }
+  if (out.open_answers !== undefined) {
+    const answers = parseOpenAnswers(out.open_answers)
+    if (answers === undefined) fail(400, 'open_answers must be up to 10 questions, each with an answer')
+    out.open_answers = answers && sql.json(answers)
   }
   return out
 }

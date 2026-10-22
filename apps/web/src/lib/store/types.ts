@@ -10,6 +10,7 @@ import type { Conversation } from '@landed/schema/conversation'
 import type { ApplicationAnswers } from '@landed/schema/application-answers'
 import type { ApplicationFile, FileKind, ResumeFile } from '@landed/schema/application-files'
 import type { ResumeChoice } from '@landed/schema/master-resume'
+import type { OpenAnswer } from '@landed/schema/open-answers'
 import type { MasterResume, ResumeTarget, TailorNotes } from '@landed/schema/master-resume'
 import type { InterviewRound } from '@landed/schema/pipeline'
 import type { LEAD_QUEUE_FIELDS } from '@landed/schema/lead-queue'
@@ -56,6 +57,9 @@ export type DbApplication = {
   deadline: string | null
   /** the resume Landed filled it from, and why (when it opened it) */
   resume_choice: ResumeChoice | null
+  /** the open-ended answers it was sent with ("Why us?"): written by the
+   *  user's agent, editable in the drawer */
+  open_answers: OpenAnswer[] | null
 }
 
 /** My Resume: uploads (`source`) → one `master` (most complete, every
@@ -221,7 +225,7 @@ export type ApplicationInput = Partial<Omit<DbApplication, 'id' | 'user_id' | 'c
 
 export const APPLICATION_PATCH_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline', 'resume_choice',
+  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline', 'resume_choice', 'open_answers',
 ] as const
 export type ApplicationPatch = Partial<Pick<DbApplication, typeof APPLICATION_PATCH_FIELDS[number]>>
 

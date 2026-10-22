@@ -228,6 +228,9 @@
   // normalization mode and the first FIELD_MAP rule that hits wins.
   // The returned source/confidence reflects which source contained the
   // matched keyword (used by #9 to decide LLM fallback thresholds).
+  const SUMMARY_QUESTION_LATIN = /\b(why|interest(s|ed)?|excite[sd]?|exciting|motivat\w*|project|challenge|proud|a time|this (role|position|job|team|opportunity)|our (company|team|mission|product))\b/;
+  const SUMMARY_QUESTION_CJK = /为什么|动机|兴趣|项目|挑战/;
+
   function matchResumeKey(el) {
     if (!el) return null;
     const sources = collectSources(el);
@@ -258,6 +261,11 @@
           const blocked = PHONE_CONTEXT_BLOCKLIST_LATIN.some((w) => signalsLatinJoined.includes(w));
           if (blocked) continue;
         }
+
+        // "What interests you about this role?", "Tell us about a project…":
+        // a question about the job or one experience, not "about you". The
+        // summary doesn't answer it (lib/fill/open-answers.js does).
+        if (rule.resumeKey === 'summary' && (SUMMARY_QUESTION_LATIN.test(signalsLatinJoined) || SUMMARY_QUESTION_CJK.test(signalsCJK))) continue;
 
         const sourceName = findWinningSource(key, sources) || 'unknown';
         return {

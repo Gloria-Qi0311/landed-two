@@ -25,6 +25,7 @@ import { ingestPortalConfirmations } from '../lib/inbox'
 import { useResumes } from './resumes'
 import { useApplicationAnswers, useApplicationFiles, useResumeFiles } from './answers'
 import { adoptKeptFiles } from '../lib/resume-tasks'
+import { mergeOpenAnswers } from '../lib/open-answers'
 import { FILE_KINDS } from '@landed/schema/application-files'
 import { addUnanswered, EMPTY_ANSWERS, type ReportedQuestion } from '@landed/schema/application-answers'
 import {
@@ -97,6 +98,15 @@ export function useExtensionBridge() {
               if (app.next_step !== next_step) {
                 const updated = await store.updateApplication(app.id, { next_step })
                 Object.assign(app, updated)
+                changed = true
+              }
+            }
+            // What the user's agent wrote for its open-ended questions stays
+            // on the application (the drawer shows it; edits teach the agent).
+            if (app && result.open_answers.length) {
+              const open_answers = mergeOpenAnswers(app.open_answers, result.open_answers, result.at)
+              if (open_answers) {
+                Object.assign(app, await store.updateApplication(app.id, { open_answers }))
                 changed = true
               }
             }

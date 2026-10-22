@@ -146,8 +146,8 @@ messages (PR title and a clean body, no trailer).
   Claude Code with no tools), and the host supplies the value. `choose_options`
   carries the user's answers, so it is local Ollama only. Page text is untrusted
   prompt input.
-- The review after a fill (`review_fill`) is the one call that sends filled values
-  beyond the local model: to the user's own agent only (their Claude Code with no
+- The review after a fill (`review_fill`) sends filled values beyond the local
+  model: to the user's own agent only (their Claude Code with no
   tools, else Ollama), never sensitive questions or facts (voluntary EEO, date of
   birth, ID numbers, salary, consent). The reviewer picks a fact key or an option,
   never writes text, and values from the user's saved answers or the page are only
@@ -156,6 +156,12 @@ messages (PR title and a clean body, no trailer).
   open-ended text or resume fields); the Extension page asks each once, and the
   answer fills every form after that, on pages still open only fields still empty.
   Questions only the user's answers can answer never take a resume value.
+- Open-ended questions ("Why us?") on an approved application don't stop it: the
+  user's own agent writes them (`draft_answers`) from the posting, the picked
+  resume's experience (never contact details) and the user's edited answers, and
+  only answers its second check passes go in, never invented. No agent or none
+  passed: the field stays empty and the application stops saying so. They're kept
+  on the application (`open_answers`); edited ones are the agent's examples.
 - Landed picks the resume for each job (its direction against the job), and the
   file uploaded is always that resume's own (`resume_files`), never another
   one's; one with no file isn't swapped for another's. Between close resumes

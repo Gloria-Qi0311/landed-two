@@ -11,6 +11,7 @@ import { parseApplicationAnswers } from '@landed/schema/application-answers'
 import { parseApplicationFile, parseResumeFile } from '@landed/schema/application-files'
 import { MAX_DIRECTIONS, parseDirections, parseMasterResume, parseResumeChoice, type ResumeChoice, parseTailorNotes, parseTarget, parseWaitingFile } from '@landed/schema/master-resume'
 import { leadQueueDefaults, readLeadQueueFields } from '@landed/schema/lead-queue'
+import { parseOpenAnswers, type OpenAnswer } from '@landed/schema/open-answers'
 import { normalizeStage, orderRounds, parseDeadline, parseInterviews, sortRounds, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import { companyKey, titleKey } from '@landed/observation-processor'
@@ -177,6 +178,10 @@ class LandedDB extends Dexie {
       // and what each resume is for (empty until the user or Landed says)
       await tx.table('resumes').toCollection().modify((r: DbResume) => { if (!Array.isArray(r.directions)) r.directions = [] })
     })
+    // v15: the open-ended answers each application was sent with.
+    this.version(15).stores({}).upgrade(async (tx) => {
+      await tx.table('applications').toCollection().modify((a: DbApplication) => { if (a.open_answers === undefined) a.open_answers = null })
+    })
   }
 }
 
@@ -252,6 +257,14 @@ function resumeChoiceOf(v: unknown): ResumeChoice | null {
   return choice
 }
 
+/** Same as the server: up to 10 questions with their answers, or null. */
+function openAnswersOf(v: unknown): OpenAnswer[] | null {
+  if (v === undefined) return null
+  const answers = parseOpenAnswers(v)
+  if (answers === undefined) throw new LocalStoreError(400, 'open_answers must be up to 10 questions, each with an answer')
+  return answers
+}
+
 function applicationRow(companyId: string, input: ApplicationInput, at: string): DbApplication {
   required(input.role, 'role')
   const { stage, interviews } = stageAndRounds(input.stage, input.interviews, true)
@@ -261,6 +274,7 @@ function applicationRow(companyId: string, input: ApplicationInput, at: string):
     role: input.role, team: input.team ?? null, stage: stage ?? 'saved', interviews: interviews ?? [],
     deadline: deadlineOf(input.deadline) ?? null,
     resume_choice: resumeChoiceOf(input.resume_choice),
+    open_answers: openAnswersOf(input.open_answers),
     salary: input.salary ?? null, location: input.location ?? null, remote: input.remote ?? null,
     applied_at: input.applied_at ?? null, next_step: input.next_step ?? null,
     referral: input.referral ?? false, source: input.source ?? null, job_id: input.job_id ?? null,
@@ -350,6 +364,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         if (interviews) clean.interviews = interviews
         if (clean.deadline !== undefined) clean.deadline = deadlineOf(clean.deadline) ?? null
         if (clean.resume_choice !== undefined) clean.resume_choice = resumeChoiceOf(clean.resume_choice)
+        if (clean.open_answers !== undefined) clean.open_answers = openAnswersOf(clean.open_answers)
         oneOf(clean.remote, REMOTES, 'remote')
         if (clean.role !== undefined) required(clean.role, 'role')
         const next = { ...row, ...clean, last_activity_at: now() }

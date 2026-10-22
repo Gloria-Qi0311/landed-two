@@ -406,7 +406,7 @@ try {
   })
 } catch { /* tabs API unavailable */ }
 
-function fillFrame(tabId, frameId, resume) {
+function fillFrame(tabId, frameId, resume, extra = {}) {
   return new Promise((resolve) => {
     try {
       chrome.tabs.sendMessage(tabId, {
@@ -417,6 +417,11 @@ function fillFrame(tabId, frameId, resume) {
         resumeId: typeof resume.id === 'string' ? resume.id : null,
         resumeKind: typeof resume.kind === 'string' ? resume.kind : null,
         aiTakeover: true,
+        // Open-ended answers (lib/fill/open-answers.js): the job, the user's
+        // own answers as examples, answers already written for this tab.
+        job: extra.job || null,
+        examples: extra.examples || [],
+        drafted: extra.drafted || {},
       }, { frameId }, (response) => {
         const error = chrome.runtime.lastError
         if (error || !response) resolve({ error: error?.message || 'No response from page' })
@@ -456,14 +461,14 @@ async function traceFill(tabId, resume, via, result, answered) {
 }
 
 /** via: popup | menu | assist (a tab Landed opened) — for the trace. */
-async function fillTab(tabId, picked, via = 'menu') {
+async function fillTab(tabId, picked, via = 'menu', extra = {}) {
   // Once the Landed page hands over each upload's own file, a fill uploads
   // only the picked resume's own file (its kind tells lib/fill/files.js);
   // before that, the account's default file as always.
   const known = self.LandedResumePick.fileKnowledge(assistResumes, await storedResumeFiles())
   const resume = { ...picked, kind: known ? picked.kind || assistResumes.find((r) => r.id === picked.id)?.kind || null : null }
   const frames = [0, ...((await loadFormFrames())[tabId] || []).filter((id) => id !== 0)]
-  const responses = await Promise.all(frames.map((frameId) => fillFrame(tabId, frameId, resume)))
+  const responses = await Promise.all(frames.map((frameId) => fillFrame(tabId, frameId, resume, extra)))
   const answered = responses.filter((r) => !r.error)
   if (answered.length === 0) return { tabId, error: responses[0]?.error || 'No response from page' }
   const result = await addUpFill(tabId, answered)
@@ -497,9 +502,26 @@ async function addUpFill(tabId, answered) {
     tabId, filled: Math.max(0, count('filled') - count('lost')), review: count('manual'), fields, missing_files: missing, frames: answered.length, agent_review: addReviews(answered),
     // Only required questions stop an approved application; optional ones are still asked once.
     unanswered: required.length, lost: count('lost'), optional_blank: count('optional_blank'),
+    // Open-ended answers the user's agent wrote (for the application's record),
+    // and the required ones it couldn't.
+    open_answers: openAnswersOf(answered),
+    open_missing: answered.reduce((sum, r) => sum + (Number.isSafeInteger(Number(r.open_missing)) ? Math.max(0, Number(r.open_missing)) : 0), 0),
     lost_fields: answered.flatMap((r) => (Array.isArray(r.lost) ? r.lost : [])).map((l) => String(l).replace(/\s+/g, ' ').replace(/\s*[*✱]\s*$/, '').trim().slice(0, 80)).slice(0, 5),
     issues: fieldIssues(answered),
   }
+}
+
+/** Open-ended answers from every frame: one per question, at most ten. */
+function openAnswersOf(answered) {
+  const out = []
+  for (const r of answered) {
+    for (const a of Array.isArray(r.open_answers) ? r.open_answers : []) {
+      const question = typeof a?.question === 'string' ? a.question.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+      const answer = typeof a?.answer === 'string' ? a.answer.trim().slice(0, 4000) : ''
+      if (question && answer && !out.some((x) => x.question === question)) out.push({ question, answer })
+    }
+  }
+  return out.slice(0, 10)
 }
 
 function submitFrame(tabId, frameId) {
@@ -539,6 +561,7 @@ const ISSUE_REASONS = {
   没留住: "didn't keep the value: pick it from the list or type it", 未匹配: 'no saved answer', 下拉框: 'no matching option',
   自定义下拉框: 'no matching option', 敏感信息: 'sensitive: answer it yourself', 文件上传: 'needs a file', 复核存疑: 'the review flagged it',
   复核已改: 'the review changed it: check it', 日期: 'a date to fill', 富文本: 'a long answer', 多条目: 'an entry to check',
+  开放题: 'an open-ended answer: Landed writes these with your agent',
 }
 
 /** The fields left for the user, each with why: the popup lists them and jumps to one. */
@@ -559,6 +582,11 @@ function submissionBlocker(result) {
   }
   if (Array.isArray(result.missing_files) && result.missing_files.length) {
     return { kind: 'files', message: `Missing required ${result.missing_files.join(' and ').replace(/_/g, ' ')}` }
+  }
+  // "Why us?" with no agent to write it (or none its check passed).
+  if (Number(result.open_missing) > 0) {
+    const n = Number(result.open_missing)
+    return { kind: 'answers', message: `Needs ${n === 1 ? 'an answer' : `answers`} to ${n === 1 ? 'an open-ended question' : `${n} open-ended questions`}: Landed writes these with your agent (Landed for Mac with Claude Code or Ollama)` }
   }
   if (Number(result.unanswered) > 0) {
     return { kind: 'answers', message: `${result.unanswered} required question${result.unanswered === 1 ? '' : 's'} need your saved answer` }
@@ -845,8 +873,9 @@ function updateAssistTabs(fn) {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** A small, non-sensitive result queue for the open Landed tab. Values and
- * resume contents never enter it — only Landed ids, counts and a blocker. */
+/** A small result queue for the open Landed tab: Landed ids, counts, a
+ * blocker, and the open-ended answers the user's agent wrote for this
+ * application (kept on it). Field values and resume contents never enter it. */
 async function queueAssistResult(entry, result, status) {
   // How it ended goes on the fill's trace too.
   if (result.trace_ref) void fillTraces.setOutcome(result.trace_ref, { status, blocker: result.blocker || null }).catch(() => {})
@@ -861,6 +890,9 @@ async function queueAssistResult(entry, result, status) {
     review: Number(result.review) || 0,
     at: new Date().toISOString(),
     trace_ref: result.trace_ref || null,
+    // What the user's agent wrote for this application's open-ended questions:
+    // the open Landed tab keeps them on the application (its drawer).
+    open_answers: Array.isArray(result.open_answers) ? result.open_answers.slice(0, 10) : [],
   }
   await withAssistResultsLock(async () => {
     const stored = await readArea(chrome.storage.local, ASSIST_RESULTS_KEY)
@@ -892,7 +924,17 @@ async function fillAssistTab(tabId) {
       await loadAssistResumes()
       const resume = assistResumes.find((item) => item.id === entry.resume_id)
       if (!resume) return
-      const result = await fillTab(tabId, resume, 'assist')
+      const result = await fillTab(tabId, resume, 'assist', { job: entry.job || null, examples: entry.examples || [], drafted: entry.drafted || {} })
+      // Answers written once stay this tab's (a reload or the next page of the
+      // form doesn't ask the agent again).
+      if (Array.isArray(result.open_answers) && result.open_answers.length) {
+        await updateAssistTabs((tabs) => {
+          if (!tabs[tabId]) return
+          const drafted = { ...(tabs[tabId].drafted || {}) }
+          for (const a of result.open_answers) drafted[a.question] = a.answer
+          tabs[tabId].drafted = drafted
+        })
+      }
       if (result.blocker) {
         await updateAssistTabs((tabs) => { if (tabs[tabId]) tabs[tabId].blocker = result.blocker.kind })
         await queueAssistResult(entry, result, 'blocked')
@@ -952,7 +994,7 @@ async function fillAssistTab(tabId) {
   }
 }
 
-async function openAndFill({ url, resume_id, application_id, lead_id, submit_authorized = false }) {
+async function openAndFill({ url, resume_id, application_id, lead_id, submit_authorized = false, job = null, examples = [] }) {
   await loadAssistResumes()
   const resume = assistResumes.find((item) => item.id === resume_id)
   if (!resume) return { ok: false, error: "That resume isn't in this browser yet. Reload Landed so it syncs, then try again." }
@@ -966,6 +1008,8 @@ async function openAndFill({ url, resume_id, application_id, lead_id, submit_aut
       resume_id, application_id, lead_id,
       submit_authorized: submit_authorized === true && !!application_id && !!lead_id,
       filled: false, submitting: false, submitted: false, blocker: null, opened_at: Date.now(),
+      // For open-ended answers: the job and the user's own answers as examples.
+      job, examples, drafted: {},
     }
   })
   return { ok: true, data: { tab_id: tab.id, resume: resume.name } }

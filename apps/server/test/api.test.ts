@@ -1528,6 +1528,30 @@ describe('agent chat history (Cloud)', () => {
     assert.deepEqual(snap.applications.find((x: any) => x.id === app.id).resume_choice, choice)
   })
 
+  test('an application keeps the open-ended answers it was sent with', async () => {
+    const owner = await signup('open-answers@example.com')
+    const app = (await call('POST', '/api/applications', { token: owner, body: { company: { name: 'Bluefin Analytics' }, application: { role: 'Product Analyst' } } })).body
+    assert.equal(app.open_answers, null)
+    const answers = [{ question: 'Why Bluefin?', answer: 'I built the SQL dashboards my team used daily.\n\nBluefin does that at scale.', at: '2026-10-22T08:00:00.000Z', edited: true }]
+    assert.deepEqual((await call('PATCH', `/api/applications/${app.id}`, { token: owner, body: { open_answers: answers } })).body.open_answers, answers)
+    assert.equal((await call('PATCH', `/api/applications/${app.id}`, { token: owner, body: { open_answers: [{ question: 'Why?', answer: '' }] } })).status, 400)
+    assert.equal((await call('PATCH', `/api/applications/${app.id}`, { token: owner, body: { open_answers: Array(11).fill({ question: 'Q', answer: 'A' }) } })).status, 400)
+    const snap = (await call('GET', '/api/export', { token: owner })).body
+    assert.deepEqual(snap.applications.find((x: any) => x.id === app.id).open_answers, answers)
+    // A device's snapshot brings them up to the cloud.
+    const other = await signup('open-answers-copy@example.com')
+    const company = crypto.randomUUID()
+    const at = '2026-10-22T08:00:00.000Z'
+    const up = await call('POST', '/api/sync/upload', { token: other, body: {
+      format: 'landed-backup', version: 1, exported_at: at,
+      companies: [{ id: company, name: 'Bluefin Analytics', created_at: at }],
+      applications: [{ id: crypto.randomUUID(), company_id: company, role: 'Product Analyst', created_at: at, open_answers: answers }],
+    } })
+    assert.equal(up.status, 201, JSON.stringify(up.body))
+    const copied = (await call('GET', '/api/export', { token: other })).body
+    assert.deepEqual(copied.applications.find((x: any) => x.role === 'Product Analyst').open_answers, answers)
+  })
+
   test('resume files: one per resume, only on your own resumes, gone with the resume, in snapshots', async () => {
     const owner = await signup('resume-files@example.com')
     const other = await signup('resume-files-other@example.com')

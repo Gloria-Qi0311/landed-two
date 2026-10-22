@@ -22,6 +22,7 @@ const CA = global.LandedChoiceAnswers;
 //   answers  saved application answers      resume  the resume, by rule
 //   entries  experience / education rows    saved   custom fields, learned mappings
 //   model    the local model                page    there before Landed
+//   draft    an open-ended answer the user's agent wrote and checked
 //   file     an uploaded file
 
 function setSource(el, source) {
@@ -45,7 +46,8 @@ function neverSent(question) {
 
 /** Only these may be replaced; the user's own values are only flagged. */
 const REPLACEABLE = new Set(['resume', 'model', '']);
-const NOT_REVIEWED = new Set(['entries', 'file']);
+// Open-ended answers had their own check (lib/fill/open-answers.js).
+const NOT_REVIEWED = new Set(['entries', 'file', 'draft']);
 const LONG_TEXT_KEYS = new Set(['job_description', 'project_description', 'summary']);
 // Not previously_employed: a saved yes/no can't say it for every company;
 // the resume's employers do (resume.employers).

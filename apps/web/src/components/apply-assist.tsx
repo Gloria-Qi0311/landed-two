@@ -12,8 +12,9 @@ import { useMemo, useState } from 'react'
 import { Icon } from './primitives'
 import { bridgeCall } from '../lib/extension-bridge'
 import { PICK_TEXT, pickResumeFor, type AssistTarget } from '../lib/apply-assist'
+import { openAnswerExamples } from '../lib/open-answers'
 import { useResumes } from '../hooks/resumes'
-import { useUpdateApplication } from '../hooks/queries'
+import { useApplications, useUpdateApplication } from '../hooks/queries'
 import { useResumeFiles } from '../hooks/answers'
 import { useRecordApplyClick } from '../hooks/inbox'
 import type { ClickTarget } from '../lib/inbox'
@@ -51,11 +52,17 @@ type State = { phase: 'idle' | 'opening' | 'opened' | 'error'; text?: string }
 function useOpenAndFill(click: ClickTarget) {
   const record = useRecordApplyClick()
   const update = useUpdateApplication()
+  const apps = useApplications().data
   const [state, setState] = useState<State>({ phase: 'idle' })
   const open = async (target: AssistTarget, resumeId: string, resumeName: string, reason?: string) => {
     setState({ phase: 'opening' })
     record(click) // "did you apply?" still asks if the confirmation page goes unseen
-    const res = await bridgeCall<{ tab_id: number }>('assist-open', { url: target.url, resume_id: resumeId, application_id: target.application_id, lead_id: target.lead_id })
+    const res = await bridgeCall<{ tab_id: number }>('assist-open', {
+      url: target.url, resume_id: resumeId, application_id: target.application_id, lead_id: target.lead_id,
+      // For open-ended answers: the job (its posting is read from the page)
+      // and the user's own edited answers.
+      job: { role: target.role, company: target.company }, examples: openAnswerExamples(apps ?? []),
+    })
     // Which resume, and why, stays on the application (its drawer).
     if (res.ok && target.application_id) {
       update.mutate({ id: target.application_id, patch: { resume_choice: { resume_id: resumeId, name: resumeName, reason: reason ?? '', at: new Date().toISOString() } } })

@@ -41,6 +41,7 @@ function toAppShape(row: DbApplication) {
     interviews: row.interviews ?? [],
     deadline: row.deadline ?? null,
     resume_choice: row.resume_choice ?? null,
+    open_answers: row.open_answers ?? null,
   }
 }
 

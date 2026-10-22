@@ -15,6 +15,7 @@
 // connections by (company, provider), so signing in on a second device that
 // has its own data merges rather than duplicates.
 import { parseDirections, parseMasterResume, parseResumeChoice } from '@landed/schema/master-resume'
+import { parseOpenAnswers } from '@landed/schema/open-answers'
 import { leadQueueDefaults } from '@landed/schema/lead-queue'
 import { normalizeStage, parseInterviews } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
@@ -51,7 +52,7 @@ const COLUMNS = {
   applications: [
     'id', 'company_id', 'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at',
     'next_step', 'referral', 'source', 'job_id', 'portal_application_url', 'notes', 'starred',
-    'last_activity_at', 'created_at', 'interviews', 'deadline', 'resume_choice',
+    'last_activity_at', 'created_at', 'interviews', 'deadline', 'resume_choice', 'open_answers',
   ],
   portal_connections: [
     'id', 'company_id', 'provider', 'portal_host', 'status', 'last_sync_at', 'last_seen_login_at',
@@ -88,7 +89,7 @@ function defaults(now: string): Row {
 
 const JSON_COLUMNS = new Set([
   'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
-  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json', 'turns', 'answers', 'screen', 'fit', 'resume_choice',
+  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json', 'turns', 'answers', 'screen', 'fit', 'resume_choice', 'open_answers',
 ])
 
 function chunks<T>(rows: T[]): T[][] {
@@ -163,7 +164,7 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
     const stage = normalizeStage(r.stage ?? 'saved')
     if (!stage) fail(400, `applications[]: unknown stage ${JSON.stringify(r.stage)}`)
     const interviews = parseInterviews(r.interviews) ?? (stage.round ? [stage.round] : [])
-    apps.push(normalize('applications', r, { company_id: cid, stage: stage.stage, interviews, resume_choice: parseResumeChoice(r.resume_choice) ?? null }))
+    apps.push(normalize('applications', r, { company_id: cid, stage: stage.stage, interviews, resume_choice: parseResumeChoice(r.resume_choice) ?? null, open_answers: parseOpenAnswers(r.open_answers) ?? null }))
   }
   counts.applications = await insertRows('applications', apps)
 

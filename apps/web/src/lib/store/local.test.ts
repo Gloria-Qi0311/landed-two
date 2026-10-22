@@ -282,6 +282,21 @@ describe('directions and resume choice', () => {
     expect((await copy.listApplications())[0].resume_choice).toEqual(choice)
   })
 
+  test('an application keeps the open-ended answers it was sent with, validated like the server, in snapshots', async () => {
+    const store = fresh()
+    const app = await store.addApplication({ name: 'Bluefin Analytics' }, { role: 'Product Analyst' })
+    expect(app.open_answers).toBeNull()
+    const answers = [{ question: 'Why Bluefin?', answer: 'I built the SQL dashboards my team used daily.\n\nBluefin does that at scale.', at: '2026-10-22T08:00:00.000Z' }]
+    expect((await store.updateApplication(app.id, { open_answers: answers })).open_answers).toEqual(answers)
+    const edited = [{ ...answers[0], answer: 'My own words.', edited: true }]
+    expect((await store.updateApplication(app.id, { open_answers: edited })).open_answers).toEqual(edited)
+    await expect(store.updateApplication(app.id, { open_answers: [{ question: 'Why?', answer: '' }] as never })).rejects.toThrow(/open_answers/)
+    await expect(store.updateApplication(app.id, { open_answers: 'x' as never })).rejects.toThrow(/open_answers/)
+    const copy = fresh()
+    await copy.replaceWith(await store.exportSnapshot())
+    expect((await copy.listApplications())[0].open_answers).toEqual(edited)
+  })
+
   test('a resume saved before directions existed reads as having none', async () => {
     const name = `landed-test-old-${++n}`
     const store = createLocalStore(name)

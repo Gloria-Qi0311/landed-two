@@ -19,6 +19,9 @@
 //                 picked; the tab remembers which application/lead it's for,
 //                 so the "thanks for applying" page lands on that one. Only
 //                 a linked application + lead may carry submit authorization.
+//                 It may carry the job (title, company, posting text) and the
+//                 user's own edited open-ended answers, for the agent that
+//                 writes "Why us?" answers (lib/fill/open-answers.js).
 //   take-assist-results  fill-ready / human-blocker results, delivered once
 //   pick-resume   which of several resumes fits a job, when Landed's rules
 //                 can't tell: the posting and each candidate's directions,
@@ -130,6 +133,21 @@
     })
     if (!role || resumes.length < 2) return null
     return { type: 'pick_resume', job: { role, company: text(job.company, 120), description: text(job.description, 6000) }, resumes }
+  }
+
+  /** The job and example answers an assist-open carries: plain text, capped. */
+  function sanitizeJob(raw) {
+    if (!raw || typeof raw !== 'object') return null
+    const text = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '')
+    const role = text(raw.role, 200)
+    return role ? { role, company: text(raw.company, 120), description: text(raw.description, 6000) } : null
+  }
+  function sanitizeExamples(raw) {
+    return (Array.isArray(raw) ? raw : []).slice(0, 4).flatMap((e) => {
+      const question = e && typeof e.question === 'string' ? e.question.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+      const answer = e && typeof e.answer === 'string' ? e.answer.trim().slice(0, 1500) : ''
+      return question && answer ? [{ question, answer }] : []
+    })
   }
 
   /** A write that may not fit (resume files are big): what went wrong, in
@@ -298,6 +316,8 @@
             // bridge refuses to forward it without both linked Landed ids,
             // so manual Open & autofill can never inherit submit permission.
             submit_authorized: p.submit_authorized === true && !!applicationId && !!leadId,
+            job: sanitizeJob(p.job),
+            examples: sanitizeExamples(p.examples),
           })
         }
 
