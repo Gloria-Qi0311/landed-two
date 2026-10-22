@@ -11,7 +11,8 @@
     "benchmark": "node scripts/benchmark.js",
     "build": "vite build",
     "dev": "vite build --watch",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "live-check": "node scripts/live-check.mjs"
   },
   "jest": {
     "testEnvironment": "jsdom",
@@ -33,6 +34,7 @@
     "globals": "^17.6.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
+    "playwright-core": "^1.60.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.13"
   }

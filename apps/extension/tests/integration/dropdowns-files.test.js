@@ -27,7 +27,9 @@ global.chrome = {
       if (request) nativeRequests.push(request)
       if (request?.type === 'choose_options') {
         // The local model answers the onsite question from the saved facts.
-        const q = request.questions.find((x) => /onsite/.test(x.question))
+        const q = request.questions.find((x) => /onsite/.// Each fill here opens every dropdown and settles every field (lib/fill/settle.js):
+// 20 s was at the edge on slower machines.
+test(x.question))
         return callback?.({ ok: true, choices: q ? { [q.id]: { option_index: q.options.indexOf('Yes'), confidence: 0.95 } } : {} })
       }
       callback?.({ ok: true, values: {} })
@@ -186,7 +188,7 @@ test('dropdowns get a real option; nothing typed is left behind; files are attac
   expect(result.missing_files).toEqual(['cover_letter'])
   expect(result.filled).toEqual(expect.arrayContaining(['file:resume', 'answer:country', 'answer:city', 'answer:work_authorized', 'answer:adult', 'answer:linkedin']))
   expect(submitted).toBe(false)
-}, 20_000)
+}, 40_000)
 
 test("a fill with a tailored version uploads that version's one-page PDF; without one, the saved file", async () => {
   const VERSION = '11111111-2222-4333-8444-555555555555'
@@ -212,7 +214,7 @@ test("a fill with a tailored version uploads that version's one-page PDF; withou
     await fillWith(resumeId)
     expect(await uploaded()).toBe(Buffer.from(pdf, 'base64').length)
   }
-}, 20_000)
+}, 40_000)
 
 test('no saved resume file: reported, so the popup can say where to add it', async () => {
   for (const id of ['school', 'degree', 'country', 'city', 'auth', 'discipline', 'adult', 'onsite5']) wire(id, ['Yes', 'No'])
@@ -220,7 +222,7 @@ test('no saved resume file: reported, so the popup can say where to add it', asy
   const result = await fill()
   expect($('#resume').files).toEqual([])
   expect(result.missing_files.sort()).toEqual(['cover_letter', 'resume'])
-}, 20_000)
+}, 40_000)
 
 test('a file the field doesn\'t accept is left for the user', async () => {
   for (const id of ['school', 'degree', 'country', 'city', 'auth', 'discipline', 'adult', 'onsite5']) wire(id, [])
@@ -228,4 +230,4 @@ test('a file the field doesn\'t accept is left for the user', async () => {
   await fill()
   expect($('#resume').files).toEqual([])
   expect($('#resume').getAttribute('data-landed-status')).toBe('review')
-}, 20_000)
+}, 40_000)

@@ -58,6 +58,7 @@ declare global {
     namespace tabs {
       function query(query: any): Promise<any[]>
       function sendMessage<T = any>(tabId: number, message: any, callback?: (response: T) => void): void
+      function update(tabId: number, props: { active?: boolean }): Promise<any>
     }
     namespace action {
       // The slice background.js uses for the toolbar badge (#36.1).

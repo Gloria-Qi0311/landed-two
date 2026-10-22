@@ -483,10 +483,15 @@ async function addUpFill(tabId, answered) {
   const attached = new Set(answered.flatMap((r) => (Array.isArray(r.filled) ? r.filled : [])).filter((f) => String(f).startsWith('file:')).map((f) => String(f).slice(5)))
   const missing = [...new Set(answered.flatMap((r) => (Array.isArray(r.missing_files) ? r.missing_files : [])))].filter((kind) => !attached.has(kind))
   const unanswered = answered.flatMap((r) => (Array.isArray(r.unanswered) ? r.unanswered : []))
+  const required = unanswered.filter((q) => !q?.optional)
   await queueQuestions(tabId, unanswered)
   return {
-    tabId, filled: count('filled'), review: count('manual'), fields, missing_files: missing, frames: answered.length, agent_review: addReviews(answered),
-    unanswered: unanswered.length,
+    // A field the page cleared after the fill isn't filled (it's yellow, in `manual`).
+    tabId, filled: Math.max(0, count('filled') - count('lost')), review: count('manual'), fields, missing_files: missing, frames: answered.length, agent_review: addReviews(answered),
+    // Only required questions stop an approved application; optional ones are still asked once.
+    unanswered: required.length, lost: count('lost'), optional_blank: count('optional_blank'),
+    lost_fields: answered.flatMap((r) => (Array.isArray(r.lost) ? r.lost : [])).map((l) => String(l).replace(/\s+/g, ' ').replace(/\s*[*✱]\s*$/, '').trim().slice(0, 80)).slice(0, 5),
+    issues: fieldIssues(answered),
   }
 }
 
@@ -522,8 +527,29 @@ async function submitTab(tabId) {
   }
 }
 
+// Why a field is left for the user, from the fill's internal hints.
+const ISSUE_REASONS = {
+  没留住: "didn't keep the value: pick it from the list or type it", 未匹配: 'no saved answer', 下拉框: 'no matching option',
+  自定义下拉框: 'no matching option', 敏感信息: 'sensitive: answer it yourself', 文件上传: 'needs a file', 复核存疑: 'the review flagged it',
+  复核已改: 'the review changed it: check it', 日期: 'a date to fill', 富文本: 'a long answer', 多条目: 'an entry to check',
+}
+
+/** The fields left for the user, each with why: the popup lists them and jumps to one. */
+function fieldIssues(answered) {
+  const clean = (t) => String(t || '').replace(/\s+/g, ' ').replace(/\s*[*✱]\s*$/, '').trim().slice(0, 80)
+  return answered.flatMap((r) => (Array.isArray(r.manual) ? r.manual : []))
+    .filter((m) => m && typeof m.id === 'string' && m.label)
+    .map((m) => ({ id: m.id, label: clean(m.label), reason: ISSUE_REASONS[m.hint] || 'to check' }))
+    .slice(0, 20)
+}
+
 /** Aggregate fill result → why an approved application still cannot submit. */
 function submissionBlocker(result) {
+  // Said by name: the page cleared what Landed filled (lib/fill/settle.js).
+  if (Array.isArray(result.lost_fields) && result.lost_fields.length) {
+    const names = result.lost_fields.join(', ')
+    return { kind: 'review', message: `${names} didn't keep the value (the page cleared it): fill ${result.lost_fields.length === 1 ? 'it' : 'them'} in the tab, then submit` }
+  }
   if (Array.isArray(result.missing_files) && result.missing_files.length) {
     return { kind: 'files', message: `Missing required ${result.missing_files.join(' and ').replace(/_/g, ' ')}` }
   }

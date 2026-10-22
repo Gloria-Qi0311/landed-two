@@ -26,7 +26,7 @@
 // answers in lib/choice-answers.js. Type-checked via JSDoc + checkJs
 // (tsconfig.json).
 
-const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectApplyBlocker, detectPortalEventForCurrentPage, existingComboboxTexts, finishTrace, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, fillPendingFromAnswers, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, startTrace, submitApplication, tagFilled, tracePhase, tryFillCombobox, tryFillSelect, unansweredQuestions } = window.LandedFill;
+const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectApplyBlocker, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, fillPendingFromAnswers, finishTrace, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isRequired, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, settleFill, startTrace, submitApplication, tagFilled, tracePhase, tryFillCombobox, tryFillSelect, unansweredQuestions } = window.LandedFill;
 const { normalize, getFieldLabel, matchResumeKey } = window.ResumeFillerFieldDetect;
 const CL = window.ResumeFillerCrossLingual;
 const CA = window.LandedChoiceAnswers;
@@ -48,6 +48,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse(submitApplication());
     return true;
   }
+  // The popup's list of fields left for the user: show this one.
+  if (msg.action === 'focus-field') {
+    const el = typeof msg.id === 'string' ? deepAll(`[data-landed-field-id="${msg.id.replace(/["\\]/g, '')}"]`)[0] : null;
+    if (el) {
+      if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (typeof el.focus === 'function') el.focus({ preventScroll: true });
+    }
+    sendResponse({ ok: !!el });
+    return true;
+  }
   if (msg.action === 'ping') {
     sendResponse({ ok: true });
     return true;
@@ -60,6 +70,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
+
+/** Why a field is yellow when nothing answered it (not a doubt or a file). */
+const NO_ANSWER_HINTS = new Set(['未匹配', '下拉框', '自定义下拉框']);
 
 async function handleFill(resumeData, customFields, opts) {
   opts = opts || {};
@@ -427,14 +440,37 @@ async function handleFill(resumeData, customFields, opts) {
   tagFilled('model');
   tracePhase('model');
 
-  // Phase 9: the user's own agent reviews the filled form (local Ollama, else
-  // their Claude Code). Changed fields turn yellow; sensitive ones aren't sent.
+  // Optional questions nothing answers (Twitter URL, T-shirt size…) aren't
+  // the user's to-do: no yellow, not counted (the popup says how many stayed
+  // blank). Marked `blank`, so they're still asked once on the Extension page
+  // and filled when answered.
+  const optional = [];
+  for (let i = manual.length - 1; i >= 0; i--) {
+    const item = manual[i];
+    if (!NO_ANSWER_HINTS.has(item.hint) || (item.value != null && item.value !== '—')) continue;
+    const el = deepAll(`[data-landed-field-id="${item.id}"]`)[0];
+    if (!el || isRequired(el, item.label)) continue;
+    markField(el, 'blank');
+    optional.unshift(...manual.splice(i, 1));
+  }
+
+  // Phase 9: every field marked filled is checked the way a person would:
+  // retyped where the page offers suggestions (picking the matching one),
+  // then read again after the page's scripts ran. Cleared ones turn yellow.
+  const lost = await settleFill(manual);
+  tracePhase('settle');
+
+  // Phase 10: the user's own agent reviews the filled form (their Claude
+  // Code, else local Ollama). Changed fields turn yellow; sensitive ones aren't sent.
   const review = opts.aiTakeover ? await runFillReview(manual, answers, flat) : null;
 
   // What's still empty and worth asking the user once (the Extension page).
-  const unanswered = unansweredQuestions(manual);
+  // Optional ones are asked too, marked so they never stop an approved application.
+  const required = unansweredQuestions(manual);
+  const asked = new Set(required.map((q) => q.question));
+  const unanswered = [...required, ...unansweredQuestions(optional).filter((q) => !asked.has(q.question)).map((q) => ({ ...q, optional: true }))];
   if (review) tracePhase('review');
 
   const trace = finishTrace({ manual, unanswered, fields });
-  return { filled, manual, missing_files: Array.from(missingFiles), review, unanswered, fields, blocker: null, trace };
+  return { filled, manual, missing_files: Array.from(missingFiles), review, unanswered, fields, blocker: null, lost, optional_blank: optional.map((item) => item.label), trace };
 }

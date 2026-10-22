@@ -329,6 +329,12 @@ type FillResult = {
   missing?: string[]
   /** the user's own agent checking the filled page (lib/fill/review.js) */
   agentReview?: AgentReview | null
+  /** fields the page cleared after the fill (yellow now; lib/fill/settle.js) */
+  lost?: number
+  /** optional questions left blank: not yellow, not counted as needing review */
+  optionalBlank?: number
+  /** fields left for the user, each with why (a click shows it on the page) */
+  issues?: { id: string; label: string; reason: string }[]
   /** what this fill did, step by step (lib/fill-trace-store.js) */
   traceRef?: string | null
 }
@@ -497,6 +503,9 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
               review: Number(response.review) || 0,
               missing: Array.isArray(response.missing_files) ? response.missing_files : [],
               agentReview: response.agent_review && typeof response.agent_review === 'object' ? response.agent_review : null,
+              lost: Number(response.lost) || 0,
+              issues: Array.isArray(response.issues) ? response.issues : [],
+              optionalBlank: Number(response.optional_blank) || 0,
               traceRef: typeof response.trace_ref === 'string' ? response.trace_ref : null,
             })
           }
@@ -507,7 +516,11 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       const review = results.reduce((sum, result) => sum + (result.review || 0), 0)
       const failed = results.filter((result) => result.kind === 'error').length
       const noResumeFile = results.some((result) => result.missing?.includes('resume'))
+      const lost = results.reduce((sum, result) => sum + (result.lost || 0), 0)
+      const optionalBlank = results.reduce((sum, result) => sum + (result.optionalBlank || 0), 0)
       setFillNotice(`${filled} fields filled · ${review} need review${failed ? ` · ${failed} page${failed === 1 ? '' : 's'} unavailable` : ''}. You submit each page.`
+        + (lost ? ` ${lost} field${lost === 1 ? '' : 's'} didn't keep the value (the page cleared ${lost === 1 ? 'it' : 'them'}): yellow, hover for why.` : '')
+        + (optionalBlank ? ` ${optionalBlank} optional question${optionalBlank === 1 ? '' : 's'} left blank.` : '')
         + reviewLine(results)
         + (noResumeFile ? ' No resume file to attach yet: upload your resume on Landed → My Resume, or add it on the Extension page.' : ''))
     } catch (e) {
@@ -644,14 +657,27 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       {fillResults.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {fillResults.map((result) => (
-            <div key={result.tabId} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 10.5, color: 'var(--fg-muted)' }}>
-              <span style={{ color: result.kind === 'error' ? 'oklch(0.55 0.18 28)' : result.kind === 'done' ? 'oklch(0.42 0.12 155)' : 'var(--fg-muted)' }}>
-                {result.kind === 'running' ? '●' : result.kind === 'done' ? '✓' : '×'}
-              </span>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.title}</span>
-              {result.kind === 'done' && <span>{result.filled} filled · {result.review} review</span>}
-              {result.kind === 'done' && result.traceRef && <TraceRef traceRef={result.traceRef} />}
-              {result.kind === 'error' && <span title={result.error}>unavailable</span>}
+            <div key={result.tabId} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 10.5, color: 'var(--fg-muted)' }}>
+                <span style={{ color: result.kind === 'error' ? 'oklch(0.55 0.18 28)' : result.kind === 'done' ? 'oklch(0.42 0.12 155)' : 'var(--fg-muted)' }}>
+                  {result.kind === 'running' ? '●' : result.kind === 'done' ? '✓' : '×'}
+                </span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.title}</span>
+                {result.kind === 'done' && <span>{result.filled} filled · {result.review} review</span>}
+                {result.kind === 'done' && result.traceRef && <TraceRef traceRef={result.traceRef} />}
+                {result.kind === 'error' && <span title={result.error}>unavailable</span>}
+              </div>
+              {result.kind === 'done' && (result.issues ?? []).map((issue) => (
+                <button key={issue.id} type="button" className="btn-ghost"
+                  onClick={() => {
+                    void chrome.tabs.update(result.tabId, { active: true })
+                    chrome.tabs.sendMessage(result.tabId, { action: 'focus-field', id: issue.id }, () => { void chrome.runtime.lastError })
+                  }}
+                  style={{ display: 'flex', gap: 6, textAlign: 'left', fontSize: 10.5, padding: '1px 0 1px 18px', color: 'var(--fg)', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                  <span style={{ color: 'oklch(0.5 0.12 70)' }}>●</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b style={{ fontWeight: 500 }}>{issue.label}</b> · <span style={{ color: 'var(--fg-muted)' }}>{issue.reason}</span></span>
+                </button>
+              ))}
             </div>
           ))}
         </div>

@@ -112,6 +112,8 @@
   // Strict label: only label[for], aria-labelledby, or sibling text. Used as
   // the "label" signal source so it doesn't double-count aria-label /
   // placeholder / name / id (which have their own slots).
+  const POPUP = /dropdown|listbox|popover|suggest|autocomplete|typeahead|results|\bmenu\b/i;
+
   function getStrictLabel(el) {
     if (!el) return '';
     // A field inside a web component has its label in the same shadow root.
@@ -144,6 +146,13 @@
         if (child.contains(el)) continue;
         if (['LABEL', 'DIV', 'SPAN', 'P', 'DT', 'LEGEND', 'H4', 'H5', 'H6'].includes(child.tagName)) {
           if (child.querySelector(CONTROL_SELECTOR)) continue;
+          // Only text a person sees: a widget's hidden helper next to the
+          // field (Lever's "No location found…") is not its question.
+          if (child.hidden || child.getAttribute('aria-hidden') === 'true') continue;
+          // Nor is a suggestion list or menu that pops up by it.
+          if (POPUP.test(`${typeof child.className === 'string' ? child.className : ''} ${child.getAttribute('role') || ''}`)) continue;
+          // In a browser innerText leaves hidden text out (jsdom has none).
+          if (typeof child.innerText === 'string' && !child.innerText.trim() && (child.textContent || '').trim()) continue;
           const text = visibleText(child);
           // Application questions are often much longer than an ordinary
           // field label. Workday's U.S. Bank questionnaire, for example,

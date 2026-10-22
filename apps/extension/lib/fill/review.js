@@ -88,7 +88,7 @@ function fillReport() {
   let leftOut = 0;
   for (const el of deepAll('[data-landed-field-id]')) {
     const status = el.getAttribute('data-landed-status');
-    if (status !== 'filled' && status !== 'review') continue;
+    if (status !== 'filled' && status !== 'review' && status !== 'blank') continue;
     const id = el.getAttribute('data-landed-field-id');
     /** @type {Omit<ReviewItem, 'id'> | null} */
     let item = null;

@@ -141,6 +141,70 @@ Continue / Review / Apply-now controls, multiple candidates, blockers, missing
 required fields and yellow review fields. Every other fill surface stops before
 Submit.
 
+### Green means the value is there
+
+A field the fill marked green must still hold its value once the page's own
+scripts have run (`lib/fill/settle.js`, after every other phase, before the
+review). Some sites clear what was typed unless it was picked from their list
+(Lever's Current location is a plain input with plain-div results, and it
+empties itself on blur), so marking a field green the moment Landed wrote to it
+showed green fields that were empty.
+
+- **Type, then pick, recognized by behavior**: each short text field Landed
+  filled is retyped key by key. If suggestions appear by the field (elements the
+  page adds or shows next to it that share a word with what was typed), the
+  matching one is clicked: a place by its city and state (`chooseCity`), else
+  the closest text. If nothing on the page changes within about 0.4 s, it's a
+  plain field; if the page changes but nothing appears by the field within about
+  1.2 s, too (results can take that long from the site's server, Lever's
+  location search), so pages that restyle on every keystroke don't hold each
+  plain field 2 s. Roles and ids aren't needed, so a widget that doesn't announce
+  itself works too. **Never a button, link or submit** (owner's review,
+  2026-10-22): a candidate that is or sits inside a `button` (a `<button>` in a
+  form submits unless its type says "button"), `a[href]`, `[role=button]`,
+  `[role=link]` or `[role=menuitem]` is never clicked, unless it's a
+  `role=option`; a submit never, even inside a list.
+- **Then every green field is read again** the way a person sees it: a text
+  field's value, a select's chosen option, a dropdown's choice shown in its
+  control (react-select keeps its search input empty), not a placeholder like
+  "Select…". One that's empty now turns yellow, with "didn't keep the value"
+  on it, and counts in `lost`. Upload fields aren't re-read (sites empty the
+  input once they've sent the file), nor are fields the page has hidden since.
+- **Type, then pick only the same thing**: a place is picked by its city and
+  state; a company or school only when the suggestion is the same name (legal
+  suffixes and a qualifier after a separator aside: "Google LLC",
+  "University of Washington - Seattle"), never a different one that starts alike
+  ("Google Cloud"). Otherwise nothing is clicked: better left for the user than
+  wrong, above all when an approved application submits on its own.
+- **For approved applications** (auto apply): a field that didn't keep its
+  value is a review issue named in the blocker ("Current location didn't keep the
+  value…"), so that application stops and the others go on. Optional questions
+  are asked once but marked `optional`, so `unanswered` counts only required ones
+  and an optional blank never stops a submit.
+- **The popup lists the fields left for the user**, each with why (no saved
+  answer, didn't keep the value, sensitive, the review flagged it…); a click
+  brings the tab forward and focuses that field (content.js `focus-field`).
+- **Optional questions nothing answers** (no `required` / `aria-required`, no
+  `*` / `✱` / "required" in the label) aren't yellow and don't count as needing
+  review. They're marked `blank`, so they're still asked once on the Extension
+  page and filled when answered. The popup says how many stayed blank.
+- **A field's question is text a person sees** (`getStrictLabel`): hidden text
+  and suggestion lists or menus beside the field (Lever's "No location found…")
+  are never its label. This is also what the reviewer is sent.
+- **On real sites**: `pnpm --filter ./apps/extension live-check` fills real
+  application pages (one open posting from a few public Lever, Greenhouse and
+  Ashby boards, or the URLs given) with a made-up applicant, and fails on any
+  green field that's empty. Nothing reaches the company: every form `submit`
+  event is blocked, and once the fill starts every request that isn't a read is
+  blocked at the network (Ashby and Greenhouse's React forms submit with fetch,
+  no submit event). A GraphQL query is a read (Ashby looks up locations with
+  POST); a mutation never is. Blocked writes are listed; one named like a
+  submission (submit / apply) counts as a submit and fails the page, the rest
+  (Ashby saving each field as a draft, analytics) are blocked but aren't. Saved test pages
+  can't show this, because they don't run the site's scripts.
+  `LANDED_EXTENSION_DIR` points it at another copy, such as the installed one.
+  Run it before releasing fill changes; it's not in CI, since live sites change.
+
 ### Review after filling
 
 Product decision (2026-10-18, #95): after a full fill, the user's own agent checks

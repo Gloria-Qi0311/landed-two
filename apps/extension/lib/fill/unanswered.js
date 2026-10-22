@@ -94,7 +94,8 @@ async function fillPendingFromAnswers(answers) {
   const groups = radioGroups();
   const done = new Set();
   let filled = 0;
-  for (const el of deepAll('[data-landed-status="review"]')) {
+  // Yellow ones, and optional ones left blank (content.js).
+  for (const el of deepAll('[data-landed-status="review"], [data-landed-status="blank"]')) {
     const field = describe(el, groups);
     if (!field || !field.empty || done.has(field.group || el)) continue;
     done.add(field.group || el);

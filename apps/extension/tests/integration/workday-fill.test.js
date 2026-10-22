@@ -213,13 +213,13 @@ test('repairs the exact corrupt values seen on a real U.S. Bank Workday form', a
       <label for="first">First Name</label><input id="first" value="Alex" data-automation-id="legalNameSection_firstName">
       <label for="middle">Middle Name</label><input id="middle" value="Alex Chen" data-automation-id="legalNameSection_middleName">
       <label for="last">Last Name</label><input id="last" value="Chen" data-automation-id="legalNameSection_lastName">
-      <label for="street">Address Line 1</label><input id="street" value="Seattle" data-automation-id="addressSection_addressLine1">
+      <label for="street">Address Line 1*</label><input id="street" value="Seattle" aria-required="true" data-automation-id="addressSection_addressLine1">
       <label for="line2">Address Line 2</label><input id="line2" value="Seattle" data-automation-id="addressSection_addressLine2">
       <label for="city">City</label><input id="city" value="Seattle" data-automation-id="addressSection_city">
-      <label for="postal">Postal Code</label><input id="postal" data-automation-id="addressSection_postalCode">
+      <label for="postal">Postal Code*</label><input id="postal" aria-required="true" data-automation-id="addressSection_postalCode">
       <label for="source">How Did You Hear About Us?</label>
       <input id="source" role="combobox" aria-autocomplete="list" aria-expanded="false" data-automation-id="sourceDropdown">
-      <label for="state">State</label><button id="state" type="button" aria-haspopup="listbox" data-automation-id="stateDropdown">Select One</button>
+      <label for="state">State*</label><button id="state" type="button" aria-haspopup="listbox" aria-required="true" data-automation-id="stateDropdown">Select One</button>
       <label for="country">Country</label><button id="country" type="button" aria-haspopup="listbox" data-automation-id="countryDropdown">United States of America</button>
       <label for="device">Phone Device Type</label><button id="device" type="button" aria-haspopup="listbox" data-automation-id="phoneDeviceType">Mobile</button>
       <div><label for="country-code">Country Phone Code</label>
@@ -254,5 +254,6 @@ test('repairs the exact corrupt values seen on a real U.S. Bank Workday form', a
   expect(deviceClicks).toBe(0)
   expect(settingsClicks).toBe(0)
   expect(submitClicks).toBe(0)
-  expect(result.manual.map((item) => item.label)).toEqual(expect.arrayContaining(['Address Line 1', 'Postal Code', 'State']))
+  // Required ones (Workday marks them, aria-required and *) stay with the user.
+  expect(result.manual.map((item) => item.label)).toEqual(expect.arrayContaining(['Address Line 1*', 'Postal Code*', 'State*']))
 }, 15_000)

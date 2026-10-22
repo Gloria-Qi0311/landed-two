@@ -163,9 +163,21 @@ function setTextFieldValue(el, value) {
   return true;
 }
 
+/** What Landed meant to put in each text field, for the check after the
+ *  fill (lib/fill/settle.js): the page may clear or replace it. */
+const intendedValues = new WeakMap();
+
 function fillField(el, value) {
   if (!value || !setTextFieldValue(el, value)) return;
+  intendedValues.set(el, value);
   markField(el, 'filled');
+}
+
+/** Must this field be answered? The page's own required flags, or a
+ *  required marker in its label (*, ✱, "required", 必填). */
+function isRequired(el, label) {
+  if (el && (el.required || (el.getAttribute && el.getAttribute('aria-required') === 'true'))) return true;
+  return /[*✱]|\brequired\b|必填/i.test(String(label || ''));
 }
 
 function clearField(el) {
@@ -201,5 +213,5 @@ function getVisibleInputs() {
   ).filter(el => (isRendered(el) || (el instanceof HTMLInputElement && el.type === 'email')) && !isComboboxInput(el));
 }
 
-Object.assign(F, { landedFieldCounter, fieldId, shadowRoots, deepAll, isRendered, MARK_STYLES, markField, addManual, isSensitiveLabel, canAskModel, MULTI_ENTRY_SECTIONS, setTextFieldValue, fillField, clearField, sleep, isDateField, isComboboxInput, getVisibleInputs });
+Object.assign(F, { landedFieldCounter, fieldId, shadowRoots, deepAll, isRendered, MARK_STYLES, markField, addManual, isSensitiveLabel, canAskModel, MULTI_ENTRY_SECTIONS, setTextFieldValue, intendedValues, fillField, isRequired, clearField, sleep, isDateField, isComboboxInput, getVisibleInputs });
 })(typeof window !== 'undefined' ? window : globalThis);

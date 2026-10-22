@@ -173,6 +173,10 @@ messages (PR title and a clean body, no trailer).
   snapshot), and only the owner's paired computer reads one by ref.
 - A tailored version's one-page PDF is derived: made in the browser from its
   `parsed_json`, never stored, never shrunk below 9.5 pt to fit.
+- Green means the value is there: every filled field is checked again after the
+  page's scripts ran (`lib/fill/settle.js`), pick-from-list boxes are recognized
+  by what they do, and optional blanks aren't yellow. Run `live-check` before
+  releasing fill changes.
 - Fill code lives in `apps/extension/lib/fill/*.js`, each module registered on
   `window.LandedFill` and listed in `manifest.json` before `content.js`.
 - Every read-modify-write of the extension's pending queue goes through
