@@ -35,8 +35,10 @@ describe('schedules', () => {
   })
 
   test('settings and sync payloads are normalized', () => {
-    expect(parseAutomations({ email_check: { enabled: true, schedule: { kind: 'interval', hours: 3 } } }).email_check)
-      .toEqual({ enabled: true, schedule: { kind: 'interval', hours: 4 } }) // 3h isn't offered → default
+    expect(parseAutomations({ email_check: { enabled: true, schedule: { kind: 'interval', hours: 5 } } }).email_check)
+      .toEqual({ enabled: true, schedule: { kind: 'interval', hours: 4 } }) // 5h isn't offered → default
+    expect(parseAutomations({ job_search: { enabled: true, schedule: { kind: 'interval', hours: 3 } } }).job_search.schedule)
+      .toEqual({ kind: 'interval', hours: 3 }) // Agent search every 3 hours
     expect(parseAutomations(null).job_search.enabled).toBe(false)
     expect(parseAutomations(null).auto_apply).toEqual({ enabled: true, max_concurrent: 5 })
     expect(parseAutomations({ auto_apply: { enabled: false, max_concurrent: 2 } }).auto_apply)

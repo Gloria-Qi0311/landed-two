@@ -38,7 +38,7 @@ export type AutomationConfig = { enabled: boolean; schedule: Schedule; quiet_day
 export type AutoApplyConfig = { enabled: boolean; max_concurrent: number }
 export type Automations = Record<AutomationKind, AutomationConfig> & { auto_apply: AutoApplyConfig }
 
-export const INTERVAL_HOURS = [1, 2, 4, 8, 12]
+export const INTERVAL_HOURS = [1, 2, 3, 4, 6, 8, 12]
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
 export const WEEKDAYS = [1, 2, 3, 4, 5]
 export const QUIET_DAY_CHOICES = [7, 14, 21, 30]

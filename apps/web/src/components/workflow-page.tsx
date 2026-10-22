@@ -502,7 +502,7 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
             : <span style={muted}>No agent online that can search. Connect your computer on the Agent page.</span>}
         </Field>
         <Field label="When">
-          <SchedulePicker schedule={a.schedule} presets={[INTERVALS[INTERVALS.length - 1], ...DAILY]} disabled={!w.loaded}
+          <SchedulePicker schedule={a.schedule} presets={[...INTERVALS.filter((p) => ['h3', 'h6', 'h12'].includes(p.key)), ...DAILY]} disabled={!w.loaded}
             onChange={(schedule) => w.save({ ...w.automations, job_search: { ...a, schedule } })} />
           <span style={muted}>{state.text}</span>
         </Field>
