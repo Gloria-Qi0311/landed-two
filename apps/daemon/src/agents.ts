@@ -58,19 +58,25 @@ function claudeAuthStatus(): ClaudeAuthState {
   return parseClaudeAuthStatus(result.stdout ?? '')
 }
 
-const CLAUDE_SIGNED_OUT = 'Claude Code is signed out, so Landed could not run this task. Open Terminal, run `claude auth login`, and finish signing in in the browser. Landed checks again automatically within 30 minutes.'
+const CLAUDE_SIGNED_OUT = 'Claude Code is signed out, so Landed could not run this task. Open Terminal, run `claude auth login`, finish signing in in the browser, then open Landed: it checks again right away.'
 
 // ── mailbox access ────────────────────────────────────────────────────────
 // Email checks use a mail connector the user already gave Claude Code (e.g.
 // claude.ai's Gmail connector). We only allow its read tools: names that
 // look like reads and nothing that looks like a write.
 //
-// Detection: `claude mcp list` says whether a mail server is connected (no
-// model call). Only then do we ask Claude Code to look up that server's
-// tools with ToolSearch. claude.ai connectors load unreliably in `claude -p`
-// (sometimes not at all), so a lookup that finds nothing falls back to the
-// last one that worked (~/.landed/capabilities.json), and the daemon
-// re-detects every 30 minutes (cli.ts).
+// Detection: start Claude Code just far enough to read its init event (no
+// model call, ~1.5 s), which lists the connected MCP servers and their tools.
+// In `claude -p` connectors load in the background unless
+// MCP_CONNECTION_NONBLOCKING=false, so without it a claude.ai connector
+// often misses the init event; detection and every task that needs a
+// connector wait for them (WAIT_FOR_CONNECTORS). The last lookup that worked
+// is kept (~/.landed/capabilities.json) as a fallback for an older Claude
+// Code. The daemon looks again at start, when a page waiting for a connector
+// asks (`recheck` in the browser's sync), and every 30 minutes (cli.ts).
+
+/** Make `claude -p` connect its MCP servers (claude.ai connectors too) before it starts. */
+export const WAIT_FOR_CONNECTORS = { ...process.env, MCP_CONNECTION_NONBLOCKING: 'false' }
 
 /** `denied`: the server's other tools (writes), denied outright as well. */
 export type MailAccess = { server: string; label: string; tools: string[]; denied?: string[] }
@@ -91,16 +97,6 @@ export function isReadOnlyTool(name: string): boolean {
   return w.length > 0 && READ_VERBS.has(w[0]) && !w.some((x) => WRITE_WORDS.has(x))
 }
 
-/** `claude mcp list` output → servers and whether they're connected. */
-export function parseMcpList(out: string): { name: string; connected: boolean }[] {
-  const servers: { name: string; connected: boolean }[] = []
-  for (const line of out.split('\n')) {
-    const m = line.match(/^(.+?): .* - (.+)$/)
-    if (m) servers.push({ name: m[1].trim(), connected: /✔|\bconnected\b/i.test(m[2]) && !/fail|needs|error/i.test(m[2]) })
-  }
-  return servers
-}
-
 /** The connected mail server, and the word to look its tools up by. */
 export function mailServer(servers: { name: string; connected: boolean }[]): { name: string; keyword: string } | null {
   for (const s of servers) {
@@ -119,64 +115,87 @@ export function readOnlyMailTools(serverName: string, toolNames: string[]): stri
   })
 }
 
-/** Tool names in a ToolSearch result (stream-json `user` event). */
-export function toolReferences(line: string): string[] {
-  try {
-    const e = JSON.parse(line)
-    if (e.type !== 'user' || !Array.isArray(e.message?.content)) return []
-    return e.message.content.flatMap((c: any) => (c?.type === 'tool_result' && Array.isArray(c.content)
-      ? c.content.filter((r: any) => r?.type === 'tool_reference' && typeof r.tool_name === 'string').map((r: any) => r.tool_name)
-      : []))
-  } catch {
-    return []
+export type MailStatus = 'ready' | 'confirming' | 'missing'
+
+/** An init event → the mailbox Claude Code can read, if any. `confirming`:
+ *  a mail server is there but not usable yet (still connecting, or its tools
+ *  didn't come through); `missing`: no connected mail server. */
+export function mailFromInit(init: Record<string, any> | null): { status: MailStatus; mail: MailAccess | null } {
+  const servers: { name?: unknown; status?: unknown }[] = Array.isArray(init?.mcp_servers) ? init.mcp_servers : []
+  const named = servers.filter((m) => typeof m?.name === 'string') as { name: string; status?: unknown }[]
+  const server = mailServer(named.map((m) => ({ name: m.name, connected: m.status === 'connected' })))
+  if (!server) {
+    const pending = named.some((m) => MAIL_SERVER.test(m.name) && m.status === 'pending')
+    return { status: pending ? 'confirming' : 'missing', mail: null }
   }
+  const all: string[] = (Array.isArray(init?.tools) ? init.tools : []).filter((t: unknown): t is string => typeof t === 'string')
+  const tools = readOnlyMailTools(server.name, all)
+  if (!tools.length) return { status: 'confirming', mail: null }
+  const prefix = `mcp__${server.name.replace(/[^a-zA-Z0-9_-]/g, '_')}__`
+  const denied = [...new Set(all)].filter((t) => t.startsWith(prefix) && !tools.includes(t))
+  return { status: 'ready', mail: { server: server.name, label: server.name.replace(/^claude\.ai\s+/i, ''), tools, denied } }
 }
 
-function collect(args: string[], timeoutMs: number, onLine?: (line: string) => void): Promise<string> {
+/** Start Claude Code with `args` just far enough to read its init event,
+ *  then stop it (no model call). Null if it never got there. */
+function readInit(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<Record<string, any> | null> {
   return new Promise((resolve) => {
-    const child = spawn('claude', args, { cwd: workspace(), stdio: ['ignore', 'pipe', 'ignore'] })
-    let out = ''
+    const child = spawn('claude', args, { cwd: workspace(), env, stdio: ['ignore', 'pipe', 'ignore'] })
     let buf = ''
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs)
+    let settled = false
+    const done = (v: Record<string, any> | null) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      child.kill('SIGKILL')
+      resolve(v)
+    }
+    const timer = setTimeout(() => done(null), 30_000)
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
-      out += chunk
       buf += chunk
       const lines = buf.split('\n')
       buf = lines.pop() ?? ''
-      lines.forEach((l) => onLine?.(l))
+      for (const line of lines) {
+        try {
+          const e = JSON.parse(line)
+          if (e.type === 'system' && e.subtype === 'init') return done(e)
+        } catch {
+          // not JSON
+        }
+      }
     })
-    child.on('error', () => resolve(''))
-    child.on('close', () => {
-      clearTimeout(timer)
-      resolve(out)
-    })
+    child.on('error', () => done(null))
+    child.on('close', () => done(null))
   })
 }
 
+/** Probes before calling a mailbox not there (each ~1.5 s, no model call). */
+const MAIL_PROBES = 3
+/** Same tools and settings as an email check (claudeEmailArgs), minus the prompt. */
+const MAIL_PROBE_ARGS = ['-p', 'x', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--tools', 'ToolSearch', '--allowedTools', 'ToolSearch', '--setting-sources', '']
+
+/** What the last detection found about the mailbox. */
+export let mailStatus: MailStatus = 'missing'
+
 export async function detectMail(): Promise<MailAccess | null> {
-  const server = mailServer(parseMcpList(await collect(['mcp', 'list'], 45_000)))
-  // Not listed this time: `claude mcp list` is flaky too, so keep the last
-  // good lookup. If the connector really is gone, an email check fails with a
-  // clear message (and the requireServer retries) instead of quietly passing.
-  if (!server) return cachedMail()
-  const found: string[] = []
-  await collect([
-    '-p', `Call the ToolSearch tool exactly once with {"query": "+${server.keyword}", "max_results": 50}. Then reply DONE.`,
-    '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--setting-sources', '',
-    '--tools', 'ToolSearch', '--allowedTools', 'ToolSearch',
-  ], 90_000, (line) => found.push(...toolReferences(line)))
-  const tools = readOnlyMailTools(server.name, found)
-  const prefix = `mcp__${server.name.replace(/[^a-zA-Z0-9_-]/g, '_')}__`
-  const denied = [...new Set(found)].filter((t) => t.startsWith(prefix) && !tools.includes(t))
-  if (tools.length) {
-    const mail = { server: server.name, label: server.name.replace(/^claude\.ai\s+/i, ''), tools, denied }
-    saveMailCache(mail)
-    return mail
+  let status: MailStatus = 'missing'
+  for (let i = 0; i < MAIL_PROBES; i++) {
+    const found = mailFromInit(await readInit(MAIL_PROBE_ARGS, WAIT_FOR_CONNECTORS))
+    if (found.mail) {
+      saveMailCache(found.mail)
+      mailStatus = 'ready'
+      return found.mail
+    }
+    if (found.status === 'confirming') status = 'confirming'
   }
-  // Connected, but its tools didn't load this time: trust the last good lookup.
+  // Not seen: an older Claude Code may still load connectors late, so keep
+  // the last good lookup. If the connector really is gone, an email check
+  // fails with a clear message (and the requireServer retries) instead of
+  // quietly passing.
   const cached = cachedMail()
-  return cached?.server === server.name ? cached : null
+  mailStatus = cached ? 'ready' : status
+  return cached
 }
 
 // ── browser access ────────────────────────────────────────────────────────
@@ -203,37 +222,8 @@ export function chromeFromInit(init: Record<string, any> | null): boolean {
   return !!server && (server.status === 'connected' || server.status === 'pending')
 }
 
-function probeChrome(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const args = ['-p', 'x', '--chrome', '--strict-mcp-config', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--setting-sources', '', '--tools', '']
-    const child = spawn('claude', args, { cwd: workspace(), stdio: ['ignore', 'pipe', 'ignore'] })
-    let buf = ''
-    let settled = false
-    const done = (v: boolean) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      child.kill('SIGKILL')
-      resolve(v)
-    }
-    const timer = setTimeout(() => done(false), 30_000)
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      buf += chunk
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        try {
-          const e = JSON.parse(line)
-          if (e.type === 'system' && e.subtype === 'init') return done(chromeFromInit(e))
-        } catch {
-          // not JSON
-        }
-      }
-    })
-    child.on('error', () => done(false))
-    child.on('close', () => done(false))
-  })
+async function probeChrome(): Promise<boolean> {
+  return chromeFromInit(await readInit(['-p', 'x', '--chrome', '--strict-mcp-config', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--setting-sources', '', '--tools', '']))
 }
 
 /** The last good lookup, re-checked with today's read-only rules (a cache
@@ -266,6 +256,7 @@ export async function detectAgents(opts: { quick?: boolean } = {}): Promise<Agen
       // ready. Keep automation_sync so this computer can stay connected,
       // receive settings and publish the recovery state to the UI.
       claudeMail = null
+      mailStatus = 'missing'
       notes.push(CLAUDE_SIGNED_OUT)
       found.push({
         id: a.id, label: a.label, version: r.stdout.trim().split('\n')[0] || null,
@@ -274,6 +265,7 @@ export async function detectAgents(opts: { quick?: boolean } = {}): Promise<Agen
       continue
     }
     const [mail, chrome] = await Promise.all([opts.quick ? cachedMail() : detectMail(), probeChrome()])
+    if (opts.quick) mailStatus = mail ? 'ready' : 'missing'
     claudeMail = mail
     found.push({
       id: a.id, label: a.label, version: r.stdout.trim().split('\n')[0] || null,
@@ -976,7 +968,7 @@ export function runClaude(
     emit({ type: 'started', agent: 'claude' })
 
     const attempt = (n: number) => {
-      const child = spawn('claude', opts.args, { cwd: workspace(), stdio: ['pipe', 'pipe', 'pipe'] })
+      const child = spawn('claude', opts.args, { cwd: workspace(), env: opts.requireServer ? WAIT_FOR_CONNECTORS : process.env, stdio: ['pipe', 'pipe', 'pipe'] })
       current = child
       let stderr = ''
       let pending = ''
@@ -1160,7 +1152,7 @@ function runClaudeTask(task: Task, emit: (e: TaskEvent) => void): Promise<void> 
   }
 
   if (task.kind === 'email_check') {
-    if (!claudeMail) return fail(emit, "Claude Code cannot read your email yet. First run `claude auth login` in Terminal. Then connect Gmail in Claude (Settings → Connectors). Landed checks again automatically within 30 minutes.")
+    if (!claudeMail) return fail(emit, "Claude Code cannot read your email yet. First run `claude auth login` in Terminal. Then connect Gmail in Claude (Settings → Connectors), and open Landed: it checks again right away.")
     const input = task.input as Partial<EmailCheckInput>
     if (typeof input.since !== 'string' || !Array.isArray(input.applications)) return fail(emit, 'Bad email task.')
     const mail = claudeMail

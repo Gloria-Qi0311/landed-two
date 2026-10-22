@@ -9,7 +9,7 @@
 // that used to run the schedule stops.
 import { create } from 'zustand'
 import type { Settings } from '@landed/observation-processor'
-import { AUTOMATION_KINDS, type AutomationKind, type Automations, type SyncInput, type SyncOutput } from '@landed/schema/automation'
+import { AUTOMATION_KINDS, type Abilities, type AutomationKind, type Automations, type SyncInput, type SyncOutput } from '@landed/schema/automation'
 import type { EmailFinding } from '@landed/schema/email-check'
 import type { PortalResult } from '@landed/schema/portal-check'
 import type { FoundJob } from '@landed/schema/search-brief'
@@ -34,6 +34,13 @@ type State = {
   runNow: AutomationKind[]
   /** with an email check in runNow: read this many days back, not from the last check */
   rescanDays: number | null
+  /** sent with the next sync: a page is waiting for a connector, so computers look again now */
+  recheck: boolean
+  /** when the user came back to a page waiting for a connector: it says
+   *  "Checking…" until a computer has looked since */
+  recheckAt: number | null
+  /** per computer (runtime id): what its agents reach, from daemons that say */
+  abilities: Record<string, Abilities>
 }
 
 type Env = {
@@ -90,7 +97,27 @@ function syncOne(target: SyncTarget, input: SyncInput): Promise<SyncOutput | nul
 
 export const useAutomationSync = create<State>(() => ({
   output: null, designated: null, synced_at: null, syncing: false, error: null, stored: {}, runNow: [], rescanDays: null,
+  recheck: false, recheckAt: null, abilities: {},
 }))
+
+/** Coming back to a page fires focus and visibilitychange together: one look
+ *  for both. (Each look starts Claude Code a few times, no model call.) */
+const RECHECK_EVERY_MS = 5_000
+let lastRecheck = 0
+
+/** A page is waiting for a connector (Gmail, Chrome): computers look again
+ *  at the next sync, not at their next half-hourly check. `shown`: the user
+ *  just came back to the page, so it says "Checking…" until they have. */
+export function requestRecheck(shown: boolean) {
+  const now = Date.now()
+  if (now - lastRecheck < RECHECK_EVERY_MS) {
+    // Already asked a moment ago: show that one as the check.
+    if (shown) useAutomationSync.setState((s) => (s.recheckAt === null || s.recheckAt < lastRecheck ? { recheckAt: lastRecheck } : {}))
+    return
+  }
+  lastRecheck = now
+  useAutomationSync.setState((s) => ({ recheck: true, recheckAt: shown ? now : s.recheckAt }))
+}
 
 export function requestRunNow(kind: AutomationKind, opts: { rescanDays?: number } = {}) {
   useAutomationSync.setState((s) => ({
@@ -112,7 +139,7 @@ export async function syncAutomations(env: Env): Promise<void> {
     }
     try {
       const context = await env.context()
-      const { runNow, rescanDays } = useAutomationSync.getState()
+      const { runNow, rescanDays, recheck } = useAutomationSync.getState()
       const ack = acks
       let gotResults = false
       for (const target of targets) {
@@ -121,7 +148,10 @@ export async function syncAutomations(env: Env): Promise<void> {
           runtime_id: designated.runtime.id, automations: env.automations, context,
           run_now: mine ? runNow : [], ack: mine ? ack : [],
           email_rescan_days: mine && runNow.includes('email_check') ? rescanDays : null,
+          recheck,
         })
+        const abilities = out?.abilities
+        if (abilities) useAutomationSync.setState((s) => ({ abilities: { ...s.abilities, [target.runtime.id]: abilities } }))
         if (!mine || !out) continue
         acks = acks.filter((id) => !ack.includes(id))
         useAutomationSync.setState((s) => ({ runNow: s.runNow.filter((k) => !runNow.includes(k)), rescanDays: null }))
@@ -135,6 +165,7 @@ export async function syncAutomations(env: Env): Promise<void> {
         }
         useAutomationSync.setState({ output: out })
       }
+      if (recheck) useAutomationSync.setState({ recheck: false })
       useAutomationSync.setState({ synced_at: new Date().toISOString(), error: null })
       // Ack right away, so the computer can drop what's stored.
       if (gotResults) {

@@ -9,20 +9,21 @@
 // lib/automation-sync.ts); connected cloud agents also do 1 and 2 on their
 // own schedule. Auto apply is managed here but runs event-first in the open
 // browser; already-open application tabs continue if Landed closes.
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AUTO_APPLY_CONCURRENCY, AUTOMATION_KINDS, describeSchedule, INTERVAL_HOURS, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
   type AutomationKind, type AutomationRun, type Automations, type Schedule,
 } from '@landed/schema/automation'
 import { parseBrief, type RemotePreference, type SearchBrief } from '@landed/schema/search-brief'
+import type { Abilities } from '@landed/schema/automation'
 import { Icon } from './primitives'
 import { PageHeader } from './shell'
 import { EditableList, EditableText } from './editable'
 import { formatRelative } from '../lib/time'
 import { useStore } from '../lib/store'
-import { computerCan, designate, requestRunNow, syncTargets, useAutomationSync, type SyncTarget } from '../lib/automation-sync'
+import { computerCan, designate, requestRecheck, requestRunNow, syncTargets, useAutomationSync, type SyncTarget } from '../lib/automation-sync'
 import { taskContext, useAutomations, useSetAutomations } from '../hooks/automation'
 import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
 import { searchComputer, chosenSearchTargets, useActiveSearch, useEditBrief } from '../hooks/search'
@@ -90,7 +91,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function AutomationCard({ kind, icon, title, flow, presets, designated, blocker, onRunNow, children }: {
+function AutomationCard({ kind, icon, title, flow, presets, designated, blocker, waiting = null, connected = null, onRunNow, children }: {
   kind: AutomationKind
   icon: string
   title: string
@@ -102,6 +103,10 @@ function AutomationCard({ kind, icon, title, flow, presets, designated, blocker,
   onRunNow?: () => void
   /** why it can't run yet (and what to do), if so */
   blocker: ReactNode | null
+  /** can't run yet, but the computer is checking (not the user's to fix) */
+  waiting?: ReactNode | null
+  /** what it reads with, once that's confirmed ("✓ Gmail · read-only") */
+  connected?: ReactNode | null
   children: ReactNode
 }) {
   const { automations, loaded } = useAutomations()
@@ -112,7 +117,7 @@ function AutomationCard({ kind, icon, title, flow, presets, designated, blocker,
   const runs = (sync.output?.runs ?? []).filter((r) => r.kind === kind).slice(0, 5)
   const queued = sync.runNow.includes(kind)
   const save = (next: Partial<Automations[AutomationKind]>) => set.mutate({ ...automations, [kind]: { ...a, ...next } })
-  const cantRun = !designated || !!blocker || state?.running || queued
+  const cantRun = !designated || !!blocker || !!waiting || state?.running || queued
 
   return (
     <section style={card}>
@@ -145,6 +150,8 @@ function AutomationCard({ kind, icon, title, flow, presets, designated, blocker,
         </span>
       </Row>
       {children}
+      {connected && <Row label="Reads with"><span style={{ color: ok }}>{connected}</span></Row>}
+      {waiting && <Row label="Needs"><span style={{ color: 'var(--fg-muted)', animation: 'pulse 1.6s ease-in-out infinite' }}>{waiting}</span></Row>}
       {blocker && <Row label="Needs"><span style={{ color: danger }}>{blocker}</span></Row>}
       {runs.length > 0 && <RunList runs={runs} />}
       {set.error && <div role="alert" style={{ ...muted, color: danger, paddingLeft: 44 }}>{(set.error as Error).message}</div>}
@@ -295,20 +302,63 @@ function runner(designated: SyncTarget | null, kind: AutomationKind) {
   return designated.runtime.agents.find((a) => a.kinds?.includes(kind)) ?? null
 }
 
+const ok = 'oklch(0.45 0.13 155)'
+
+type Connection = 'ok' | 'checking' | 'confirming' | 'missing'
+
+/** Whether the computers' agents reach a connector (Gmail, Chrome). While
+ *  they don't, the computers look again as soon as the user comes back to the
+ *  page (they connect it in claude.ai or Chrome, then return), and every
+ *  minute while it's open, instead of at their half-hourly check. */
+function useConnection(which: 'mail' | 'chrome', targets: SyncTarget[], reached: boolean): Connection {
+  const qc = useQueryClient()
+  const abilities = useAutomationSync((s) => s.abilities)
+  const recheckAt = useAutomationSync((s) => s.recheckAt)
+  const seen = targets.map((t) => abilities[t.runtime.id]).filter((a): a is Abilities => !!a)
+  const found = seen.some((a) => (which === 'mail' ? a.mail === 'ready' : a.chrome))
+  const waiting = !reached && !found && targets.length > 0
+  // The computer found it: its agents' new abilities are on the server now.
+  useEffect(() => { if (found && !reached) void qc.invalidateQueries({ queryKey: ['runtimes'] }) }, [found, reached, qc])
+  useEffect(() => {
+    if (!waiting) return
+    const visible = () => document.visibilityState === 'visible'
+    const back = () => { if (visible()) requestRecheck(true) }
+    back()
+    window.addEventListener('focus', back)
+    document.addEventListener('visibilitychange', back)
+    const timer = setInterval(() => { if (visible()) requestRecheck(false) }, 60_000)
+    return () => {
+      window.removeEventListener('focus', back)
+      document.removeEventListener('visibilitychange', back)
+      clearInterval(timer)
+    }
+  }, [waiting])
+  if (reached || found) return 'ok'
+  if (which === 'mail' && seen.some((a) => a.mail === 'confirming')) return 'confirming'
+  // Only computers that report what they reach answer a recheck (an older Landed for Mac doesn't).
+  const looked = recheckAt !== null && seen.some((a) => !!a.checked_at && Date.parse(a.checked_at) >= recheckAt)
+  if (seen.length && recheckAt !== null && !looked && Date.now() - recheckAt < 2 * 60_000) return 'checking'
+  return 'missing'
+}
+
 // 1 ── email ───────────────────────────────────────────────────────────────
 
 function EmailCard({ designated, targets, cloudLine }: CardProps) {
   const agent = runner(designated, 'email_check')
   const queued = useAutomationSync((s) => s.runNow.includes('email_check') || !!s.output?.state.email_check?.running)
   const elsewhere = !agent && targets.some((t) => computerCan(t, 'email_check'))
+  const connection = useConnection('mail', targets, !!(agent || elsewhere))
   const signedOut = targets.some((t) => t.runtime.agents.some((a) => a.id === 'claude' && a.auth === 'signed_out'))
   return (
     <AutomationCard
       kind="email_check" icon="inbox" title="Check email" flow="New emails → application status"
       presets={[...INTERVALS, ...DAILY.slice(0, 2)]} designated={designated}
-      blocker={agent || elsewhere ? null : signedOut
-        ? <>Claude Code is signed out. Open Terminal, run <code>claude auth login</code>, and finish signing in in the browser. Landed checks again automatically within 30 minutes.</>
-        : <>Your agent can't read email yet. First run <code>claude auth login</code> in Terminal. Then connect Gmail in Claude (Settings → Connectors); Landed picks it up within 30 minutes.</>}
+      connected={agent?.mail ? <>✓ {agent.mail} connected · read-only: it never sends, labels or deletes</> : null}
+      waiting={connection === 'checking' ? 'Checking whether your agent can read your email…'
+        : connection === 'confirming' ? 'Your email is connected in Claude. Making sure your agent can read it: this takes a moment.' : null}
+      blocker={connection !== 'missing' ? null : signedOut
+        ? <>Claude Code is signed out. Open Terminal, run <code>claude auth login</code>, finish signing in in the browser, then come back to this page: Landed checks again right away.</>
+        : <>Your agent can't read email yet. First run <code>claude auth login</code> in Terminal. Then connect Gmail in Claude (Settings → Connectors) and come back to this page: Landed checks again right away.</>}
     >
       <Row label="Looks at">
         Emails received since the last check (each run starts an hour before the previous one, so nothing falls in between),
@@ -489,6 +539,7 @@ function PortalCard({ designated, targets }: CardProps) {
   const quiet = automations.portal_check.quiet_days ?? 14
   const agent = runner(designated, 'portal_check')
   const elsewhere = !agent && targets.some((t) => computerCan(t, 'portal_check'))
+  const connection = useConnection('chrome', targets, !!(agent || elsewhere))
   // Which applications qualify right now (the computer also skips ones it
   // looked at recently).
   const candidates = useQuery({
@@ -506,7 +557,11 @@ function PortalCard({ designated, targets }: CardProps) {
     <AutomationCard
       kind="portal_check" icon="external" title="Check candidate portals" flow="Applications that went quiet → application status"
       presets={[DAILY[2], DAILY[1], DAILY[0]]} designated={designated}
-      blocker={agent || elsewhere ? null : <>Your agent can't use Chrome yet. Connect the Claude in Chrome extension to Claude Code; your computer picks it up within 30 minutes.</>}
+      connected={agent?.browser ? <>✓ {agent.browser} connected · it can open and read pages, never click or type</> : null}
+      waiting={connection === 'checking' ? 'Checking whether your agent can use Chrome…' : null}
+      blocker={connection === 'missing'
+        ? <>Your agent can't use Chrome yet. Connect the Claude in Chrome extension to Claude Code, then come back to this page: Landed checks again right away.</>
+        : null}
     >
       <Row label="Looks at">
         Applications with a portal link and no news for{' '}

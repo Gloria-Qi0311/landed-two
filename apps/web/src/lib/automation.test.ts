@@ -12,7 +12,7 @@ vi.mock('../hooks/runtimes', () => ({
   startJob: async (_rt: string, _agent: string, _kind: string, input: Record<string, unknown>) => { syncs.push(input); return 'job-1' },
   followJob: (_id: string, onEvent: (e: unknown) => void) => { setTimeout(() => onEvent({ type: 'done', text: '', output: answer }), 0); return () => {} },
 }))
-const { designate, syncAutomations, syncTargets, useAutomationSync } = await import('./automation-sync')
+const { designate, requestRecheck, syncAutomations, syncTargets, useAutomationSync } = await import('./automation-sync')
 
 describe('schedules', () => {
   const at = (s: string) => new Date(s)
@@ -114,6 +114,42 @@ describe('the browser side of a sync', () => {
     expect(stored).toEqual(['email_check'])
     expect(syncs.at(-1)!.ack).toEqual(['22222222-0000-4000-8000-000000000001'])
     expect(useAutomationSync.getState().stored['22222222-0000-4000-8000-000000000001'].text).toBe('1 updated')
+  })
+})
+
+describe('connectors: look again when the page is waiting', () => {
+  const runtime = (id: string, kinds: string[]) => ({
+    id, name: id, online: true, revoked_at: null, last_seen_at: 'x', created_at: 'x', daemon_version: '0.3.0',
+    agents: [{ id: 'claude', label: 'Claude Code', version: '1', kinds, mail: null }],
+  })
+  test('a recheck goes to every computer once, and each one\'s abilities are kept', async () => {
+    const store = createLocalStore('landed-auto-recheck')
+    const a = runtime('11111111-0000-4000-8000-00000000000c', ['automation_sync'])
+    const b = runtime('11111111-0000-4000-8000-00000000000d', ['automation_sync'])
+    answer = { results: [], runs: [], state: {}, abilities: { mail: 'confirming', chrome: false, checking: true, checked_at: null } }
+    const env = {
+      store, runtimes: [a, b] as never, automations: parseAutomations({}), settings: { autoApply: true },
+      context: async () => ({ applications: [], email_since: null, brief: null, search_id: null, portal_apps: [] }),
+      onStored: async () => {},
+    }
+    requestRecheck(true)
+    expect(useAutomationSync.getState().recheckAt).not.toBeNull() // "Checking…" until a computer has looked
+    requestRecheck(true) // a moment later (focus + visibilitychange): not asked twice
+    const before = syncs.length
+    await syncAutomations(env)
+    expect(syncs.slice(before).map((x) => x.recheck)).toEqual([true, true])
+    expect(useAutomationSync.getState().abilities[a.id]).toEqual({ mail: 'confirming', chrome: false, checking: true, checked_at: null })
+    expect(useAutomationSync.getState().abilities[b.id]?.mail).toBe('confirming')
+    await syncAutomations(env)
+    expect(syncs.slice(-2).map((x) => x.recheck)).toEqual([false, false]) // asked once
+  })
+
+  test('sync payloads carry the recheck and the abilities, validated', () => {
+    expect(parseSyncInput({ runtime_id: '11111111-0000-4000-8000-00000000000c', recheck: true })?.recheck).toBe(true)
+    expect(parseSyncInput({ runtime_id: '11111111-0000-4000-8000-00000000000c', recheck: 'yes' })?.recheck).toBe(false)
+    expect(parseSyncOutput({ abilities: { mail: 'everything', chrome: 1, checking: true, checked_at: 'soon' } }).abilities)
+      .toEqual({ mail: 'missing', chrome: false, checking: true, checked_at: null })
+    expect(parseSyncOutput({}).abilities).toBeUndefined() // an older computer
   })
 })
 

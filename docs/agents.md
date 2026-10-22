@@ -166,13 +166,31 @@ product and security decision, not a convenience.**
 
 ### Capabilities
 
-The daemon re-detects capabilities every 30 minutes: the mail connector via
-`claude mcp list` + ToolSearch (with a cache, because claude.ai connectors load
-unreliably in `claude -p`), and Chrome via a `--chrome` init probe. They are
-re-sent in `hello`. An email or portal task whose MCP server is missing from the
-init event is killed before the model runs and retried (`requireServer`, up to 5
-times). A task that still never called its mailbox or Chrome tool must end in an
-error, not an empty success; otherwise a check that read nothing would advance
+The daemon detects capabilities by starting Claude Code just far enough to read
+its init event (no model call, ~1.5 s), which lists the connected MCP servers and
+their tools: the mailbox (`mailFromInit`, the same flags as an email check) and
+Chrome (a `--chrome` probe). In `claude -p`, MCP servers connect in the
+background by default, so a claude.ai connector often missed the init event
+(about two runs in three). Detection, and every task that needs a connector,
+sets `MCP_CONNECTION_NONBLOCKING=false` (`WAIT_FOR_CONNECTORS`) so Claude Code
+connects them first. The last good mailbox lookup is cached
+(`~/.landed/capabilities.json`) for an older Claude Code. Capabilities are
+re-sent in `hello`.
+
+**When**: at start, every 30 minutes, and **right away when a page is waiting
+for a connector**. A user connects Gmail or Chrome somewhere else and comes back
+to Landed, so the Automation page asks every online computer to look again
+(`recheck` in the automation sync) when it opens, when the user comes back to
+it (focus / visibility), and every minute while it's open and still waiting.
+The computer answers with what it reaches (`abilities`: mailbox `ready`,
+`confirming` (connected but not usable yet; it looks again in 2 minutes) or
+`missing`, plus Chrome), and the card says "Checking…", then "✓ Gmail
+connected · read-only", or what to do. No button: coming back is the trigger.
+
+An email or portal task whose MCP server is missing from the init event is
+killed before the model runs and retried (`requireServer`, up to 5 times). A
+task that still never called its mailbox or Chrome tool must end in an error,
+not an empty success; otherwise a check that read nothing would advance
 `email_checked_at` and skip mail.
 
 The connector cache is only evidence of which read tools were safe the last

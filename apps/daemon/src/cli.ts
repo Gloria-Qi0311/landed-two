@@ -21,7 +21,7 @@
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
-import { agentForKind, detectAgents, detectionNotes, runTask, type AgentInfo, type Task } from './agents.ts'
+import { agentForKind, detectAgents, detectionNotes, mailStatus, runTask, type AgentInfo, type Task } from './agents.ts'
 import { handleSync, setupAutomations, tick } from './automations.ts'
 import { connectCodex, existingLandedUrl, findCodex } from './codex-connector.ts'
 import type { SyncInput } from '@landed/schema/automation'
@@ -47,6 +47,8 @@ function log(msg: string) {
 }
 
 const REDETECT_MS = 30 * 60_000
+/** While a mailbox is connected but not usable yet, look again this soon. */
+const CONFIRM_RETRY_MS = 2 * 60_000
 
 /** Connect and work until the computer is removed in Landed ('revoked');
  *  in a terminal that exits, as a service it waits for a new pairing. */
@@ -85,9 +87,14 @@ async function run(config: Config, opts: { service?: boolean } = {}): Promise<'r
   }
 
   // Full detection (mailbox lookup) in the background, then every 30
-  // minutes: connectors come and go, and claude.ai's load unreliably.
+  // minutes: connectors come and go. Also right away when a page waiting
+  // for a connector asks (sync `recheck`), and again soon while a connected
+  // mailbox isn't usable yet. One at a time.
   let lastNotes = ''
-  const redetect = async () => {
+  let detecting: Promise<void> | null = null
+  let checkedAt: string | null = null
+  let confirmRetry: ReturnType<typeof setTimeout> | null = null
+  const redetect = (): Promise<void> => (detecting ??= (async () => {
     try {
       const next = await detectAgents()
       if (detectionNotes.join() !== lastNotes) {
@@ -101,8 +108,15 @@ async function run(config: Config, opts: { service?: boolean } = {}): Promise<'r
       }
     } catch (err) {
       log(`couldn't refresh what the agents can do (${(err as Error).message})`)
+    } finally {
+      checkedAt = new Date().toISOString()
+      detecting = null
+      if (mailStatus === 'confirming' && !confirmRetry) {
+        confirmRetry = setTimeout(() => { confirmRetry = null; void redetect() }, CONFIRM_RETRY_MS)
+        confirmRetry.unref()
+      }
     }
-  }
+  })())
   void redetect()
   const timers = [
     setInterval(redetect, REDETECT_MS),
@@ -118,6 +132,8 @@ async function run(config: Config, opts: { service?: boolean } = {}): Promise<'r
       // Which computer this is: the browser names the one that runs the schedule.
       setupAutomations({
         runtimeId: me.id, runTask, log,
+        recheck: () => void redetect(),
+        abilities: () => ({ mail: mailStatus, chrome: agents.some((a) => !!a.browser), checking: detecting !== null, checked_at: checkedAt }),
         pickAgent: (kind) => agentForKind(agents, kind),
         agentsFor: (kind) => agents.filter((a) => a.kinds.includes(kind)).map((a) => ({ id: a.id, label: a.label })),
       })
@@ -312,10 +328,10 @@ async function main() {
     for (const a of agents.filter((x) => x.id === 'claude')) {
       console.log(a.mail
         ? `${a.label} can read your ${a.mail} (read-only), so Landed can check your email for application updates.`
-        : `${a.label} has no mail connector, so email checks are off. To turn them on, connect Gmail in Claude (claude.ai → Settings → Connectors); a running daemon picks it up within 30 minutes.`)
+        : `${a.label} has no mail connector, so email checks are off. To turn them on, connect Gmail in Claude (claude.ai → Settings → Connectors), then open Landed: it checks again right away.`)
       console.log(a.browser
         ? `${a.label} can look at candidate portals in ${a.browser} (read-only: it can navigate and read, never click or type).`
-        : `${a.label} can't reach Chrome, so portal checks are off. Open Chrome with the Claude in Chrome extension connected; a running daemon picks it up within 30 minutes.`)
+        : `${a.label} can't reach Chrome, so portal checks are off. Open Chrome with the Claude in Chrome extension connected, then open Landed: it checks again right away.`)
     }
     return
   }

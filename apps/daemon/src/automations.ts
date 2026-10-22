@@ -10,7 +10,7 @@ import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import {
   AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickQuietPortals, pickSearchAgents,
-  type AutomationKind, type AutomationResult, type AutomationRun, type Automations, type SyncContext, type SyncInput, type SyncOutput,
+  type Abilities, type AutomationKind, type AutomationResult, type AutomationRun, type Automations, type SyncContext, type SyncInput, type SyncOutput,
 } from '@landed/schema/automation'
 import { home } from './config.ts'
 import type { Task, TaskEvent } from './agents.ts'
@@ -66,17 +66,23 @@ let pickAgent: (kind: AutomationKind) => string | null = () => 'claude'
 /** Every agent here that can run a kind (Find new jobs can search with several). */
 let agentsFor: ((kind: AutomationKind) => { id: string; label: string }[]) | null = null
 let log: (msg: string) => void = () => {}
+let recheckFn: (() => void) | null = null
+let abilitiesFn: (() => Abilities) | null = null
 const running = new Set<AutomationKind>()
 
 /** Wire up (cli.ts): this computer's runtime id (from hello), how to run a
- *  task and with which agent here, logging. */
+ *  task and with which agent here, logging; how to look again at what the
+ *  agents can reach, and what they reach now. */
 export function setupAutomations(opts: {
   runtimeId: string; runTask: typeof runTaskFn; log: (msg: string) => void; pickAgent?: (kind: AutomationKind) => string | null
   agentsFor?: (kind: AutomationKind) => { id: string; label: string }[]
+  recheck?: () => void; abilities?: () => Abilities
 }) {
   myRuntimeId = opts.runtimeId
   runTaskFn = opts.runTask
   log = opts.log
+  recheckFn = opts.recheck ?? null
+  abilitiesFn = opts.abilities ?? null
   if (opts.pickAgent) pickAgent = opts.pickAgent
   if (opts.agentsFor) agentsFor = opts.agentsFor
   const st = s()
@@ -92,7 +98,7 @@ export function setupAutomations(opts: {
 
 function output(): SyncOutput {
   const st = s()
-  const out: SyncOutput = { results: st.outbox.slice(0, 10), runs: st.runs.slice(0, 20), state: {} }
+  const out: SyncOutput = { results: st.outbox.slice(0, 10), runs: st.runs.slice(0, 20), state: {}, ...(abilitiesFn ? { abilities: abilitiesFn() } : {}) }
   for (const kind of AUTOMATION_KINDS) {
     const a = st.automations?.[kind]
     out.state[kind] = {
@@ -112,6 +118,8 @@ export function handleSync(input: SyncInput): SyncOutput {
   st.automations = parseAutomations(input.automations)
   st.context = input.context
   save()
+  // A page is waiting for a connector: every computer looks again, not just the one running the schedule.
+  if (input.recheck) recheckFn?.()
   if (input.runtime_id === myRuntimeId) {
     for (const kind of input.run_now) void runAutomation(kind, kind === 'email_check' && input.email_rescan_days ? { rescanDays: input.email_rescan_days } : {})
   }
@@ -251,5 +259,7 @@ export function resetAutomationsForTests() {
   myRuntimeId = null
   pickAgent = () => 'claude'
   agentsFor = null
+  recheckFn = null
+  abilitiesFn = null
   running.clear()
 }

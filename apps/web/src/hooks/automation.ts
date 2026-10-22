@@ -14,6 +14,8 @@ import { useRuntimes } from './runtimes'
 
 const IDLE_MS = 5 * 60_000
 const BUSY_MS = 20_000
+/** while a computer looks at its connectors: it takes a few seconds */
+const LOOK_MS = 5_000
 
 export function useAutomations(): { automations: Automations; loaded: boolean } {
   const prefs = useAccountPrefs()
@@ -60,7 +62,11 @@ export function useAutomationRunner() {
   const runtimes = useRuntimes().data
   const automations = parseAutomations(prefs?.automations)
   const runNow = useAutomationSync((s) => s.runNow)
+  const recheck = useAutomationSync((s) => s.recheck)
   const running = useAutomationSync((s) => Object.values(s.output?.state ?? {}).some((x) => x?.running))
+  // A computer is looking at its connectors: hear back sooner.
+  const looking = useAutomationSync((s) => Object.values(s.abilities).some((a) => a.checking || a.mail === 'confirming')
+    || (s.recheckAt !== null && Date.now() - s.recheckAt < 2 * 60_000))
   const env = useRef<Parameters<typeof syncAutomations>[0] | null>(null)
 
   env.current = ready && prefs && runtimes ? {
@@ -79,10 +85,10 @@ export function useAutomationRunner() {
   const onlineKey = (runtimes ?? []).filter((r) => r.online).map((r) => r.id).join()
   useEffect(() => {
     if (env.current) void syncAutomations(env.current)
-  }, [ready, !!prefs, settingsKey, onlineKey, runNow.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, !!prefs, settingsKey, onlineKey, runNow.length, recheck]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const timer = setInterval(() => { if (env.current) void syncAutomations(env.current) }, running || runNow.length ? BUSY_MS : IDLE_MS)
+    const timer = setInterval(() => { if (env.current) void syncAutomations(env.current) }, looking ? LOOK_MS : running || runNow.length ? BUSY_MS : IDLE_MS)
     return () => clearInterval(timer)
-  }, [running, runNow.length])
+  }, [running, runNow.length, looking])
 }

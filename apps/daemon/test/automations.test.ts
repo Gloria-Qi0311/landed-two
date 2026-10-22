@@ -178,3 +178,18 @@ test('Find new jobs searches with each agent chosen on the Automation page that 
   await settle()
   assert.deepEqual(calls, ['claude'])
 })
+
+test('a page waiting for a connector makes every computer look again, and hears what they reach', () => {
+  resetAutomationsForTests()
+  let rechecks = 0
+  setupAutomations({
+    runtimeId: 'rt-b', log: () => {}, runTask: async () => {},
+    recheck: () => { rechecks++ },
+    abilities: () => ({ mail: 'confirming', chrome: false, checking: true, checked_at: null }),
+  })
+  const out = sync({ runtime_id: 'rt-a', recheck: true }) // rt-b doesn't run the schedule, and still looks
+  assert.equal(rechecks, 1)
+  assert.deepEqual(out.abilities, { mail: 'confirming', chrome: false, checking: true, checked_at: null })
+  sync({ runtime_id: 'rt-a' })
+  assert.equal(rechecks, 1, 'only when asked')
+})

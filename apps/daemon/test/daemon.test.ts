@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   CHROME_READ_TOOLS, chatImages, chatWithContext, chatWithHistory, contextToSend, claudeImageMessage, chromeFromInit, claudeChatArgs, claudeEmailArgs, claudePortalArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
-  initHasServer, isReadOnlyTool, parseClaudeAuthStatus, parseClaudeLine, parseMcpList, portalPrompt, readOnlyMailTools, searchPrompt, toolReferences,
+  initHasServer, isReadOnlyTool, mailFromInit, parseClaudeAuthStatus, parseClaudeLine, portalPrompt, readOnlyMailTools, searchPrompt,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
 
@@ -65,25 +65,33 @@ test('chat and search switch off every MCP server', () => {
   assert.ok(claudeSearchArgs().includes('--strict-mcp-config'))
 })
 
-test('mail access: only a connected mail server, only its read tools', () => {
-  const list = [
-    'Checking MCP server health…', '',
-    'claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected',
-    'claude.ai Gmail: https://gmail.mcp.example/mcp - ✔ Connected',
-    'claude.ai Outlook: https://outlook.example/mcp - ! Needs authentication',
-  ].join('\n')
-  const servers = parseMcpList(list)
-  assert.deepEqual(servers.map((s) => [s.name, s.connected]), [['claude.ai Google Drive', true], ['claude.ai Gmail', true], ['claude.ai Outlook', false]])
-  assert.deepEqual(mailServer(servers), { name: 'claude.ai Gmail', keyword: 'gmail' })
+test('mail access: from the init event, only a connected mail server, only its read tools', () => {
+  const gmail = ['search_threads', 'get_thread', 'list_labels', 'create_draft', 'send_message', 'modify_thread_labels', 'batch_get']
+    .map((n) => `mcp__claude_ai_Gmail__${n}`)
+  const init = {
+    type: 'system', subtype: 'init',
+    mcp_servers: [
+      { name: 'claude.ai Google Drive', status: 'connected' }, { name: 'claude.ai Gmail', status: 'connected' },
+      { name: 'claude.ai Outlook', status: 'needs-auth' },
+    ],
+    tools: ['ToolSearch', ...gmail, 'mcp__claude_ai_Google_Drive__search_files'],
+  }
+  assert.deepEqual(mailFromInit(init), {
+    status: 'ready',
+    mail: {
+      server: 'claude.ai Gmail', label: 'Gmail',
+      tools: ['mcp__claude_ai_Gmail__search_threads', 'mcp__claude_ai_Gmail__get_thread', 'mcp__claude_ai_Gmail__list_labels'],
+      denied: ['mcp__claude_ai_Gmail__create_draft', 'mcp__claude_ai_Gmail__send_message', 'mcp__claude_ai_Gmail__modify_thread_labels', 'mcp__claude_ai_Gmail__batch_get'],
+    },
+  })
+  // Connected but its tools didn't come through, or still connecting: not usable yet.
+  assert.deepEqual(mailFromInit({ ...init, tools: ['ToolSearch'] }), { status: 'confirming', mail: null })
+  assert.deepEqual(mailFromInit({ mcp_servers: [{ name: 'claude.ai Gmail', status: 'pending' }] }), { status: 'confirming', mail: null })
+  // Not connected (or connectors didn't load): nothing to read.
+  assert.deepEqual(mailFromInit({ mcp_servers: [{ name: 'claude.ai Gmail', status: 'needs-auth' }, { name: 'Mailchimp', status: 'connected' }] }), { status: 'missing', mail: null })
+  assert.deepEqual(mailFromInit({ mcp_servers: [] }), { status: 'missing', mail: null })
+  assert.deepEqual(mailFromInit(null), { status: 'missing', mail: null })
   assert.equal(mailServer([{ name: 'claude.ai Gmail', connected: false }, { name: 'Mailchimp', connected: true }]), null)
-
-  const line = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: [
-    'search_threads', 'get_thread', 'list_labels', 'create_draft', 'send_message', 'modify_thread_labels', 'batch_get',
-  ].map((n) => ({ type: 'tool_reference', tool_name: `mcp__claude_ai_Gmail__${n}` })).concat([{ type: 'tool_reference', tool_name: 'mcp__claude_ai_Google_Drive__search_files' }]) }] } })
-  assert.deepEqual(readOnlyMailTools('claude.ai Gmail', toolReferences(line)), [
-    'mcp__claude_ai_Gmail__search_threads', 'mcp__claude_ai_Gmail__get_thread', 'mcp__claude_ai_Gmail__list_labels',
-  ])
-  assert.deepEqual(toolReferences('not json'), [])
 })
 
 test('Claude auth status: explicit sign-in/out only; unknown versions do not disable the agent', () => {

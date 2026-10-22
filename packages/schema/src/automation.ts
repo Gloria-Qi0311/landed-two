@@ -174,7 +174,16 @@ export type SyncInput = {
   ack: string[]
   /** with run_now email_check: read this many days back instead of from the last check */
   email_rescan_days: number | null
+  /** the page is waiting for a connector (Gmail, Chrome): look again now,
+   *  instead of at the next half-hourly check */
+  recheck: boolean
 }
+
+/** What this computer's agents can reach, as of its last look. `mail`:
+ *  `confirming` = Claude lists a connected mailbox but its tools haven't
+ *  loaded yet (they load unreliably in the background); the computer keeps
+ *  trying. `checked_at`: when the last look finished. */
+export type Abilities = { mail: 'ready' | 'confirming' | 'missing'; chrome: boolean; checking: boolean; checked_at: string | null }
 
 export const RESCAN_DAYS = [7, 30]
 
@@ -207,6 +216,8 @@ export type SyncOutput = {
   runs: AutomationRun[]
   /** per kind: when it last ran successfully, and when it runs next */
   state: Partial<Record<AutomationKind, { last_success_at: string | null; next_run_at: string | null; running: boolean }>>
+  /** absent from daemons older than the recheck */
+  abilities?: Abilities
 }
 
 const UUID = /^[0-9a-f-]{36}$/i
@@ -243,6 +254,7 @@ export function parseSyncInput(raw: unknown): SyncInput | null {
     run_now: (Array.isArray(r.run_now) ? r.run_now : []).filter(isKind),
     ack: (Array.isArray(r.ack) ? r.ack : []).filter((x): x is string => typeof x === 'string' && UUID.test(x)).slice(0, 200),
     email_rescan_days: RESCAN_DAYS.includes(r.email_rescan_days as number) ? r.email_rescan_days as number : null,
+    recheck: r.recheck === true,
   }
 }
 
@@ -279,5 +291,10 @@ export function parseSyncOutput(raw: unknown): SyncOutput {
     const s = st[kind]
     if (s && typeof s === 'object') state[kind] = { last_success_at: iso(s.last_success_at), next_run_at: iso(s.next_run_at), running: s.running === true }
   }
-  return { results, runs, state }
+  const a = (r.abilities && typeof r.abilities === 'object' ? r.abilities : null) as Record<string, unknown> | null
+  const abilities: Abilities | undefined = a ? {
+    mail: a.mail === 'ready' || a.mail === 'confirming' ? a.mail : 'missing',
+    chrome: a.chrome === true, checking: a.checking === true, checked_at: iso(a.checked_at),
+  } : undefined
+  return { results, runs, state, ...(abilities ? { abilities } : {}) }
 }

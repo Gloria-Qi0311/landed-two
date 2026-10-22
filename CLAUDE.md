@@ -99,6 +99,8 @@ messages (PR title and a clean body, no trailer).
   product and security decision.
 - Email and portal tasks that never called their tool end in an error, not an
   empty success.
+- A page waiting for Gmail or Chrome asks the computer to look again when the user
+  comes back to it; never make them wait for the half-hourly check.
 - Cached connector capabilities never override an explicit agent sign-out;
   auth failures name the exact recovery action, and periodic detection must
   restore capabilities after the user signs back in.
