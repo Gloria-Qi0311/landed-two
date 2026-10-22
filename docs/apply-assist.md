@@ -426,7 +426,12 @@ blocked job never consumes the rest of the batch:
   or has no usable resume.
 
 Before touching fields, `blockers.js` checks for a visible password/account form
-or CAPTCHA. It never signs in, creates an account or works around the challenge.
+or CAPTCHA. A CAPTCHA counts only when it's on screen for the person: shown, with
+a size, not hidden, not marked invisible. Lever, Greenhouse and Ashby embed
+invisible ones (a zero-height hCaptcha, Google's `size=invisible` badge in the
+corner, hidden challenge frames) that act only on submit; counting those stopped
+every fill on those sites. A page that says "verify you are human" or "security
+check" counts; a "protected by hCaptcha" footer doesn't. It never signs in, creates an account or works around the challenge.
 The service worker queues a small result (Landed ids, counts and blocker only;
 never form values) under `landed:assist-results`. The open Landed tab takes each
 result once: `next_step` becomes a specific `Blocked · …`, `Review highlighted

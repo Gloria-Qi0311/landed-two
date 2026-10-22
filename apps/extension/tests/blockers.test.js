@@ -36,3 +36,41 @@ test('an ordinary application form is not a blocker', () => {
   document.querySelectorAll('input, textarea').forEach(show)
   expect(detectApplyBlocker()).toBeNull()
 })
+
+describe('invisible CAPTCHAs (they act on submit) never stop the fill; one on screen always does', () => {
+  const noSize = (el) => { el.getClientRects = () => []; el.getBoundingClientRect = () => ({ width: 0, height: 0 }); return el }
+
+  test('Lever: an hCaptcha with no height, its frames hidden', () => {
+    document.body.innerHTML = '<label>Name <input name="name"></label><div class="h-captcha"><iframe style="visibility:hidden" src="https://newassets.hcaptcha.com/captcha/v1/x/static/hcaptcha.html"></iframe></div>'
+    show(document.querySelector('input'))
+    noSize(document.querySelector('.h-captcha'))
+    show(document.querySelector('iframe'))
+    expect(detectApplyBlocker()).toBeNull()
+  })
+
+  test("Greenhouse and Ashby: Google's invisible badge in the corner, a hidden challenge frame", () => {
+    document.body.innerHTML = `<label>Name <input name="name"></label>
+      <div class="grecaptcha-badge"><div class="grecaptcha-logo"><iframe src="https://www.recaptcha.net/recaptcha/enterprise/anchor?ar=1&k=x&size=invisible"></iframe></div></div>
+      <div style="visibility:hidden"><iframe src="https://www.recaptcha.net/recaptcha/enterprise/bframe?k=x"></iframe></div>`
+    document.querySelectorAll('input, iframe').forEach(show)
+    expect(detectApplyBlocker()).toBeNull()
+  })
+
+  test('a "protected by hCaptcha" footer is not a challenge page', () => {
+    document.body.innerHTML = '<label>Name <input name="name"></label><p>This site is protected by hCaptcha and its Privacy Policy applies.</p>'
+    show(document.querySelector('input'))
+    expect(detectApplyBlocker()).toBeNull()
+  })
+
+  test('a checkbox widget on screen, an open challenge, a "verify you are human" page: stop', () => {
+    document.body.innerHTML = '<label>Name <input name="name"></label><iframe src="https://www.google.com/recaptcha/api2/anchor?k=x&size=normal"></iframe>'
+    document.querySelectorAll('input, iframe').forEach(show)
+    expect(detectApplyBlocker()).toMatchObject({ kind: 'captcha' })
+    document.body.innerHTML = '<div class="h-captcha" data-sitekey="x"></div>'
+    show(document.querySelector('.h-captcha'))
+    expect(detectApplyBlocker()).toMatchObject({ kind: 'captcha' })
+    document.body.innerHTML = '<h1>Verify you are human</h1>\n<button>Continue</button>'
+    show(document.querySelector('button'))
+    expect(detectApplyBlocker()).toMatchObject({ kind: 'captcha' })
+  })
+})

@@ -10,15 +10,36 @@ const visible = (selector) => deepAll(selector).filter((el) => isRendered(el));
 const pageText = () => String(document.body?.innerText || document.body?.textContent || '')
   .replace(/\s+/g, ' ').trim().slice(0, 20_000);
 
+const CAPTCHA = [
+  'iframe[src*="recaptcha"]', 'iframe[src*="hcaptcha"]', 'iframe[src*="challenges.cloudflare.com"]',
+  '.g-recaptcha', '.h-captcha', '.cf-turnstile', '[data-sitekey]',
+  'input[name*="captcha" i]', 'input[id*="captcha" i]',
+].join(',');
+
+/** A CAPTCHA the person has to deal with now: on screen, with some size, not
+ *  hidden. Lever, Greenhouse and Ashby embed invisible ones (a zero-height
+ *  hCaptcha, Google's "size=invisible" badge in the corner, hidden challenge
+ *  frames) that only act on submit; counting those stopped every fill there
+ *  before a single field. */
+function showsChallenge(el) {
+  if (!isRendered(el)) return false;
+  const src = el.getAttribute('src') || '';
+  if (/[?&]size=invisible\b/.test(src) || el.getAttribute('data-size') === 'invisible' || el.closest('.grecaptcha-badge')) return false;
+  for (let n = el, depth = 0; n && n.nodeType === 1 && depth < 10; n = n.parentElement, depth++) {
+    const style = getComputedStyle(n);
+    if (style.visibility === 'hidden' || style.display === 'none' || (style.opacity !== '' && Number(style.opacity) === 0)) return false;
+  }
+  const rect = (el.getClientRects && el.getClientRects()[0]) || el.getBoundingClientRect();
+  return !!rect && rect.width > 0 && rect.height > 0;
+}
+
 /** @returns {{ kind: 'login' | 'account' | 'captcha', message: string } | null} */
 function detectApplyBlocker() {
-  const captcha = visible([
-    'iframe[src*="recaptcha"]', 'iframe[src*="hcaptcha"]', 'iframe[src*="challenges.cloudflare.com"]',
-    '.g-recaptcha', '.h-captcha', '.cf-turnstile', '[data-sitekey]',
-    'input[name*="captcha" i]', 'input[id*="captcha" i]',
-  ].join(','));
+  const captcha = deepAll(CAPTCHA).filter(showsChallenge);
   const text = pageText();
-  const challengePage = /\b(captcha|verify (?:that )?you(?:'re| are) human|security check)\b|人机验证|验证码/i.test(text)
+  // A challenge page says so; the bare word "captcha" is often only a
+  // "protected by hCaptcha" footer.
+  const challengePage = /\b(verify (?:that )?you(?:'re| are) (?:a )?human|security check|are you a robot)\b|人机验证|验证码/i.test(text)
     && visible('input, iframe, [role="checkbox"], button').length > 0;
   if (captcha.length > 0 || challengePage) {
     return { kind: 'captcha', message: 'This page has a CAPTCHA. Complete it yourself; Landed will not bypass it.' };
