@@ -87,6 +87,31 @@
       && OTHER_COUNTRY.test(n) && !US.test(n);
   }
 
+  // ── about one place or one amount: not a fact for every application ─────
+  // A correction on such a question isn't remembered as the saved answer
+  // (lib/fill/learn.js): "No" to "Willing to relocate to Austin, TX?" isn't "No"
+  // to relocating anywhere, nor 75% travel to all travel. The same rule as
+  // namesPlaceOrAmount in packages/schema/src/application-answers.ts (a web
+  // test runs both).
+  const AMOUNT = /\d\s*%|percent|百分之|\b\d+\s*\+?\s*(?:days?|hours?|hrs?|weeks?|months?|years?|miles?|km|times?)\b|[0-9一二两三四五六七]\s*(?:天|小时|周)/i;
+  const US_STATE = /\b(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming)\b/i;
+  const CJK_PLACE = /市|省|办公室|分公司|总部|园区|北京|上海|深圳|广州|杭州|成都|南京|武汉|西安|苏州|天津|重庆|台北|东京|伦敦|纽约|西雅图|旧金山|硅谷/;
+  /** Capitalized words that don't name one place: the US and its visas. */
+  const GENERAL_NAMES = new Set(['i', 'us', 'u.s', 'u.s.', 'usa', 'u.s.a', 'u.s.a.', 'united', 'states', 'america', 'american', 'h-1b', 'h1b', 'opt', 'cpt', 'stem', 'ead', 'eeo', 'hr']);
+  const WORD = /[A-Za-z][A-Za-z0-9.'’-]*/g;
+
+  function namesPlaceOrAmount(question) {
+    const q = String(question == null ? '' : question);
+    const n = norm(q);
+    if (AMOUNT.test(q) || CJK_PLACE.test(q) || US_STATE.test(q) || /,\s*[A-Z]{2}\b/.test(q) || OTHER_COUNTRY.test(n)) return true;
+    // A name inside a sentence (a city, an office, a company), unless the
+    // label capitalizes every word ("Willing To Relocate") and says nothing.
+    const words = q.match(WORD) || [];
+    if (!words.length || words.filter((w) => /^[A-Z]/.test(w)).length / words.length > 0.5) return false;
+    return q.split(/[.?!:;]\s+|\n/).some((sentence) => (sentence.match(WORD) || []).slice(1)
+      .some((w) => /^[A-Z]/.test(w) && !GENERAL_NAMES.has(w.toLowerCase().replace(/['’]s$/, '').replace(/[.,]+$/, ''))));
+  }
+
   function classify(label) {
     const n = norm(label);
     if (!n) return null;
@@ -407,7 +432,7 @@
     'previously_employed', 'non_compete', 'talent_network',
   ]);
 
-  const api = { namesEmployer, ANSWERS_KEY, FILES_KEY, fileKind, sameText, norm, classify, asksAboutAnotherCountry, answerFor, pickOption, answerFlat, answerFacts, questionKey, sameQuestion, customAnswerFor, ASKABLE_KEYS, ANSWER_ONLY };
+  const api = { namesEmployer, ANSWERS_KEY, FILES_KEY, fileKind, sameText, norm, classify, asksAboutAnotherCountry, namesPlaceOrAmount, answerFor, pickOption, answerFlat, answerFacts, questionKey, sameQuestion, customAnswerFor, ASKABLE_KEYS, ANSWER_ONLY };
   global.LandedChoiceAnswers = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

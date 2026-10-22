@@ -450,6 +450,36 @@ user cleared, changed or undid isn't filled in again. Never filled in: date of
 birth, street address, work authorization, "18 or older", EEO and consent. The
 never-guessed rules below still hold for everything else.
 
+**A correction on a form is remembered** (product decision 2026-10-22: Landed
+is an automatic service; the user shouldn't make the same fix on every form).
+When the user changes a field on a page Landed filled (a trusted `change`,
+never Landed's own events), `lib/fill/learn.js` reads what the question is about
+and the new answer. Only facts that hold for every application are kept
+(`LEARNABLE`): city, state, country, earliest start, LinkedIn / GitHub /
+website, how they heard, and the general yes/nos (18 or older, authorized to
+work, sponsorship, relocate, travel, onsite, other locations, non-compete,
+talent network). Never date of birth, street address, EEO, consent, "worked
+here before?" (one company's) or open-ended text; a bare "Location" isn't kept
+either (it may be where they'd work). **Nor a question about one place or one
+amount** (owner's review, 2026-10-22): "No" to "Are you willing to relocate to
+Austin, TX?" isn't "No" to relocating anywhere, and a UK work-authorization
+"No" must never flip the saved US one. `namesPlaceOrAmount` (extension
+`lib/choice-answers.js`, the same rule in `packages/schema` for `learnAnswers`,
+a web test runs both): a percentage or a number of days / hours / weeks; a
+country other than the US, a US state, "City, ST", a Chinese city or
+"办公室 / 分公司"; or a capitalized name inside a sentence (a city, an office, a
+company), unless the label capitalizes every word. The US and its visas
+(H-1B, OPT…) are general. The extension sends the question along, and the page
+drops a correction without one or with such a question. A city from a location box keeps the city
+("Bellevue, Washington, United States" → Bellevue); a yes/no takes the option's
+first word. The background queues one per question (`landed:answer-corrections`,
+the latest wins), the open Landed tab takes them (bridge `take-corrections`)
+and `learnAnswers` saves each as the answer, noted in
+`application_answers.learned` with what it was before and the site. The
+Extension page lists them ("Remembered from forms you corrected": City: Bellevue
+· was Seattle · on jobs.lever.co) with **Undo** for each, which puts the old
+answer back. A remembered answer also takes its question off the waiting list.
+
 One row per account in the data store (`application_answers`, Dexie v11,
 migration 0019, in snapshots, deleted server-side when Cloud is turned off). The
 page bridge hands them to the extension (`sync-answers` →

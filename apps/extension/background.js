@@ -653,6 +653,40 @@ async function queueQuestions(tabId, questions) {
   }
 }
 
+// ── corrections the user made on forms Landed filled (lib/fill/learn.js) ──
+// Queued in local storage until the open Landed tab takes them (bridge
+// 'take-corrections') and saves them as answers, marked with Undo. One per
+// question: the latest wins.
+const LEARNABLE_KEYS = new Set([
+  'city', 'state', 'country', 'earliest_start', 'linkedin', 'github', 'website', 'heard_from',
+  'adult', 'work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'onsite', 'open_to_other_locations', 'non_compete', 'talent_network',
+])
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.action !== 'answer-corrected') return
+  const key = typeof msg.key === 'string' && LEARNABLE_KEYS.has(msg.key) ? msg.key : null
+  const value = typeof msg.value === 'string' ? msg.value.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+  // Only from a page's content script.
+  if (!key || !value || !sender?.tab) {
+    sendResponse({ ok: false })
+    return true
+  }
+  const site = typeof msg.site === 'string' ? msg.site.slice(0, 120) : null
+  // The question goes along: the page checks it isn't about one place or amount.
+  const question = typeof msg.question === 'string' ? msg.question.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+  if (!question) {
+    sendResponse({ ok: false })
+    return true
+  }
+  const storeKey = self.LandedConfig.LOCAL_CORRECTIONS_KEY
+  withQueueLock(async () => {
+    const queued = (await readArea(chrome.storage.local, storeKey)) || []
+    const next = [{ key, value, question, site }, ...(Array.isArray(queued) ? queued : []).filter((c) => c && c.key !== key)].slice(0, 20)
+    await writeArea(chrome.storage.local, { [storeKey]: next })
+  }).then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false }))
+  return true
+})
+
 /** The answers changed: pages that had empty questions fill what they now cover. */
 async function fillAnsweredTabs() {
   const tabs = (await readArea(tabArea(), QUESTION_TABS_KEY)) || {}

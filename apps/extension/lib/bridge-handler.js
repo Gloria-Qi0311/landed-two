@@ -23,6 +23,8 @@
 //                 user's own edited open-ended answers, for the agent that
 //                 writes "Why us?" answers (lib/fill/open-answers.js).
 //   take-assist-results  fill-ready / human-blocker results, delivered once
+//   take-corrections  answers the user corrected on forms Landed filled
+//                 (lib/fill/learn.js); the page saves them, marked with Undo
 //   pick-resume   which of several resumes fits a job, when Landed's rules
 //                 can't tell: the posting and each candidate's directions,
 //                 job titles and skills (no contact details) go to the user's
@@ -231,6 +233,17 @@
             return queued
           })
           return { ok: true, data: { questions } }
+        }
+
+        case 'take-corrections': {
+          const key = cfg.LOCAL_CORRECTIONS_KEY || 'landed:answer-corrections'
+          const corrections = await withLock(async () => {
+            const queued = (await readLocal(chromeLocal, key))[key]
+            if (!Array.isArray(queued) || queued.length === 0) return []
+            await chromeLocal.set({ [key]: [] })
+            return queued
+          })
+          return { ok: true, data: { corrections: corrections.slice(0, 20) } }
         }
 
         case 'file-ids': {

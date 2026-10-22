@@ -245,6 +245,14 @@ describe('bridge handler', () => {
     expect((await handle({ type: 'classify-statuses', payload: { statuses: ['x'] } }, { origin: 'https://evil.example' })).ok).toBe(false)
   })
 
+  test('take-corrections hands the user\'s corrections over once', async () => {
+    const { handle, saved } = makeHandler()
+    saved['landed:answer-corrections'] = [{ key: 'city', value: 'Bellevue', site: 'jobs.lever.co' }]
+    expect(await handle({ type: 'take-corrections' }, FROM_WEB)).toEqual({ ok: true, data: { corrections: [{ key: 'city', value: 'Bellevue', site: 'jobs.lever.co' }] } })
+    expect(await handle({ type: 'take-corrections' }, FROM_WEB)).toEqual({ ok: true, data: { corrections: [] } })
+    expect((await handle({ type: 'take-corrections' }, { origin: 'https://evil.example' })).ok).toBe(false)
+  })
+
   test('take-assist-results hands independent page results over once', async () => {
     const app = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b'
     let rows = [{ application_id: app, tab_id: 7, status: 'blocked', blocker: 'captcha' }]

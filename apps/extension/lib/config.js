@@ -36,8 +36,10 @@
   // Questions fills had to leave empty, until the Landed tab takes them to
   // the Extension page (lib/fill/unanswered.js, bridge 'take-questions').
   const LOCAL_QUESTIONS_KEY = 'landed:unanswered-questions';
+  // Corrections the user made on forms, until the Landed tab takes them (lib/fill/learn.js).
+  const LOCAL_CORRECTIONS_KEY = 'landed:answer-corrections';
 
-  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY, LOCAL_FILES_KEY, LOCAL_VERSION_PDFS_KEY, LOCAL_QUESTIONS_KEY };
+  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY, LOCAL_FILES_KEY, LOCAL_VERSION_PDFS_KEY, LOCAL_QUESTIONS_KEY, LOCAL_CORRECTIONS_KEY };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.LandedConfig;
   }

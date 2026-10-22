@@ -27,7 +27,7 @@ import { useApplicationAnswers, useApplicationFiles, useResumeFiles } from './an
 import { adoptKeptFiles } from '../lib/resume-tasks'
 import { mergeOpenAnswers } from '../lib/open-answers'
 import { FILE_KINDS } from '@landed/schema/application-files'
-import { addUnanswered, EMPTY_ANSWERS, type ReportedQuestion } from '@landed/schema/application-answers'
+import { addUnanswered, EMPTY_ANSWERS, learnAnswers, type ReportedCorrection, type ReportedQuestion } from '@landed/schema/application-answers'
 import {
   APPLY_ASSIST_RESULT_EVENT,
   nextStepForAssistResult,
@@ -79,6 +79,17 @@ export function useExtensionBridge() {
           const current = (await store.getApplicationAnswers())?.answers ?? EMPTY_ANSWERS
           const next = addUnanswered(current, asked.questions, new Date().toISOString())
           if (JSON.stringify(next.unanswered) !== JSON.stringify(current.unanswered)) {
+            await store.saveApplicationAnswers(next)
+            qc.invalidateQueries({ queryKey: ['application_answers'] })
+          }
+        }
+        // The user corrected an answer on a form Landed filled: remember it
+        // (the Extension page marks it, with Undo).
+        const corrected = await bridgeRequest<{ corrections: ReportedCorrection[] }>('take-corrections')
+        if (corrected?.corrections?.length) {
+          const current = (await store.getApplicationAnswers())?.answers ?? EMPTY_ANSWERS
+          const next = learnAnswers(current, corrected.corrections, new Date().toISOString())
+          if (next !== current) {
             await store.saveApplicationAnswers(next)
             qc.invalidateQueries({ queryKey: ['application_answers'] })
           }

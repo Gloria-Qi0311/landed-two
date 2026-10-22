@@ -162,6 +162,13 @@ messages (PR title and a clean body, no trailer).
   only answers its second check passes go in, never invented. No agent or none
   passed: the field stays empty and the application stops saying so. They're kept
   on the application (`open_answers`); edited ones are the agent's examples.
+- A correction the user makes on a form Landed filled is remembered as the answer
+  on its own (`learnAnswers`), listed on the Extension page with Undo: only facts
+  for every application (`LEARNABLE`: location, start date, links, general
+  yes/nos), never date of birth, street address, EEO, consent, "worked here
+  before?" or open-ended text, never a question about one place or amount
+  ("relocate to Austin, TX?", "75% travel": `namesPlaceOrAmount`), and never
+  from Landed's own events.
 - Landed picks the resume for each job (its direction against the job), and the
   file uploaded is always that resume's own (`resume_files`), never another
   one's; one with no file isn't swapped for another's. Between close resumes
