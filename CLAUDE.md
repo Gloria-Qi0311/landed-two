@@ -6,6 +6,7 @@ it before you change that area.
 
 | Area | Doc |
 |---|---|
+| What Landed is, the pipeline every job goes through, the principles, what each agent call sees | [docs/product.md](docs/product.md) |
 | How the parts fit, the main flows, every place a common change touches | [docs/architecture.md](docs/architecture.md) |
 | Local-first data, DataStore, Cloud sync, snapshots, the server | [docs/data-and-sync.md](docs/data-and-sync.md) |
 | External and cloud agents, the daemon, tasks, chat, automations | [docs/agents.md](docs/agents.md) |

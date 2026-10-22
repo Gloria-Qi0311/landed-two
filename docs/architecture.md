@@ -1,10 +1,12 @@
 # How Landed fits together
 
-Landed is a job-hunt workspace. It keeps applications on one board, updates
-them from email and candidate portals, finds new postings, tailors resumes and
-fills application forms in the browser. The AI work runs with agents the user
-already has (Claude Code, Codex, Gemini CLI, Muse…), on their own computer and
-subscription.
+Landed applies to jobs for the user: it finds postings, ranks them as Leads,
+and once the user approves one, fills and submits that application in the
+browser, then keeps every application up to date from email and candidate
+portals. The AI work runs with agents the user already has (Claude Code, Codex,
+Gemini CLI, Muse…), on their own computer and subscription. What the product
+is, the pipeline every job goes through, its principles and what each agent
+call sees: [product.md](product.md). This page is how the code fits.
 
 Two ideas shape the code:
 
@@ -97,7 +99,11 @@ Agent chat → landed-brief block → user confirms → active job_searches row
    ├─► cloud agents: get_tasks → submit_jobs
    └─► external agents: job_discovered observations
               ▼
-lib/inbox/leads.ts → ingestFoundJobs → processor dedupes → job_leads → Leads column
+SimplifyJobs lists, Greenhouse / Lever / Ashby boards (fetched by the browser)
+   └─► the same path
+              ▼
+lib/inbox/leads.ts → ingestFoundJobs → processor dedupes → job_leads
+   → hard filters (screen) → fit × urgency (priority) → Leads column → Approve
 ```
 
 Turning Leads into an apply queue (filters, scores, approval, and where public
@@ -111,9 +117,15 @@ Manual card / drawer "Open & autofill"  or  approved Leads queue (≤5)
    ▼
 extension background.js → fillTab: the page plus every frame that reported a form
    ▼
+resume picked for the job (direction; close ones → native host pick_resume),
+its own file uploaded
+   ▼
 content scripts (lib/fill/*): rules → saved answers → files → dropdowns/radios
    ├─ unknown labels  → native host → Ollama, else Claude Code (labels and key names only)
    ├─ unanswered choices → native host → Ollama only (prompts carry the user's answers)
+   ├─ open-ended questions → native host draft_answers → written, then checked
+   │  against the resume (lib/fill/open-answers.js)
+   ├─ settle: every green field read again after the page's scripts ran
    └─ review → native host → the user's own agent checks the filled form
       (sensitive questions left out; picks a fact or an option, never writes text)
    ▼
@@ -143,7 +155,7 @@ Details are in [pipeline.md](pipeline.md).
 | Server | Store data for a sync-off account (except the briefing); write runtime tasks to the database; forward free-form commands to a daemon |
 | Agents | Edit the pipeline directly; use write tools on the mailbox; click, type or run scripts in Chrome during portal checks |
 | Daemon | Pair without the native confirm dialog; run an agent with the user's own settings, hooks or MCP servers (except the mail or Chrome tools a task needs); install an update not signed with its release key |
-| Extension | Click Submit; bypass a CAPTCHA; tick a consent box unless the user turned that on; send answer values anywhere but the user's own agent; send sensitive answers to any model |
+| Extension | Click Submit, except one unambiguous final Submit for an approved lead once every check passed; bypass a CAPTCHA; tick a consent box unless the user turned that on; send answer values anywhere but the user's own agent; send sensitive answers to any model |
 
 ## Common changes, and every place they touch
 
