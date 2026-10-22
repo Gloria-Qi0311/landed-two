@@ -307,6 +307,17 @@ page bridge hands them to the extension (`sync-answers` →
 For choice questions, the question is the legend, group label or surrounding
 text, and each option is its own label.
 
+**Workday questionnaire labels** (fix, 2026-10-22): a custom dropdown's own
+accessible text may be only `Select One Required`; the real question is a long
+nearby label or one of several `aria-labelledby` references. `getFieldLabel`
+keeps up to 300 characters of that question. `Select One` / `Required` is a
+prompt, never an existing answer: when no saved answer covers the real question,
+it must enter the Extension page's pending-question queue. Global Settings and
+language dropdowns are page chrome, not application fields. A Workday question
+that explicitly defines time-limited non-immigrant authorization as **No** is
+not the ordinary authorization question: needing sponsorship or lacking work
+authorization proves No; a generic saved Yes alone never proves Yes.
+
 **"Have you worked here before?" follows the resume** (fix, 2026-10-19): one saved
 yes/no can't answer it for every company — a Yes saved from one form made every
 company's question Yes. `previouslyEmployed` in `choice-answers.js`: a company

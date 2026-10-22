@@ -69,8 +69,10 @@ async function handleFill(resumeData, customFields, opts) {
   startTrace();
   const blocker = detectApplyBlocker();
   if (blocker) return { filled: [], manual: [], missing_files: [], review: null, unanswered: [], fields: 0, blocker, trace: finishTrace({ blocker }) };
-  const fields = deepAll('input:not([type=hidden]):not([type=submit]):not([type=button]), select, textarea, [role="combobox"]')
-    .filter((el) => isRendered(el)).length;
+  const fields = deepAll('input:not([type=hidden]):not([type=submit]):not([type=button]), select, textarea, [role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"], [data-automation-id]')
+    .filter((el) => isRendered(el) && (
+      ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) || isCustomComboboxTrigger(el)
+    )).length;
   let flat;
   if (typeof window.flattenResumeForFill === 'function') {
     flat = window.flattenResumeForFill(resumeData);

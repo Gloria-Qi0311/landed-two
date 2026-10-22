@@ -152,12 +152,45 @@ test('fills Workday controls without touching Settings, wrong city, or submit', 
   expect(document.getElementById('source').dataset.selected).toBe('LinkedIn')
   expect(document.getElementById('city').dataset.selected).toBe('Seattle, Washington, United States')
   expect(settingsClicks).toBe(0)
+  expect(document.getElementById('settings').getAttribute('data-landed-field-id')).toBeNull()
   expect(submitClicks).toBe(0)
   expect(result.filled).toEqual(expect.arrayContaining([
     'answer:legal_first_name', 'answer:legal_last_name', 'answer:address_line1',
     'answer:country', 'answer:city', 'answer:heard_from',
   ]))
 }, 15_000)
+
+test('reads long Workday questionnaire labels, fills saved answers, and asks about real unknown questions', async () => {
+  stored['landed:application-answers'] = { answers: {
+    ...answers,
+    work_authorized: 'yes',
+    needs_sponsorship: 'yes',
+    adult: 'yes',
+  } }
+  const authorization = 'Are you currently authorized for employment in the U.S. without any restrictions to the length of employment period? (Answer "No" if you are in a non-immigrant status such as H, L, E, TN, B or F, including OPT, CPT)'
+  const compliance = 'Are you subject to an order of prohibition from banking, administrative order, order of removal from banking, 1829 removal or any other similar order from a federal agency that would affect your ability to be employed by U.S. Bank or its affiliates?'
+  document.body.innerHTML = `
+    <form>
+      <div data-automation-id="formField-auth"><label>${authorization} Required</label><div><button id="auth" type="button" role="combobox" aria-label="Select One Required">Select One</button></div></div>
+      <div data-automation-id="formField-sponsor"><label>Will you now or in the future require visa sponsorship by U.S. Bank? Required</label><div><button id="sponsor" type="button" role="combobox" aria-label="Select One Required">Select One</button></div></div>
+      <div data-automation-id="formField-compliance"><label>${compliance} Required</label><div><button id="compliance" type="button" role="combobox" aria-label="Select One Required">Select One</button></div></div>
+      <div data-automation-id="formField-adult"><label>Are you 18 years of age or older? Required</label><div><button id="adult" type="button" role="combobox" aria-label="Select One Required">Select One</button></div></div>
+    </form>`
+  for (const id of ['auth', 'sponsor', 'compliance', 'adult']) wireButton(id, ['Yes', 'No'])
+
+  const result = await fill()
+
+  // The first question defines time-limited non-immigrant authorization as
+  // No, so a candidate who needs sponsorship must not inherit the ordinary
+  // "authorized to work" Yes answer.
+  expect(document.getElementById('auth').dataset.selected).toBe('No')
+  expect(document.getElementById('sponsor').dataset.selected).toBe('Yes')
+  expect(document.getElementById('adult').dataset.selected).toBe('Yes')
+  expect(document.getElementById('compliance').dataset.selected).toBeUndefined()
+  expect(result.unanswered).toHaveLength(1)
+  expect(result.unanswered[0].question).toContain('order of prohibition from banking')
+  expect(result.unanswered[0].question).not.toMatch(/^Select One/)
+}, 20_000)
 
 test('repairs the exact corrupt values seen on a real U.S. Bank Workday form', async () => {
   const dirtyResume = {

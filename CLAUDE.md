@@ -144,6 +144,10 @@ messages (PR title and a clean body, no trailer).
   open-ended text or resume fields); the Extension page asks each once, and the
   answer fills every form after that, on pages still open only fields still empty.
   Questions only the user's answers can answer never take a resume value.
+- Workday questionnaire dropdowns take their real nearby / `aria-labelledby`
+  question (up to 300 characters), never the `Select One Required` prompt.
+  That prompt is empty, so an unknown question enters the Extension page queue;
+  global Settings and language controls are not application fields.
 - Approved applications run automatically in queue priority order. Automation's
   Auto apply card is the single management surface: on/off (on by default),
   one-to-five simultaneous applications, Run now and current queue/blocker

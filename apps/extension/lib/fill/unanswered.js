@@ -13,7 +13,7 @@
 // window.LandedFill.
 (function (global) {
 const F = global.LandedFill || (global.LandedFill = {});
-const { answerKindForElement, applicationAnswerForElement, choiceGroupQuestion, chooseInCombobox, clickChoice, deepAll, fillField, groupChoices, isCustomComboboxTrigger, isDateField, markField, neverSent, optionText, setSelectOption, setSource } = F;
+const { answerKindForElement, applicationAnswerForElement, choiceGroupQuestion, chooseInCombobox, clickChoice, deepAll, existingComboboxTexts, fillField, groupChoices, isCustomComboboxTrigger, isDateField, markField, neverSent, optionText, setSelectOption, setSource } = F;
 const { getFieldLabel, matchResumeKey } = global.ResumeFillerFieldDetect;
 const CA = global.LandedChoiceAnswers;
 
@@ -43,7 +43,14 @@ function describe(el, groups) {
     if (['checkbox', 'file', 'hidden', 'password', 'submit', 'button', 'date'].includes(el.type)) return null;
     return { el, question: getFieldLabel(el) || '', options: [], empty: !el.value.trim() };
   }
-  if (isCustomComboboxTrigger(el)) return { el, question: getFieldLabel(el) || '', options: [], empty: !el.textContent?.trim() && !('value' in el && el.value) };
+  if (isCustomComboboxTrigger(el)) {
+    const question = getFieldLabel(el) || '';
+    // "Select One" / "Required" is a prompt, not an answer. Workday puts
+    // that text inside the button, so checking textContent made every empty
+    // questionnaire dropdown look filled and prevented Landed from asking
+    // the user about questions their saved answers do not cover.
+    return { el, question, options: [], empty: existingComboboxTexts(el, question).length === 0 };
+  }
   return null;
 }
 

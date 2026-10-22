@@ -186,9 +186,15 @@ async function tryFillCombobox(el, value, opts) {
 function isCustomComboboxTrigger(el) {
   if (!el || el.tagName.toLowerCase() === 'select') return false;
   if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.getAttribute('aria-hidden') === 'true') return false;
-  if (el.getAttribute('role') === 'combobox' || el.getAttribute('aria-haspopup') === 'listbox') return true;
   const aid = automationId(el);
-  if (!aid || /(setting|navigation|navmenu|profile|language|help|account)/.test(aid)) return false;
+  // Workday's global Settings and language controls also declare themselves
+  // as comboboxes/listboxes. Exclude page chrome before accepting the ARIA
+  // role; the previous order made them look like already-filled application
+  // questions in traces and agent review.
+  if (/(setting|navigation|navmenu|profile|language|help|account)/.test(aid)
+    || (el.closest && el.closest('nav, header, [role="navigation"]'))) return false;
+  if (el.getAttribute('role') === 'combobox' || el.getAttribute('aria-haspopup') === 'listbox') return true;
+  if (!aid) return false;
   return /(dropdown|select|prompt|picker|country|region|source|location)/.test(aid)
     && ['BUTTON', 'INPUT', 'DIV'].includes(el.tagName);
 }

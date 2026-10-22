@@ -97,6 +97,18 @@
     return String(s).replace(/[!"#$%&'()*+,./:;<=>?@[\]^`{|}~]/g, '\\$&');
   }
 
+  function visibleText(el, max = 300) {
+    return String((el && (el.innerText || el.textContent)) || '').replace(/\s+/g, ' ').trim().slice(0, max);
+  }
+
+  function byId(scope, id) {
+    if (!scope || !id) return null;
+    if (typeof scope.getElementById === 'function') return scope.getElementById(id);
+    return typeof scope.querySelector === 'function' ? scope.querySelector(`#${cssEscape(id)}`) : null;
+  }
+
+  const CONTROL_SELECTOR = 'input, textarea, select, button, [role="combobox"], [contenteditable="true"]';
+
   // Strict label: only label[for], aria-labelledby, or sibling text. Used as
   // the "label" signal source so it doesn't double-count aria-label /
   // placeholder / name / id (which have their own slots).
@@ -104,24 +116,40 @@
     if (!el) return '';
     // A field inside a web component has its label in the same shadow root.
     const rootNode = el.getRootNode ? el.getRootNode() : null;
-    const scope = rootNode && rootNode.querySelector && rootNode.getElementById ? rootNode : document;
+    const scope = rootNode && rootNode.querySelector ? rootNode : document;
     if (el.id) {
       const lbl = scope.querySelector(`label[for="${cssEscape(el.id)}"]`);
-      if (lbl) return (lbl.innerText || lbl.textContent || '').trim();
+      if (lbl) return visibleText(lbl);
+    }
+    // Native label association also covers a control wrapped by <label>.
+    if (el.labels && el.labels.length) {
+      const text = Array.from(el.labels).map((label) => visibleText(label)).filter(Boolean).join(' ');
+      if (text) return text.slice(0, 300);
+    }
+    const wrappingLabel = el.closest && el.closest('label');
+    if (wrappingLabel) {
+      const text = visibleText(wrappingLabel);
+      if (text) return text;
     }
     const labelledBy = el.getAttribute && el.getAttribute('aria-labelledby');
     if (labelledBy) {
-      const ref = scope.getElementById(labelledBy);
-      if (ref) return (ref.innerText || ref.textContent || '').trim();
+      // aria-labelledby is an IDREF list. Workday commonly uses one id for
+      // the question and another for "Required" / the current value.
+      const text = labelledBy.split(/\s+/).map((id) => visibleText(byId(scope, id))).filter(Boolean).join(' ');
+      if (text) return text.slice(0, 300);
     }
     let parent = el.parentElement;
-    for (let depth = 0; depth < 6 && parent; depth++) {
+    for (let depth = 0; depth < 8 && parent; depth++) {
       for (const child of parent.children) {
         if (child.contains(el)) continue;
         if (['LABEL', 'DIV', 'SPAN', 'P', 'DT', 'LEGEND', 'H4', 'H5', 'H6'].includes(child.tagName)) {
-          if (child.querySelector('input, textarea, select')) continue;
-          const text = (child.innerText || child.textContent || '').trim();
-          if (text.length > 0 && text.length < 60) return text;
+          if (child.querySelector(CONTROL_SELECTOR)) continue;
+          const text = visibleText(child);
+          // Application questions are often much longer than an ordinary
+          // field label. Workday's U.S. Bank questionnaire, for example,
+          // puts a 100–300 character question beside a button whose own
+          // aria-label is only "Select One Required".
+          if (text) return text;
         }
       }
       parent = parent.parentElement;
@@ -137,19 +165,25 @@
     const strict = getStrictLabel(el);
     if (strict) return strict;
     const ariaLabel = el.getAttribute && el.getAttribute('aria-label');
-    if (ariaLabel) return ariaLabel.trim();
+    const generic = /^(?:select|choose|please select|please choose|select one)(?:\s+required)?[.…]*$/i;
+    if (ariaLabel && !generic.test(ariaLabel.trim())) return ariaLabel.trim();
     const ph = el.getAttribute && el.getAttribute('placeholder');
-    if (ph && ph.length < 40) return ph;
+    if (ph && ph.length < 80 && !generic.test(ph.trim())) return ph;
+    const automationId = el.getAttribute && el.getAttribute('data-automation-id');
+    if (automationId) {
+      const human = String(automationId)
+        .replace(/[_\-.]+/g, ' ')
+        .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+        .replace(/([A-Za-z])(\d)/g, '$1 $2')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (human && !generic.test(human)) return human;
+    }
     if (el.name) return el.name;
     if (el.id) return el.id;
-    const automationId = el.getAttribute && el.getAttribute('data-automation-id');
-    if (!automationId) return '';
-    return String(automationId)
-      .replace(/[_\-.]+/g, ' ')
-      .replace(/([a-z\d])([A-Z])/g, '$1 $2')
-      .replace(/([A-Za-z])(\d)/g, '$1 $2')
-      .replace(/\s+/g, ' ')
-      .trim();
+    // A generic prompt is still better than no label for diagnostics, but
+    // only after every meaningful source above has been exhausted.
+    return (ariaLabel || ph || '').trim();
   }
 
   function collectSources(el) {

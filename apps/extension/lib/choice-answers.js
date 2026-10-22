@@ -33,7 +33,7 @@
   const RULES = [
     ['consent', /(privacy (policy|notice|statement)|terms (and|&) conditions|terms of (use|service)|\bi (have read|agree|consent|acknowledge|accept|certify|confirm|authori[sz]e)\b|\bconsent\b|data (processing|protection)|隐私|同意.{0,8}(条款|政策|协议))/],
     ['needs_sponsorship', /(sponsor|签证担保|visa support|h-?1b)/],
-    ['work_authorized', /((authori[sz]ed|eligible|permitted|entitled) to work|right to work|work authori[sz]ation|work permit|工作许可|合法.{0,6}工作)/],
+    ['work_authorized', /((authori[sz]ed|eligible|permitted|entitled) (to work|for employment)|right to work|work authori[sz]ation|work permit|工作许可|合法.{0,6}工作)/],
     ['adult', /((18|eighteen) (years|yrs)( of age)?( or older| and older| or over|\+)|at least (18|eighteen)|legal (working )?age|年满 ?18|成年)/],
     ['has_preferred_name', /((have|has) (a )?preferred name|preferred name (that is |which is )?different|different (from|than) your legal name)/],
     ['preferred_first_name', /(preferred (first|given) name|^preferred name$)/, 60],
@@ -136,6 +136,14 @@
     const yn = (v) => (v === 'yes' || v === 'no' ? { type: 'yesno', value: v } : null);
     if (kind === 'consent') return answers.agree_to_terms === true ? { type: 'agree' } : null;
     if (kind === 'previously_employed') return previouslyEmployed(answers, ctx);
+    if (kind === 'work_authorized' && /(without (any )?restrictions?.{0,80}(length|period)|non-immigrant status|including (opt|cpt))/i.test(ctx.question || '')) {
+      // This is stricter than the ordinary "authorized to work" question:
+      // Workday explicitly says a time-limited non-immigrant status is No.
+      // Needing sponsorship (or not being authorized) proves No; the saved
+      // generic authorization answer alone cannot safely prove Yes.
+      if (answers.work_authorized === 'no' || answers.needs_sponsorship === 'yes') return { type: 'yesno', value: 'no' };
+      return null;
+    }
     if (YES_NO_KINDS.has(kind)) return yn(answers[kind]);
     if (TEXT_KINDS.has(kind)) return text(answers[kind]);
     if (kind === 'has_preferred_name') {

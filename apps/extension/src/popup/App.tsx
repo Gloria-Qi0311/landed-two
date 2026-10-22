@@ -367,8 +367,11 @@ function reviewLine(results: FillResult[]): string {
   }
   const fixed = ran.reduce((sum, r) => sum + r.fixed, 0)
   const flagged = ran.reduce((sum, r) => sum + r.flagged, 0)
+  const remaining = results.reduce((sum, r) => sum + (r.review || 0), 0)
   const model = ran.map((r) => r.model).find(Boolean) || 'your agent'
-  if (fixed + flagged === 0) return ` ${model} checked the answers and found nothing to change.`
+  if (fixed + flagged === 0) return remaining
+    ? ` ${model} checked them but couldn't safely answer the remaining ${remaining} field${remaining === 1 ? '' : 's'} from your saved information.`
+    : ` ${model} checked the answers and found no problems.`
   return ` ${model} checked the answers: ${fixed} changed, ${flagged} to look at — they're yellow, hover for why.`
 }
 

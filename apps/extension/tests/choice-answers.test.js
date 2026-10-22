@@ -16,6 +16,7 @@ describe('classify', () => {
   test.each([
     ['If you are currently authorized to work in the US, will you require IBM sponsorship for an employment visa in the future?', 'needs_sponsorship'],
     ['Are you legally authorized to work in the United States?', 'work_authorized'],
+    ['Are you currently authorized for employment in the U.S. without any restrictions to the length of employment period? (Answer "No" if you are in a non-immigrant status such as H, L, E, TN, B or F, including OPT, CPT)', 'work_authorized'],
     ['You consent to IBM processing the information you provide for the purpose of processing your application', 'consent'],
     ["I confirm that I have read, understand and agree to IBM's Privacy Policy.", 'consent'],
     ['If you have a preferred name that is different from your legal name, please select yes below; otherwise, please select no.', 'has_preferred_name'],
@@ -63,6 +64,13 @@ describe('answerFor', () => {
     const today = new Date(2026, 9, 15)
     expect(CA.answerFor('today', answers, { today })).toEqual({ type: 'text', value: '10/15/2026' })
     expect(CA.answerFor('today', answers, { today, dateInput: true })).toEqual({ type: 'text', value: '2026-10-15' })
+  })
+
+  test('a time-unrestricted authorization question is stricter than ordinary work authorization', () => {
+    const question = 'Are you currently authorized for employment in the U.S. without any restrictions to the length of employment period? Answer No for non-immigrant status, including OPT, CPT.'
+    expect(CA.answerFor('work_authorized', answers, { question })).toEqual({ type: 'yesno', value: 'no' })
+    expect(CA.answerFor('work_authorized', { ...answers, needs_sponsorship: 'no' }, { question })).toBeNull()
+    expect(CA.answerFor('work_authorized', { ...answers, work_authorized: 'no', needs_sponsorship: 'no' }, { question })).toEqual({ type: 'yesno', value: 'no' })
   })
 
   test('EEO left blank declines; consent only with the switch on; nothing without answers', () => {

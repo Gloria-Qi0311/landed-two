@@ -59,6 +59,15 @@ describe("getFieldLabel", () => {
     expect(FD.getFieldLabel(document.querySelector("input"))).toBe("First Name");
   });
 
+  test("resolves every id in aria-labelledby", () => {
+    document.body.innerHTML = `
+      <span id="question">Will you require visa sponsorship?</span>
+      <span id="required">Required</span>
+      <button role="combobox" aria-labelledby="question required">Select One</button>
+    `;
+    expect(FD.getFieldLabel(document.querySelector("button"))).toBe("Will you require visa sponsorship? Required");
+  });
+
   test("walks up to a sibling text container when no aria/label", () => {
     document.body.innerHTML = `
       <div>
@@ -67,6 +76,17 @@ describe("getFieldLabel", () => {
       </div>
     `;
     expect(FD.getFieldLabel(document.getElementById("x"))).toBe("School Name");
+  });
+
+  test("prefers a long Workday question over the generic dropdown prompt", () => {
+    const question = 'Are you currently authorized for employment in the U.S. without any restrictions to the length of employment period? (Answer "No" if you are in a non-immigrant status such as H, L, E, TN, B or F, including OPT, CPT) Required';
+    document.body.innerHTML = `
+      <div data-automation-id="formField-questionnaire">
+        <label>${question}</label>
+        <div><button role="combobox" aria-label="Select One Required">Select One</button></div>
+      </div>
+    `;
+    expect(FD.getFieldLabel(document.querySelector("button"))).toBe(question);
   });
 
   test("falls back to placeholder when nothing else found", () => {
