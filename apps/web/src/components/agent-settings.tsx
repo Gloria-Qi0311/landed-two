@@ -1,6 +1,6 @@
 // Agent settings — the Agent page's settings view: your computer (local
-// agents via the Landed daemon), cloud agents — ChatGPT, Claude, Gemini…
-// through Landed's MCP connector (OAuth), or with a token over the agent
+// agents via the Landed daemon), cloud agents — ChatGPT and Claude — through
+// Landed's MCP connector (OAuth), or with a token over the agent
 // protocol (Meta Muse) — and the raw reports. Scheduled work and the
 // auto-apply preference live on the Workflow page.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
@@ -285,9 +285,8 @@ const AGENT_CHOICES: AgentChoice[] = [
     steps: <>Settings → Connectors → <b>Add custom connector</b> → paste the URL → Add → Connect.</>,
   },
   {
-    id: 'gemini', label: 'Gemini', mark: 'GM', kind: 'connector', match: /gemini/i,
-    description: 'Google custom app',
-    steps: <>gemini.google.com → Settings → <b>Connected apps</b> → Add custom app → paste the URL.</>,
+    id: 'gemini', label: 'Gemini CLI', mark: 'GM', kind: 'connector', match: /gemini/i,
+    description: 'Terminal app · not Gemini web',
   },
   {
     id: 'meta_muse', label: 'Meta Muse', mark: 'MM', kind: 'token',
@@ -349,7 +348,7 @@ function AgentPicker({ connections, selected, onSelect }: {
           <CopyField value={url} />
           {isPrivateOrigin() && <PrivateOriginNotice />}
           <div style={{ color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-            Claude Code: <code>claude mcp add --transport http landed URL</code> · Codex: <code>codex mcp add landed --url URL</code> · Cursor: Settings → MCP → Add new MCP server.
+            Claude Code: <code>claude mcp add --transport http landed URL</code> · Codex: <code>codex mcp add landed --url URL</code> · Gemini CLI: <code>gemini mcp add --scope user --transport http landed URL</code> · Cursor: Settings → MCP → Add new MCP server.
           </div>
           <CopyField value={scheduledPrompt()} mono={false} rows={3} />
         </div>
@@ -423,6 +422,23 @@ function ConnectorSetup({ choice, connections }: { choice: AgentChoice; connecti
     return (
       <Card title="Connect Codex">
         <CodexConnect url={url} connected={connected} />
+      </Card>
+    )
+  }
+  if (choice.id === 'gemini') {
+    const command = `gemini mcp add --scope user --transport http landed ${url}`
+    return (
+      <Card title={`${connected ? 'Connect another' : 'Connect'} Gemini CLI`}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Muted>
+            Gemini's website does not currently have a custom MCP connector. Install Gemini CLI, then run this command in Terminal:
+          </Muted>
+          <CopyField value={command} />
+          {isPrivateOrigin() && <PrivateOriginNotice />}
+          <div style={{ padding: '9px 11px', borderRadius: 7, background: 'var(--surface-2)', border: '0.5px solid var(--border)', fontSize: 12, lineHeight: 1.55 }}>
+            Open Gemini CLI after running the command. It should open Landed sign-in automatically; if it does not, enter <code>/mcp auth landed</code> inside Gemini CLI.
+          </div>
+        </div>
       </Card>
     )
   }
