@@ -152,7 +152,7 @@ test('a new pairing starts fresh: no old results, runs or email window', async (
   assert.ok(back > 29, 'a new account reads 30 days back, not from the old account\'s last check')
 })
 
-test('Find new jobs searches with each agent chosen on the Automation page that is here, one after another', async () => {
+test('Find new jobs searches with each agent chosen on the Workflow page that is here, one after another', async () => {
   resetAutomationsForTests()
   const calls: string[] = []
   setupAutomations({
@@ -177,6 +177,36 @@ test('Find new jobs searches with each agent chosen on the Automation page that 
   sync({ automations: search(['copilot']), context: withBrief, run_now: ['job_search'] })
   await settle()
   assert.deepEqual(calls, ['claude'])
+
+  // Every agent unticked: none searches here, and that's a quiet success.
+  calls.length = 0
+  sync({ automations: search([]), context: withBrief, run_now: ['job_search'] })
+  await settle()
+  assert.deepEqual(calls, [], 'not the first that can')
+  const none = sync({ automations: search([]), context: withBrief }).runs.find((r) => r.kind === 'job_search')
+  assert.equal(none?.status, 'ok')
+  assert.match(String(none?.summary), /^Skipped: no agent on this computer is ticked under Agent search/)
+})
+
+test('Check email is read by the agent ticked here; none ticked leaves it to the cloud agents', async () => {
+  resetAutomationsForTests()
+  const calls: string[] = []
+  setupAutomations({
+    runtimeId: 'rt-a', log: () => {},
+    agentsFor: (kind) => (kind === 'email_check' ? [{ id: 'claude', label: 'Claude Code' }] : []),
+    runTask: async (task, emit) => { calls.push(task.agent); emit({ type: 'done', text: '', findings: [] }) },
+  })
+  const readBy = (agents: string[]) => ({ ...automations, email_check: { ...automations.email_check, readers: { agents, cloud_agents: true, cloud_skip: [] } } })
+  sync({ automations: readBy(['claude']), run_now: ['email_check'] })
+  await settle()
+  assert.deepEqual(calls, ['claude'])
+  calls.length = 0
+  sync({ automations: readBy([]), run_now: ['email_check'] })
+  await settle()
+  assert.deepEqual(calls, [], 'not the first that can')
+  const run = sync({ automations: readBy([]) }).runs.find((r) => r.kind === 'email_check')
+  assert.equal(run?.status, 'ok')
+  assert.match(String(run?.summary), /^Skipped: no agent on this computer is ticked under Check email/)
 })
 
 test('a page waiting for a connector makes every computer look again, and hears what they reach', () => {

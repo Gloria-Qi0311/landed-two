@@ -179,7 +179,7 @@ re-sent in `hello`.
 
 **When**: at start, every 30 minutes, and **right away when a page is waiting
 for a connector**. A user connects Gmail or Chrome somewhere else and comes back
-to Landed, so the Automation page asks every online computer to look again
+to Landed, so the Workflow page asks every online computer to look again
 (`recheck` in the automation sync) when it opens, when the user comes back to
 it (focus / visibility), and every minute while it's open and still waiting.
 The computer answers with what it reaches (`abilities`: mailbox `ready`,
@@ -321,23 +321,38 @@ processor (`ingestFoundJobs` in `lib/inbox/leads.ts`) so they dedupe into the
 validators live in one place, `packages/schema/src/search-brief.ts`; web, server,
 and the chat prompt's block format in `apps/daemon/src/agents.ts` must agree.
 
-## Automation
+## Workflow
 
-`/automation` (sidebar between Agent and My Resume) has the three scheduled
-agent jobs plus event-driven **Auto apply**, each laid out as When / Looks at /
-Then. Settings live on the automation they affect, not at page level.
+`/workflow` (sidebar between Agent and My Resume; `/automation` redirects there)
+shows Landed's work as steps, laid out like My Resume (product decision
+2026-10-22, #140, overview #148): the middle column lists the steps grouped by
+stage, each with a status line and a dot (green on, grey off, red needs the
+user); the right side is the selected step: what it does, its controls (Run now
+and the switch), who does it, when, what it needs, how it decides and its recent
+runs. A stage's switch sits on its heading in the list (Find jobs, Apply); a step
+with its own sits on its page (Check email, Check candidate portals). The
+selected step is the URL's hash, so other pages link straight to one
+(`/workflow#email`; the older `#find` and `#track` still land on a step). With
+nothing picked it opens on What to look for until there is a search, else on the
+first step that needs the user.
 
-| Automation | Looks at | Then |
+| Group | Steps (done by) | Settings |
 |---|---|---|
-| Check email | New emails | Application status; its "Then" holds the auto-apply choice (`users.auto_apply_updates`) |
-| Find new jobs | The active brief as criteria, editable in place (an edit makes a new active search via `addJobSearch`), searched with what Search with ticks | Leads |
-| Auto apply | Applications linked to Leads the user approved | Fill, review and submit when safe; otherwise record the blocker |
-| Check candidate portals | Applications quiet for N days | Ask-first status updates |
+| What to look for | Search criteria | The active brief, editable in place (an edit makes a new active search via `addJobSearch`) |
+| 1 Find jobs | Agent search (the ticked agents and cloud agents, on the schedule) · Job lists and Company boards (Landed, every 6 hours while Landed is open) · Remove duplicates and Rank (Landed AI, built in, each new batch; the agents on the computer are listed as coming soon until #146 / #147) | Stage switch and Run now; agents, schedule, a switch per public source, the followed companies |
+| 2 Apply | Auto apply (the extension; the user's agent checks the form) · Mark as applied (Landed, when the portal confirms) | Stage switch and Run now; at most N at a time |
+| 3 Keep up to date | Check email (the ticked readers: the computer's agent that can read email, today Claude Code with its mail connector, and each cloud agent on its own; `email_check.readers`) · Check candidate portals (the agent that can use Chrome: Claude Code with Claude in Chrome, the only one wired for it) | A switch, schedule and Run now each; email: who reads it, the auto-apply choice (`users.auto_apply_updates`), re-read 30 days; portals: days without news |
+
+The settings stay in `users.automations` (`packages/schema/src/automation.ts`),
+which installed Landed for Mac versions and the server already validate; a
+step gains its executor choice or schedule as its own field when it gets one
+(#141–#147), and older daemons ignore fields they don't know. Remove duplicates,
+Rank and Mark as applied have nothing to set yet: their rows say who does them.
 
 **Auto apply** is not a daemon schedule. Its account-level
 `users.automations.auto_apply` setting is on by default and carries `enabled`
 plus `max_concurrent` (1–5). `useAutoApplyRunner` is mounted below the login gate,
-so it runs on every Landed route, not only Applications. Automation shows the
+so it runs on every Landed route, not only Applications. Workflow shows the
 switch, concurrency, Run now, active/ready/blocked/confirmation counts and the
 extension requirement. Turning it off stops new tabs; already-open authorized
 tabs continue. Run now is still available while off. Only a linked saved lead
@@ -348,14 +363,29 @@ is authorization; the setting never broadens it.
 
 - **Agents** on the computer that runs the schedule (Claude Code, Codex, any ACP
   agent there). Each ticked one searches, one after another, with the user's own
-  subscription (`pickSearchAgents`; none of them here → the first that can
-  search). The daemon's scheduled run and Run now both use it, and the results
+  subscription (`pickSearchAgents`; ticked ones that aren't on this computer →
+  the first that can search). Unticking every one means none: the daemon records
+  a quiet "No agent ticked" run and the lists, boards and cloud agents still
+  search. The daemon's scheduled run and Run now both use it, and the results
   are merged by the processor. Default: Claude Code.
 - **SimplifyJobs lists** and **company job boards**, fetched by the browser while
   Landed is open (`lib/supply.ts`, `refreshSupply`'s `sources`); they cost no
   tokens. Run now refreshes them too.
-- **Cloud agents** (only shown when one is connected): unticked, `get_tasks`
-  gives them no job search (`routes/mcp.ts`).
+- **Cloud agents**, one chip each (only connected ones show): an unticked one
+  is in `cloud_skip` and `get_tasks` gives it no job search
+  (`cloudAgentSearches`, `routes/mcp.ts`). `cloud_agents` stays the switch for all
+  of them (older Landed versions read only that): unticking the last one turns it
+  off, ticking one again turns it on with the others still skipped.
+
+**Check email → Done by** (`users.automations.email_check.readers`, `AgentSources`;
+default Claude Code and every cloud agent): the computer reads email with the
+first ticked agent that can (`pickAgents`; today Claude Code once its mail
+connector is found, listed before that so it can be ticked). None ticked: the
+daemon records a quiet "No agent ticked" run. Cloud agents read with their own
+connectors; an unticked one is in `cloud_skip` and `get_tasks` gives it no email
+check (`cloudAgentOn`). Other computer agents (Codex, ACP agents) get no email or
+portal check until each has its own read-only allowlist (#144, a security
+decision).
 
 They run on a schedule the user sets (`users.automations` via `/me`, migration
 0015; `packages/schema/src/automation.ts`, which also has the schedule math).
@@ -397,7 +427,7 @@ hours (`hooks/supply.ts`, `lib/supply.ts`; see
 
 `portal_check`, the fallback when email is silent, runs when the user clicks
 (Agent page questions, or "Check status now" on an application's Candidate portal
-card, `components/portal-card.tsx`) or on the Automation schedule (opt-in, off by
+card, `components/portal-card.tsx`) or on the Workflow schedule (opt-in, off by
 default), on ≤ 5 applications per run, through Claude in Chrome
 (`claude --chrome --strict-mcp-config`). Scheduled runs pick applications with a
 portal link and no news for `quiet_days` (`pickQuietPortals`; the daemon also

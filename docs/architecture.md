@@ -37,7 +37,7 @@ Two things set it apart:
 | The user | Landed |
 |---|---|
 | Sets up once: uploads resumes and says what each is for; answers the questions forms ask (work authorization, sponsorship, start date…); installs the extension and Landed for Mac; connects their mailbox | Reads the resumes into one master and its versions. Fills in the answers it already knows from the resume and the search. Remembers a fact the user corrects on a form |
-| Says what they're looking for, in chat or on Find new jobs | Finds jobs on a schedule, drops duplicates and jobs the user plainly can't apply to, and ranks the rest |
+| Says what they're looking for, in chat or on Workflow's What to look for | Finds jobs on a schedule, drops duplicates and jobs the user plainly can't apply to, and ranks the rest |
 | Approves Leads, one or many at a time (undoable) | Applies to each approved job: picks the resume, fills every field, writes the open-ended answers, has the user's agent review the form, and submits |
 | Clears a blocker when one comes up (signing in, a CAPTCHA, a question only they can answer) | Stops only that application and says why. The others go on |
 | Reads updates and answers "Needs your input" | Moves applications forward from email and portals on its own when sure (undoable), and asks when not |
@@ -109,7 +109,7 @@ answered), and the user can change it.
 
 | Part | What it is | Start reading at |
 |---|---|---|
-| `apps/web` | Vite + React app: Applications board, Agent page, Automation, My Resume, Extension | `src/App.tsx`, `src/lib/store/types.ts` |
+| `apps/web` | Vite + React app: Applications board, Agent page, Workflow, My Resume, Extension | `src/App.tsx`, `src/lib/store/types.ts` |
 | `apps/server` | Hono API on Postgres: auth, Cloud data, agent relay, runtime hub, MCP/OAuth, downloads | `src/app.ts`, `src/routes/` |
 | `apps/daemon` | Node daemon plus the Swift menu bar app, packaged as Landed for Mac. Runs agent tasks and the schedule, and answers the extension's native requests | `src/cli.ts`, `src/agents.ts`, `src/native-host.ts`, `macos/LandedMenuBar.swift` |
 | `apps/extension` | MV3 extension for Chrome, Edge, Brave and Safari: fills and submits applications, detects portal status | `manifest.json`, `background.js`, `content.js`, `lib/fill/` |
@@ -123,7 +123,7 @@ answered), and the user can change it.
 | Data | Sync off | Sync on |
 |---|---|---|
 | Applications, leads, suggestions, resumes and their files, answers, files, chats, searches | IndexedDB `landed-<userId>` | Postgres, through `cloud.ts` |
-| Account, preferences, automation schedule | Postgres `users` row | same |
+| Account, preferences, Workflow settings (`users.automations`) | Postgres `users` row | same |
 | Agent observations | Server holds them until the browser pulls and acks, then keeps only a hash | stored |
 | Runtime tasks and their output | Server memory only, never the database | same |
 | Briefing for cloud agents (`{brief, applications: [{company, role, stage}]}`) | Server, only while a cloud-agent connection exists | same |
@@ -138,11 +138,27 @@ implementations: `local.ts` (Dexie) and `cloud.ts` (the API). Details are in
 ## The pipeline
 
 Every job goes through one pipeline. Each stage has a default **executor**,
-Landed's own rules, and some stages can add the user's agent as an optional
-layer. Each stage also has a schedule or trigger. Product decision 2026-10-22
-(#148): the Automation page becomes this Workflow, with every stage's executor
-and schedule configurable. Until #140 lands, the stages are spread over Find
-new jobs, Auto apply, email checks and portal checks.
+Landed's own rules ("Landed AI" on the page), and some stages can add the
+user's agent as an optional layer. Each stage also has a schedule or trigger.
+
+The **Workflow** page (`/workflow`; #140, shipped in #149; overview #148) shows
+the pipeline as steps:
+
+- What to look for;
+- 1 Find jobs: agent search, job lists, company boards, remove duplicates,
+  rank;
+- 2 Apply: auto apply, mark as applied;
+- 3 Keep up to date: check email, check candidate portals.
+
+Each step shows its status, who does it, when, what it needs, its recent runs
+and its switch. The settings stay in `users.automations`; a step gains its own
+executor or schedule field when it gets one, and older Landed for Mac versions
+ignore fields they don't know.
+
+Today the user picks who does **Agent search** (#151) and **Check email**
+(#153). For each, every agent on the computer and each cloud agent is ticked
+on its own, and all unticked means none. Choosing an executor for the other
+steps is planned (#141–#147). Details: [agents.md](agents.md#workflow).
 
 ```
  ① Find jobs     job lists · platform APIs · wild jobs (agents) · plus manual add, CSV import, screenshots
@@ -164,9 +180,9 @@ new jobs, Auto apply, email checks and portal checks.
 
 | Source | Executor (default) | Status |
 |---|---|---|
-| **Job lists**: SimplifyJobs New Grad and Internships | Landed's code reads the list, no tokens | Shipped (#90). More lists, especially product / data / business: #138 |
-| **Platform APIs**: Greenhouse, Lever, Ashby boards of up to 25 followed companies | Landed's code | Shipped (#91). More platforms: #138 |
-| **Wild jobs**: postings on no list (company sites, posts, referrals) | The user's agents (`job_search`, web tools only), and cloud agents | Shipped. Playbook and measurement: #138 |
+| **Job lists**: SimplifyJobs New Grad and Internships | Landed's code reads the list, in the browser every 6 hours while Landed is open; no tokens | Shipped (#90). Planned: more lists, especially product / data / business (#138) |
+| **Platform APIs**: Greenhouse, Lever, Ashby boards of up to 25 followed companies | Landed's code, in the browser like the lists | Shipped (#91). Planned: more platforms (#138) |
+| **Wild jobs**: postings on no list (company sites, posts, referrals) | Agent search (`job_search`, web tools only): each agent on the computer and each cloud agent ticked on its own (#151), every 3, 6 or 12 hours, daily, on weekdays or weekly (#152) | Shipped. Planned: the playbook and measurement (#138) |
 | **The user**: Add, a spreadsheet import, screenshots in chat | The user, and Landed reads them | Shipped (#120; chat blocks) |
 
 ```
@@ -181,16 +197,20 @@ lib/inbox/leads.ts → ingestFoundJobs → ② → ③ → Leads column
 ```
 
 What to look for comes from the active search: a brief the user confirms in
-chat, or sets on Find new jobs (roles, places, level, companies to look at
-first, sponsorship). Public postings are fetched by the browser, never through
-the server, and which companies the user follows never leaves the browser.
-Fetching from Landed for Mac while the page is closed is planned (#141) and
-needs the owner's OK on that rule.
+chat, or edits on Workflow's What to look for (roles, places, level, companies
+to look at first, sponsorship). Public postings are fetched by the browser,
+never through the server, and which companies the user follows never leaves the
+browser.
 
 Every posting has one stable observation id, so refreshing never adds it twice,
-and a posting gone from its source is marked closed. #145 gives each source its
-own executor and schedule. Details: [leads-model.md](leads-model.md),
-[agents.md](agents.md#job-search).
+and a posting gone from its source is marked closed.
+
+Planned:
+- fetching the lists and boards from Landed for Mac while the page is closed
+  (#141; it needs the owner's OK on that rule);
+- each source kind with its own executor and schedule (#145).
+
+Details: [leads-model.md](leads-model.md), [agents.md](agents.md#job-search).
 
 ### ② Dedupe
 
@@ -198,10 +218,12 @@ own executor and schedule. Details: [leads-model.md](leads-model.md),
 (`sameJob`, `applicationForPosting`). A job already in Leads or already applied
 to doesn't come back, and a lead for a job the user applied to leaves Leads
 (`already_applied`). On the board, near-identical applications are flagged
-"Possible duplicate" and merged only when the user clicks.
+"Possible duplicate" and merged only when the user clicks. Remove duplicates is
+Landed AI, built in, on each new batch.
 
-Planned (#146): the pairs the rules can't decide go to the user's agent, which
-sees only the two postings. "Not sure" counts as different: one extra lead is
+Planned (#146; Workflow lists the user's agents for this step as coming soon):
+the pairs the rules can't decide go to the user's agent, which sees only the two
+postings. "Not sure" counts as different: one extra lead is
 better than a real job hidden. Details:
 [observation-processor.md](observation-processor.md).
 
@@ -212,8 +234,9 @@ better than a real job hidden. Details:
   Landed isn't sure, the job isn't filtered. Filtered leads are hidden, never
   deleted, and one the user puts back stays back.
 - **Rank** (#93): fit (title, skills, level, place, years) × urgency (deadline,
-  posting age), with two or three reasons on each card. Planned (#147): the
-  user's agent scores each new batch with reasons. The rule score stays as the
+  posting age), with two or three reasons on each card. Landed AI, built in.
+  Planned (#147; listed as coming soon on Workflow): the user's agent scores
+  each new batch with reasons. The rule score stays as the
   floor, and an agent that times out never holds a lead back.
 
 Both run in the browser, since they read the resume. Details:
@@ -236,9 +259,10 @@ application starts.
 
 ### ④ Apply
 
-The extension applies, in the user's own browser. Auto apply is on by default.
-It runs 1–5 applications at a time in priority order, and skips a company
-already at OA, interview, offer or recruiter contact.
+The extension applies, in the user's own browser. Workflow's Auto apply step is
+the one place to manage it: on by default, 1–5 applications at a time in
+priority order, Run now, and the queue and blockers. It skips a company already
+at OA, interview, offer or recruiter contact.
 
 ```
 approved Leads queue (≤5)  ·  "Open & autofill"  ·  popup "Fill"  ·  menu bar app
@@ -273,8 +297,8 @@ owner agrees on their safety rules. Details: [apply-assist.md](apply-assist.md).
 
 ### ⑤ Write back
 
-The "thanks for applying" page sends a portal event, and
-`lib/inbox/confirmations.ts` moves the application to Applied. The application
+Workflow's Mark as applied step. The "thanks for applying" page sends a portal
+event, and `lib/inbox/confirmations.ts` moves the application to Applied. The application
 keeps:
 
 - the resume used and why (`resume_choice`);
@@ -289,8 +313,8 @@ appears after Submit is recorded as a blocker.
 
 | Check | Executor | Reach | Then |
 |---|---|---|---|
-| Email | The user's agent with the mailbox's **read** tools only, on a schedule | New mail since the last check (or back to an import, up to 90 days) | Status observations |
-| Portals | The user's agent with Chrome's **navigate and read** tools only | Portals of applications quiet for N days, at most 5 a run | Status observations |
+| Email | The ticked readers (#153): the computer's agent that can read email (today Claude Code with its mail connector) and each cloud agent on its own, with the mailbox's **read** tools only; on the schedule set on Workflow | New mail since the last check (or back to an import, up to 90 days) | Status observations |
+| Portals | Claude Code with Claude in Chrome, the only agent wired for it, with Chrome's **navigate and read** tools only | Portals of applications quiet for N days, at most 5 a run | Status observations |
 | Pages the user visits | The extension | Confirmation and status pages | Portal events |
 
 ```
@@ -307,8 +331,9 @@ extension portal events (pages)  ──────────── page bridg
 
 These always ask the user: an ambiguous update, a low-confidence one, and one
 that would reopen a closed application. After 21 days with no news, Landed asks
-whether to call an application ghosted. Planned (#144): choose the agent for
-each check. Details: [agents.md](agents.md), [pipeline.md](pipeline.md).
+whether to call an application ghosted. Planned (#144): another agent for
+portal checks, and other computer agents (Codex, ACP agents) for email. Each
+needs its own read-only allowlist, which is a security decision. Details: [agents.md](agents.md), [pipeline.md](pipeline.md).
 
 ## Around the pipeline
 
@@ -346,7 +371,7 @@ each check. Details: [agents.md](agents.md), [pipeline.md](pipeline.md).
 | `classify_statuses` | Same | Status words from an imported sheet | Companies, roles, notes | Name a stage, or "unknown" |
 | Chat | The user's chosen agent, with web tools | Resume gist, the answers that shape a search, the search | Contact details, address, date of birth, EEO | Answer, and propose cards |
 | `job_search` | The user's agents, with WebSearch / WebFetch | The search brief | — | Report found jobs |
-| `email_check` | An agent with the mailbox's read tools | The mailbox | — | Report status updates |
+| `email_check` | The ticked reader, with the mailbox's read tools | The mailbox | — | Report status updates |
 | `portal_check` | An agent with Chrome's navigate / read tools | The portals of quiet applications | — | Report status updates |
 | Resume parse / merge / tailor | The user's agent | The resume | — | Read the resume; tailoring never invents |
 | Planned: same job (#146) | The chosen agent | Two postings' public text | Anything about the user | Answer same / different / not sure |
@@ -367,7 +392,7 @@ each check. Details: [agents.md](agents.md), [pipeline.md](pipeline.md).
 |---|---|
 | **Applications** | The board (Leads → Applied → OA / Test → Interview → Offer → Rejected, cards grouped by company), Leads with Approve, "Needs your input", the agents' updates |
 | **Agent** | Chat, the agent's questions, setup (connecting a computer and agents) |
-| **Automation** (to become **Workflow**, #140) | Find new jobs, auto apply, email and portal checks: schedules, executors, last runs |
+| **Workflow** | The pipeline as steps (What to look for, Find jobs, Apply, Keep up to date): each step's status, who does it, when, its switch, Run now and recent runs |
 | **My Resume** | Uploads, the master, versions, what each is for, each one's file |
 | **Extension** | Application answers, files, questions waiting for an answer, answers remembered from forms |
 | Extension popup / Landed for Mac menu bar | Fill the page in front of the user (never submit), the fields left and why |
@@ -380,7 +405,7 @@ each check. Details: [agents.md](agents.md), [pipeline.md](pipeline.md).
 | New agent task kind | Input validation in `routes/runtime.ts`, a runner in `apps/daemon/src/agents.ts` (and `specFor` for Codex/ACP), the agent's `kinds` |
 | New native host request (the extension asking the user's agent) | A handler with its own input check in `apps/daemon/src/native-host.ts`; the allowed `type` in `background.js` (`native-assist`) or a case in `lib/bridge-handler.js`; a row in "What each agent call sees" above, and a CLAUDE.md rule if what it sees is new |
 | New observation type or field | Validators in `routes/agent.ts`, `AGENT_PROTOCOL.md`, the prompt in `apps/web/src/lib/agent-prompt.ts` |
-| New job source | A pure parser in `packages/supply` with tests, a stable observation id, closed detection, a switch on Find new jobs ([leads-model.md](leads-model.md)) |
+| New job source | A pure parser in `packages/supply` with tests, a stable observation id, closed detection, a switch on Workflow's Find jobs step ([leads-model.md](leads-model.md)) |
 | New autofill rule | The `lib/fill/*.js` module for that kind of field, or `lib/choice-answers.js` for a question; an integration test in `apps/extension/tests/`; `live-check` before release |
 | New extension fill module | A file in `lib/fill/` that registers on `window.LandedFill`, listed in `manifest.json` `content_scripts` before `content.js` |
 | New page | A route in `App.tsx`, a nav item in `components/shell.tsx` |
@@ -407,14 +432,18 @@ Landed for Mac. Installed copies update themselves (see
 
 ## Where it's going
 
-| Issue | What | Owner |
-|---|---|---|
-| #148 | Workflow overview: the pipeline above, every stage configurable | Both |
-| #140 | Foundation: `workflow` config replacing `automations`, migration, page | Antares (first) |
-| #141 | Landed for Mac runs every stage on its schedule, with the page closed | Antares |
-| #142 · #143 · #144 | ④ undo window and executors · ⑤ immediate write-back · ⑥ an agent per check | Antares |
-| #138 | More job lists and platforms (beyond engineering), the wild-job playbook, before/after numbers | Gloria |
-| #145 · #146 · #147 | ① three source kinds, each configured · ② the agent for undecided pairs · ③ agent scores with reasons | Gloria |
+| Issue | What | Owner | Status |
+|---|---|---|---|
+| #140 | Foundation: Automation becomes the Workflow page | Antares | Shipped (#149). Also shipped since: each agent and cloud agent ticked on its own for Agent search (#151) and Check email (#153); searches every 3 or 6 hours (#152) |
+| #148 | Workflow overview: every stage configurable | Both | Planned (open) |
+| #141 | Landed for Mac runs every stage on its schedule, with the page closed | Antares | Planned |
+| #142 | ④ An undo window after Approve, and other executors | Antares | Planned |
+| #143 | ⑤ Applied the moment a submit is confirmed | Antares | Planned |
+| #144 | ⑥ Another agent for portal checks, other computer agents for email | Antares | Planned (choosing email readers shipped in #153) |
+| #138 | More job lists and platforms (beyond engineering), the wild-job playbook, before/after numbers | Gloria | Planned |
+| #145 | ① Each source kind with its own executor and schedule | Gloria | Planned |
+| #146 | ② The user's agent for pairs the rules can't decide | Gloria | Planned |
+| #147 | ③ The user's agent scores with reasons | Gloria | Planned |
 
-Order: #140 first. Then #141 and #145 in parallel, then #146 before #147.
+Order of what's left: #141 and #145 in parallel, then #146 before #147.
 #142, #143 and #144 can go in any order.

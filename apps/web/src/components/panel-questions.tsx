@@ -3,7 +3,7 @@
 //   - "Did you apply?" after you open a posting from Landed;
 //   - "No news for 3+ weeks" for applications in progress: mark ghosted,
 //     keep waiting, or have your agent look at their candidate portals in
-//     Chrome now — read-only (the Automation page can also do this on a
+//     Chrome now — read-only (the Workflow page can also do this on a
 //     schedule);
 //   - "These look like the same application": merge, or keep both
 //     (components/duplicates.tsx);

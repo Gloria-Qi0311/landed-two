@@ -24,7 +24,7 @@ import { requestAutoApplyRun, useAutoApplyControl, useExtension } from '../hooks
 import { useAutomations } from '../hooks/automation'
 
 /** Compact status/control in Leads. The execution itself is global and its
- * full management surface lives on Automation. */
+ * full management surface lives on Workflow. */
 export function ApplyNextBatch({ leads }: { leads: DbJobLead[] }) {
   const { automations } = useAutomations()
   const busy = useAutoApplyControl((state) => state.busy)
@@ -39,7 +39,7 @@ export function ApplyNextBatch({ leads }: { leads: DbJobLead[] }) {
           <Icon name="sparkle" size={11} /> {busy ? 'Applying…' : 'Retry approved'}
         </button>
         <span style={{ fontSize: 10.5, color: 'var(--fg-muted)' }}>
-          {automations.auto_apply.enabled ? `Auto apply on · up to ${automations.auto_apply.max_concurrent} at a time` : 'Auto apply off · manage it in Automation'}
+          {automations.auto_apply.enabled ? `Auto apply on · up to ${automations.auto_apply.max_concurrent} at a time` : 'Auto apply off · manage it in Workflow'}
         </span>
       </div>
       {note && <div role="status" style={{ fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.4 }}>{note}</div>}

@@ -619,7 +619,7 @@ each submission is handled once (`portal-applied:` ledger suggestion, so deletin
 the application doesn't bring it back). Events older than 30 days are ignored.
 
 **Approved-lead execution** (#99) starts automatically after Approve and keeps a
-manual Retry approved control. Automation owns its on/off switch, 1–5 concurrent
+manual Retry approved control. Workflow's Auto apply stage owns its on/off switch, 1–5 concurrent
 limit, Run now and queue/blocker status (`automations.auto_apply`). The global
 `useAutoApplyRunner` stays mounted on every Landed route. It uses the same
 `priority` order as the cards and opens only as many linked `saved` applications

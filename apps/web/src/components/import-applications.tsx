@@ -189,7 +189,7 @@ export function ImportApplicationsModal({ open, onClose }: { open: boolean; onCl
               <Icon name="inbox" size={13} /> {emailAsked ? 'Reading your email…' : `Update them from email (last ${emailDays} days)`}
             </button>
           ) : (
-            <button type="button" className="btn-secondary" onClick={() => { onClose(); navigate('/automation') }}>
+            <button type="button" className="btn-secondary" onClick={() => { onClose(); navigate('/workflow#email') }}>
               Set up email checks to keep them up to date
             </button>
           )}

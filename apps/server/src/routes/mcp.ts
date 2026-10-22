@@ -23,7 +23,7 @@
 import { createHash } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { parseAutomations } from '@landed/schema/automation'
+import { cloudAgentOn, cloudAgentSearches, parseAutomations } from '@landed/schema/automation'
 import { parseBriefing, type Briefing } from '@landed/schema/cloud-agent'
 import { parseEmailFindings, type EmailFinding } from '@landed/schema/email-check'
 import { describeFoundJob, parseFoundJobs, type FoundJob, type SearchBrief } from '@landed/schema/search-brief'
@@ -173,7 +173,7 @@ function briefText(b: SearchBrief): string {
 }
 
 /** The work for this account right now: the automations the user turned
- *  on (Automation page) that a cloud agent can do — a job search and an
+ *  on (Workflow page) that a cloud agent can do — a job search and an
  *  email check. Portal checks need the user's own Chrome, so they stay on
  *  the user's computer. */
 export function buildTasks(briefing: Briefing | null, on: { job_search: boolean; email_check: boolean }, emailSince: Date, now = new Date()) {
@@ -242,13 +242,16 @@ async function callTool(sql: Sql, conn: Connection, name: string, args: Record<s
     const last = Math.max(conn.email_checked_at ? Date.parse(conn.email_checked_at) : 0, run ? Date.parse(run.last_done_at) : 0)
     const since = new Date(last ? last - EMAIL_OVERLAP_MS : now.getTime() - FIRST_EMAIL_LOOKBACK_DAYS * 86_400_000)
     const automations = parseAutomations(conn.automations)
-    // Find new jobs can leave cloud agents out (Automation page → Search with).
-    const on = { job_search: automations.job_search.enabled && automations.job_search.sources?.cloud_agents !== false, email_check: automations.email_check.enabled }
+    // Agent search and Check email can each leave any cloud agent out (Workflow page).
+    const on = {
+      job_search: automations.job_search.enabled && cloudAgentSearches(automations.job_search.sources, conn.id),
+      email_check: automations.email_check.enabled && cloudAgentOn(automations.email_check.readers, conn.id),
+    }
     const tasks = buildTasks(briefing, on, since, now)
     const note = !on.job_search && !on.email_check
-      ? automations.job_search.enabled
-        ? "The user's job search runs on their own computer, not with cloud agents (Landed's Automation page), so there's nothing to do."
-        : "The user hasn't turned on any automation in Landed (Automation page: job search, email check), so there's nothing to do."
+      ? automations.job_search.enabled || automations.email_check.enabled
+        ? "The user's job search and email check don't use this agent (Landed's Workflow page: Agent search, Check email), so there's nothing to do."
+        : "The user hasn't turned on any automation in Landed (Workflow page: Find new jobs, Check email), so there's nothing to do."
       : on.job_search && !row
         ? "Landed hasn't received the user's search direction yet. Ask them to open Landed once: it shares the brief while you're connected."
         : on.job_search && !briefing?.brief ? "The user hasn't confirmed a search direction in Landed yet, so there is no job search to run. They can agree on one with Landed's Agent." : null
@@ -311,7 +314,7 @@ type RpcRequest = { jsonrpc?: string; id?: string | number | null; method?: stri
 const rpcError = (id: RpcRequest['id'], code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } })
 const rpcResult = (id: RpcRequest['id'], result: unknown) => ({ jsonrpc: '2.0', id, result })
 
-const INSTRUCTIONS = "Landed is the user's job-hunt tracker. Call get_tasks first: it returns the work the user turned on in Landed's Automation (a job search for their brief, an email check) with instructions, and names the tool to submit each result with (submit_jobs, submit_email_updates). Landed decides what results mean; never invent data."
+const INSTRUCTIONS = "Landed is the user's job-hunt tracker. Call get_tasks first: it returns the work the user turned on in Landed's Workflow (a job search for their brief, an email check) with instructions, and names the tool to submit each result with (submit_jobs, submit_email_updates). Landed decides what results mean; never invent data."
 
 async function handle(sql: Sql, conn: Connection, msg: RpcRequest): Promise<object | null> {
   const isRequest = msg && typeof msg === 'object' && 'id' in msg && msg.id !== undefined

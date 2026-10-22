@@ -49,7 +49,7 @@ import { AuthorizeAgentPage } from './components/authorize-agent';
 // workspaces are only downloaded when the user opens them; Resume in
 // particular brings document parsing code that the board never needs.
 const AgentPage = lazy(() => import('./components/agent-page').then((m) => ({ default: m.AgentPage })));
-const AutomationPage = lazy(() => import('./components/automation-page').then((m) => ({ default: m.AutomationPage })));
+const WorkflowPage = lazy(() => import('./components/workflow-page').then((m) => ({ default: m.WorkflowPage })));
 const ResumesPage = lazy(() => import('./components/resumes-page').then((m) => ({ default: m.ResumesPage })));
 const ExtensionPage = lazy(() => import('./components/extension-page').then((m) => ({ default: m.ExtensionPage })));
 
@@ -295,7 +295,8 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
             <Route path="/sync" element={<Navigate to="/applications" replace />} />
             <Route path="/jd-breakdown" element={<Navigate to="/applications" replace />} />
             <Route path="/agent" element={<AgentPage />} />
-            <Route path="/automation" element={<AutomationPage />} />
+            <Route path="/workflow" element={<WorkflowPage />} />
+            <Route path="/automation" element={<Navigate to="/workflow" replace />} />
             <Route path="/agents" element={<Navigate to="/agent?view=settings" replace />} />
             <Route path="*" element={<Navigate to="/applications" replace />} />
           </Routes>
@@ -401,7 +402,7 @@ function ApplicationsPage({
             </>
           }
         />
-        <EmptyApplicationsView onAddManual={onOpenAddModal} onTrackStatus={() => navigate('/automation')} onImport={onOpenImport} />
+        <EmptyApplicationsView onAddManual={onOpenAddModal} onTrackStatus={() => navigate('/workflow#email')} onImport={onOpenImport} />
       </>
     );
   }
