@@ -29,8 +29,9 @@ Two things set it apart:
   there. It never guesses and never invents a fact. When it isn't sure, it
   stops that one application and says why.
 - **The AI work runs on the user's own agents.** These are Claude Code, Codex,
-  Gemini CLI or local Ollama, on the user's own computer and subscription.
-  The data stays in their browser unless they turn on Cloud sync.
+  Gemini CLI or local Ollama on the user's own computer, or a cloud agent they
+  already use (ChatGPT, Claude, Gemini…), on their own subscription. The data
+  stays in their browser unless they turn on Cloud sync.
 
 ## Who does what
 
@@ -62,8 +63,11 @@ answered), and the user can change it.
 4. **Never guess, never invent.** A field with no saved answer stays for the
    user. If Landed isn't sure a filter applies, it doesn't filter. Tailored
    resumes and open-ended answers use only the resume's facts.
-5. **Everything automatic is recorded and undoable.** That covers approvals,
-   email updates, imports, answers filled in or remembered, and merges.
+5. **Everything automatic is recorded, and what can be undone can be undone.**
+   That covers approvals (until the application starts), email updates,
+   imports, answers filled in or remembered, and merges. A submitted
+   application can't be taken back, so only an approved lead is ever
+   submitted, and only after every check passes.
 6. **Local-first.** Data lives in the browser unless the user turns on Cloud
    sync. The server relays and never stores a sync-off account's data.
    Scheduling runs in Landed for Mac; processing runs in the browser.
@@ -104,7 +108,7 @@ answered), and the user can change it.
  │  MCP + OAuth for cloud agents · serves the web app and Mac app downloads    │
  └────────────────────────────────────▲────────────────────────────────────────┘
                                       │ MCP / HTTP with per-connection tokens
-                         cloud agents (ChatGPT, Claude, Muse, Manus…)
+                     cloud agents (ChatGPT, Claude, Gemini, Muse, Manus…)
 ```
 
 | Part | What it is | Start reading at |
@@ -158,7 +162,9 @@ ignore fields they don't know.
 Today the user picks who does **Agent search** (#151) and **Check email**
 (#153). For each, every agent on the computer and each cloud agent is ticked
 on its own, and all unticked means none. Choosing an executor for the other
-steps is planned (#141–#147). Details: [agents.md](agents.md#workflow).
+steps is planned: apply (#142), portal checks (#144), each source kind (#145),
+remove duplicates (#146), rank (#147). Running every step with the page closed
+is #141. Details: [agents.md](agents.md#workflow).
 
 ```
  ① Find jobs     job lists · platform APIs · wild jobs (agents) · plus manual add, CSV import, screenshots
@@ -180,7 +186,7 @@ steps is planned (#141–#147). Details: [agents.md](agents.md#workflow).
 
 | Source | Executor (default) | Status |
 |---|---|---|
-| **Job lists**: SimplifyJobs New Grad and Internships | Landed's code reads the list, in the browser every 6 hours while Landed is open; no tokens | Shipped (#90). Planned: more lists, especially product / data / business (#138) |
+| **Job lists**: SimplifyJobs New Grad and Internships | Landed's code reads the list, in the browser while Landed is open: 30 seconds after the search changes, then every 6 hours; no tokens | Shipped (#90). Planned: more lists, especially product / data / business (#138) |
 | **Platform APIs**: Greenhouse, Lever, Ashby boards of up to 25 followed companies | Landed's code, in the browser like the lists | Shipped (#91). Planned: more platforms (#138) |
 | **Wild jobs**: postings on no list (company sites, posts, referrals) | Agent search (`job_search`, web tools only): each agent on the computer and each cloud agent ticked on its own (#151), every 3, 6 or 12 hours, daily, on weekdays or weekly (#152) | Shipped. Planned: the playbook and measurement (#138) |
 | **The user**: Add, a spreadsheet import, screenshots in chat | The user, and Landed reads them | Shipped (#120; chat blocks) |
@@ -215,7 +221,7 @@ Details: [leads-model.md](leads-model.md), [agents.md](agents.md#job-search).
 ### ② Dedupe
 
 `packages/observation-processor` is the one place matching rules live
-(`sameJob`, `applicationForPosting`). A job already in Leads or already applied
+(`sameJob` and `applicationForPosting` in `src/process.ts`). A job already in Leads or already applied
 to doesn't come back, and a lead for a job the user applied to leaves Leads
 (`already_applied`). On the board, near-identical applications are flagged
 "Possible duplicate" and merged only when the user clicks. Remove duplicates is
@@ -269,10 +275,12 @@ approved Leads queue (≤5)  ·  "Open & autofill"  ·  popup "Fill"  ·  menu b
    ▼
 extension background.js → fillTab: the page plus every frame that reported a form
    ▼
-1 resume: the version tailored for this job, else the resume whose direction is
-  this job's; close calls → native host pick_resume. Its own file is uploaded
-2 fill (lib/fill/*): saved answers → resume rules → each job and school entry
-  → files → dropdowns and radios
+1 resume: the version tailored for this job (or for a close role at the same
+  company), else the resume whose direction is this job's; close calls →
+  native host pick_resume. Its own file is uploaded
+2 fill (lib/fill/*, content.js, in this order): files → each job and school
+  entry → saved answers → resume rules → selects → dropdowns → dates → radios
+  and checkboxes → fields the user saved
    ├─ unknown labels → native host match_fields (labels and key names only)
    └─ unanswered choices → native host choose_options (local Ollama only)
 3 open-ended questions → native host draft_answers: written, then checked
@@ -329,8 +337,10 @@ extension portal events (pages)  ──────────── page bridg
                                            otherwise → "Needs your input"
 ```
 
-These always ask the user: an ambiguous update, a low-confidence one, and one
-that would reopen a closed application. After 21 days with no news, Landed asks
+A confident forward move applies on its own unless the user turned that off on
+Check email (`users.auto_apply_updates`; then every update asks). These always
+ask the user: an ambiguous update, a low-confidence one, and one that would
+reopen a closed application. Check email also has "Re-read the last 30 days". After 21 days with no news, Landed asks
 whether to call an application ghosted. Planned (#144): another agent for
 portal checks, and other computer agents (Codex, ACP agents) for email. Each
 needs its own read-only allowlist, which is a security decision. Details: [agents.md](agents.md), [pipeline.md](pipeline.md).
@@ -353,8 +363,13 @@ needs its own read-only allowlist, which is a security decision. Details: [agent
   proposes through cards the user clicks: a search brief, applications read
   from screenshots, answers read from a filled form, duplicates to merge.
   Details: [agents.md](agents.md#agent-page-and-chat).
-- **Cloud agents** (ChatGPT, Claude, Muse…): connect over MCP, read a briefing,
-  and report jobs and email updates as observations.
+- **Cloud agents** (ChatGPT, Claude, Gemini, Muse, Manus…): connect over MCP,
+  read a briefing, and report jobs and email updates as observations. Each can
+  be ticked on its own for Agent search and Check email.
+- **Accounts and data**: an account's data lives on this device unless the user
+  turns on Cloud sync (and back off). The account menu also exports and
+  restores a backup and shows recovery codes. A new account gets a short tour
+  (again from the menu). Details: [data-and-sync.md](data-and-sync.md).
 - **Bringing history in**: spreadsheet import and CSV export. Import reads
   statuses with rules first, then with the user's agent for the ones the rules
   can't read. Details: [pipeline.md](pipeline.md#importing-a-spreadsheet).
@@ -372,7 +387,7 @@ needs its own read-only allowlist, which is a security decision. Details: [agent
 | Chat | The user's chosen agent, with web tools | Resume gist, the answers that shape a search, the search | Contact details, address, date of birth, EEO | Answer, and propose cards |
 | `job_search` | The user's agents, with WebSearch / WebFetch | The search brief | — | Report found jobs |
 | `email_check` | The ticked reader, with the mailbox's read tools | The mailbox | — | Report status updates |
-| `portal_check` | An agent with Chrome's navigate / read tools | The portals of quiet applications | — | Report status updates |
+| `portal_check` | Claude Code with Claude in Chrome, navigate and read tools only | The portals of quiet applications | — | Report status updates |
 | Resume parse / merge / tailor | The user's agent | The resume | — | Read the resume; tailoring never invents |
 | Planned: same job (#146) | The chosen agent | Two postings' public text | Anything about the user | Answer same / different / not sure |
 | Planned: rank (#147) | The chosen agent | The posting; the master resume's gist | Name, contact details, address, date of birth, EEO | Give a 0–1 score and reasons |
@@ -391,7 +406,7 @@ needs its own read-only allowlist, which is a security decision. Details: [agent
 | Surface | Holds |
 |---|---|
 | **Applications** | The board (Leads → Applied → OA / Test → Interview → Offer → Rejected, cards grouped by company), Leads with Approve, "Needs your input", the agents' updates |
-| **Agent** | Chat, the agent's questions, setup (connecting a computer and agents) |
+| **Agent** | Chat, the agent's questions, setup (pairing a computer, choosing which agents to use) |
 | **Workflow** | The pipeline as steps (What to look for, Find jobs, Apply, Keep up to date): each step's status, who does it, when, its switch, Run now and recent runs |
 | **My Resume** | Uploads, the master, versions, what each is for, each one's file |
 | **Extension** | Application answers, files, questions waiting for an answer, answers remembered from forms |
