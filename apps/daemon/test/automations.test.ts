@@ -185,7 +185,7 @@ test('Find new jobs searches with each agent chosen on the Workflow page that is
   assert.deepEqual(calls, [], 'not the first that can')
   const none = sync({ automations: search([]), context: withBrief }).runs.find((r) => r.kind === 'job_search')
   assert.equal(none?.status, 'ok')
-  assert.match(String(none?.summary), /No agent ticked/)
+  assert.match(String(none?.summary), /^Skipped: no agent on this computer is ticked under Agent search/)
 })
 
 test('Check email is read by the agent ticked here; none ticked leaves it to the cloud agents', async () => {
@@ -206,7 +206,7 @@ test('Check email is read by the agent ticked here; none ticked leaves it to the
   assert.deepEqual(calls, [], 'not the first that can')
   const run = sync({ automations: readBy([]) }).runs.find((r) => r.kind === 'email_check')
   assert.equal(run?.status, 'ok')
-  assert.match(String(run?.summary), /No agent ticked to read email/)
+  assert.match(String(run?.summary), /^Skipped: no agent on this computer is ticked under Check email/)
 })
 
 test('a page waiting for a connector makes every computer look again, and hears what they reach', () => {

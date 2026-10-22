@@ -191,14 +191,14 @@ async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
   // Every agent unticked: nothing to search with here. The lists, boards and
   // cloud agents still search, so it's a quiet success, not an error.
   if (kind === 'job_search' && st.automations?.job_search.sources?.agents.length === 0) {
-    recordSkip(kind, 'No agent ticked to search here; the job lists, company boards and cloud agents still do')
+    recordSkip(kind, 'Skipped: no agent on this computer is ticked under Agent search. Tick Claude Code there to search with it; the job lists, company boards and ticked cloud agents still look.')
     return
   }
   // Email is read by the agent ticked under Check email (the first of them
   // that can here); none ticked: the cloud agents read it, not this computer.
   const readers = kind === 'email_check' ? st.automations?.email_check.readers : undefined
   if (readers && readers.agents.length === 0) {
-    recordSkip(kind, 'No agent ticked to read email here; ticked cloud agents still do')
+    recordSkip(kind, 'Skipped: no agent on this computer is ticked under Check email. Tick Claude Code there to read email with it; ticked cloud agents still do.')
     return
   }
   const several = kind === 'job_search' && agentsFor ? pickSearchAgents(agentsFor(kind), st.automations?.job_search.sources) : null

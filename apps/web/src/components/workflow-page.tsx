@@ -172,6 +172,10 @@ function useScheduleState(kind: AutomationKind) {
   return { running, text: `${text}${state?.last_success_at ? ` · last ran ${formatRelative(state.last_success_at)}` : ''}` }
 }
 
+/** A run that had nothing to do with this computer's agents (none ticked):
+ *  grey, not green. Older Landed for Mac versions said "No agent ticked". */
+const skipped = (r: AutomationRun) => r.status === 'ok' && /^(Skipped:|No agent ticked)/.test(r.summary ?? '')
+
 function RecentRuns({ kind }: { kind: AutomationKind }) {
   const stored = useAutomationSync((s) => s.stored)
   // Select the stored list as is (a new filtered array each time would re-render forever).
@@ -184,7 +188,7 @@ function RecentRuns({ kind }: { kind: AutomationKind }) {
         <div>
           {runs.map((r) => (
             <div key={r.id} style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 12.5, padding: '7px 0', borderTop: '1px solid var(--border-subtle)' }}>
-              <span style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0, background: r.status === 'ok' ? 'oklch(0.65 0.17 155)' : r.status === 'running' ? 'var(--accent)' : 'oklch(0.62 0.17 28)' }} />
+              <span title={skipped(r) ? 'Skipped' : undefined} style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0, background: skipped(r) ? 'var(--border)' : r.status === 'ok' ? 'oklch(0.65 0.17 155)' : r.status === 'running' ? 'var(--accent)' : 'oklch(0.62 0.17 28)' }} />
               <span style={{ color: 'var(--fg-muted)', width: 150, flexShrink: 0 }}>{when(r.started_at)}</span>
               <span style={{ flex: 1, minWidth: 0, color: r.status === 'error' ? danger : 'var(--fg)' }}>
                 {r.status === 'running' ? 'Running…' : r.status === 'error' ? r.error : [r.summary, stored[r.id]?.text].filter(Boolean).join(' → ')}
@@ -506,6 +510,14 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
       controls={<FindControls w={w} />}>
       {!w.search && <Needs>Add the roles to look for first. <button type="button" className="btn-secondary" style={smallBtn} onClick={() => onSelect('criteria')}>What to look for</button></Needs>}
       {!w.anyAgent && w.designated && <Needs>No agent on your computer can search the web yet.</Needs>}
+      {a.enabled && a.sources!.agents.length === 0 && w.choices.length > 0 && (
+        <Needs waiting>
+          No agent on your computer is ticked, so it doesn't search.{' '}
+          <button type="button" className="btn-secondary" style={smallBtn} disabled={w.set.isPending} onClick={() => setSources({ ...a.sources!, agents: [w.choices[0].id] })}>
+            Search with {w.choices[0].label}
+          </button>
+        </Needs>
+      )}
       <Settings>
         <Field label="Done by" help="Each ticked agent searches; cloud agents run on their own schedule. Untick them all and only the job lists and company boards look.">
           {w.choices.length || w.cloud.length
@@ -669,6 +681,14 @@ function EmailPane({ w }: { w: W }) {
       controls={<StepControls w={w} kind="email_check" label="Check email" blocked={w.mail !== 'ok'} />}>
       {w.mail === 'checking' && <Needs waiting>Checking whether your agent can read your email…</Needs>}
       {w.mail === 'confirming' && <Needs waiting>Your email is connected in Claude. Making sure your agent can read it: this takes a moment.</Needs>}
+      {a.enabled && w.readers.agents.length === 0 && w.mailAgents.length > 0 && (
+        <Needs waiting>
+          No agent on your computer is ticked, so it doesn't read your email.{' '}
+          <button type="button" className="btn-secondary" style={smallBtn} disabled={w.set.isPending} onClick={() => w.save({ ...w.automations, email_check: { ...a, readers: { ...w.readers, agents: [w.mailAgents[0].id] } } })}>
+            Read with {w.mailAgents[0].label}
+          </button>
+        </Needs>
+      )}
       {w.mail === 'missing' && w.localReaders.length > 0 && (signedOut
         ? <Needs>Claude Code is signed out. Run <code>claude auth login</code> in Terminal, finish signing in, then come back to this page: Landed checks again right away.</Needs>
         : <Needs>Your agent can't read email yet. Run <code>claude auth login</code> in Terminal, connect Gmail in Claude (Settings → Connectors), then come back to this page: Landed checks again right away.</Needs>)}
