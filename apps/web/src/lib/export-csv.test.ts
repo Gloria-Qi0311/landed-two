@@ -5,7 +5,7 @@ import type { DbApplication } from './store/types'
 
 const base = {
   user_id: 'local', team: null, salary: null, location: null, remote: null, next_step: null, source: null, job_id: null,
-  portal_application_url: null, notes: null, referral: false, starred: false, interviews: [], deadline: null, applied_at: null,
+  portal_application_url: null, notes: null, referral: false, starred: false, interviews: [], deadline: null, resume_choice: null, open_answers: null, applied_at: null,
 } as const
 
 test('one row per application, newest activity first, quoted where needed', () => {

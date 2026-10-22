@@ -9,7 +9,7 @@
 // answer". Consent is ticked only with its own switch on; Submit is never
 // clicked.
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
-import { answeredCount, EMPTY_ANSWERS, prunePending, type ApplicationAnswers, type Prefilled, type YesNo } from '@landed/schema/application-answers'
+import { answeredCount, EMPTY_ANSWERS, prunePending, stillLearned, undoLearned, type ApplicationAnswers, type Learnable, type Learned, type Prefilled, type YesNo } from '@landed/schema/application-answers'
 import { Icon } from './primitives'
 import { useApplicationAnswers, useSaveApplicationAnswers } from '../hooks/answers'
 import { useResumes } from '../hooks/resumes'
@@ -102,6 +102,44 @@ function KnownAnswersCard({ known, onUndo, onHide, busy }: {
   )
 }
 
+// What each remembered answer is, as the user knows it.
+const LEARNED_LABELS: Record<Learnable, string> = {
+  city: 'City', state: 'State', country: 'Country', earliest_start: 'Earliest start', linkedin: 'LinkedIn', github: 'GitHub',
+  website: 'Website', heard_from: 'How you heard about a job', adult: '18 or older', work_authorized: 'Authorized to work',
+  needs_sponsorship: 'Needs sponsorship', relocate: 'Willing to relocate', travel: 'Willing to travel', onsite: 'Fine working onsite',
+  open_to_other_locations: 'Open to other locations', non_compete: 'Under a non-compete', talent_network: 'Join talent networks',
+}
+const shownValue = (v: string | null) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : v ?? 'blank')
+
+/** Answers Landed remembered from the user's corrections on forms, each
+ *  with Undo. */
+function LearnedAnswersCard({ learned, onUndo, busy }: { learned: [Learnable, Learned][]; onUndo: (key: Learnable) => void; busy: boolean }) {
+  return (
+    <div role="status" style={{ ...card, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+      <span style={{ display: 'flex', padding: 7, borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent)', flexShrink: 0 }}>
+        <Icon name="sparkle" size={14} />
+      </span>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--fg)' }}>
+          Remembered from {learned.length === 1 ? 'a form you corrected' : 'forms you corrected'}
+        </div>
+        <div style={muted}>Landed uses these on every form from now on. Undo one to put back what you had.</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+          {learned.map(([key, l]) => (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ color: 'var(--fg)' }}>{LEARNED_LABELS[key]}: {shownValue(l.value)}</span>
+                <span style={muted}> · was {shownValue(l.previous)}{l.site ? ` · on ${l.site}` : ''}</span>
+              </span>
+              <button type="button" className="btn-ghost" disabled={busy} onClick={() => onUndo(key)}>Undo</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Section({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column' }}>
@@ -131,6 +169,7 @@ export function ApplicationAnswersPane() {
   const resumes = useResumes().data
   const resume = useMemo(() => screeningResume(resumes ?? []), [resumes])
   const known = useMemo(() => stillPrefilled(draft), [draft])
+  const learned = useMemo(() => stillLearned(draft), [draft])
   const [hideKnown, setHideKnown] = useState(false)
   const from = (key: Suggestion['key']) => {
     const p = known.find(([k]) => k === key)?.[1]
@@ -154,7 +193,7 @@ export function ApplicationAnswersPane() {
         update({ preferred_locations: next.slice(0, 3) })
       }} />
   )
-  const saveAnswers = async (answers: ApplicationAnswers) => {
+  const saveAnswers = async (answers: ApplicationAnswers, undone?: Learnable) => {
     // Questions the extension reported while this was being edited stay;
     // the ones these answers now cover go. What was filled in on its own
     // meanwhile stays noted.
@@ -166,6 +205,8 @@ export function ApplicationAnswersPane() {
       unanswered: latest?.unanswered ?? answers.unanswered,
       skipped: latest?.skipped ?? answers.skipped,
       prefilled: { ...latest?.prefilled, ...answers.prefilled },
+      // Remembered from a form meanwhile stays noted; one just undone goes.
+      learned: Object.fromEntries(Object.entries({ ...latest?.learned, ...answers.learned }).filter(([k]) => k !== undone)),
     }))
     setDirty(false)
   }
@@ -177,8 +218,15 @@ export function ApplicationAnswersPane() {
     void saveAnswers(next)
   }
 
+  const undoOne = (key: Learnable) => {
+    const next = undoLearned(draft, key)
+    setDraft(next)
+    void saveAnswers(next, key)
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 860 }}>
+      {learned.length > 0 && <LearnedAnswersCard learned={learned} busy={save.isPending} onUndo={undoOne} />}
       {known.length > 0 && !hideKnown && (
         <KnownAnswersCard known={known} busy={save.isPending} onUndo={undoKnown} onHide={() => setHideKnown(true)} />
       )}
@@ -234,7 +282,7 @@ export function ApplicationAnswersPane() {
 
         <Section title="Work eligibility">
           <Row label="18 years of age or older?">{yesNo('adult')}</Row>
-          <Row label="Legally authorized to work in the US?" help="Or the country of the job.">{yesNo('work_authorized')}</Row>
+          <Row label="Legally authorized to work in the US?" help="A question about another country (“authorized to work in the UK?”) is asked on its own.">{yesNo('work_authorized')}</Row>
           <Row label="Need visa sponsorship, now or later?" help="Includes OPT / STEM OPT / CPT that will need H-1B." from={from('needs_sponsorship')}>{yesNo('needs_sponsorship')}</Row>
         </Section>
 

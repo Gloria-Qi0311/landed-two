@@ -11,7 +11,9 @@ const { canAskModel, deepAll, fillField, markField, tryFillCombobox, tryFillSele
 const CA = global.LandedChoiceAnswers;
 
 async function runChoiceFallback(choices, answers, flat) {
-  const open = choices.filter((c) => c.options.length >= 2 && c.options.length <= 40 && c.question);
+  // Another country's work authorization or sponsorship: the saved answers
+  // (about the US) don't say, so the model isn't asked to guess from them.
+  const open = choices.filter((c) => c.options.length >= 2 && c.options.length <= 40 && c.question && !CA.asksAboutAnotherCountry(c.question));
   if (!answers || open.length === 0) return [];
   const started = Date.now();
   const response = await new Promise((resolve) => {
@@ -53,7 +55,7 @@ async function runChoiceFallback(choices, answers, flat) {
 
 async function runLLMFallback(manual, flat, answerKeys) {
   if (!manual || manual.length === 0) return [];
-  const modelEligible = manual.filter(canAskModel);
+  const modelEligible = manual.filter((m) => canAskModel(m) && !CA.asksAboutAnotherCountry(m.label));
   if (modelEligible.length === 0) return [];
 
   // Prefer the local Landed.app bridge. The model only selects an existing

@@ -137,14 +137,17 @@ messages (PR title and a clean body, no trailer).
   never date of birth, street address, work authorization, EEO or consent.
 - "Worked here before?" is answered from the resume's employers, never from one
   saved yes/no for every company.
+- Work authorization and sponsorship answers are about the US. A question naming
+  another country (not the US) is its own question, asked once; neither the rules,
+  the model nor the review answer it from them.
 - A Work Experience or Education entry takes that job's or school's own values,
   every job and internship one entry; page-wide rules and the model never fill them.
 - Models see field labels and key names, never values: `match_fields` (Ollama, else
   Claude Code with no tools), and the host supplies the value. `choose_options`
   carries the user's answers, so it is local Ollama only. Page text is untrusted
   prompt input.
-- The review after a fill (`review_fill`) is the one call that sends filled values
-  beyond the local model: to the user's own agent only (their Claude Code with no
+- The review after a fill (`review_fill`) sends filled values beyond the local
+  model: to the user's own agent only (their Claude Code with no
   tools, else Ollama), never sensitive questions or facts (voluntary EEO, date of
   birth, ID numbers, salary, consent). The reviewer picks a fact key or an option,
   never writes text, and values from the user's saved answers or the page are only
@@ -153,12 +156,31 @@ messages (PR title and a clean body, no trailer).
   open-ended text or resume fields); the Extension page asks each once, and the
   answer fills every form after that, on pages still open only fields still empty.
   Questions only the user's answers can answer never take a resume value.
+- Open-ended questions ("Why us?") on an approved application don't stop it: the
+  user's own agent writes them (`draft_answers`) from the posting, the picked
+  resume's experience (never contact details) and the user's edited answers, and
+  only answers its second check passes go in, never invented. No agent or none
+  passed: the field stays empty and the application stops saying so. They're kept
+  on the application (`open_answers`); edited ones are the agent's examples.
+- A correction the user makes on a form Landed filled is remembered as the answer
+  on its own (`learnAnswers`), listed on the Extension page with Undo: only facts
+  for every application (`LEARNABLE`: location, start date, links, general
+  yes/nos), never date of birth, street address, EEO, consent, "worked here
+  before?" or open-ended text, never a question about one place or amount
+  ("relocate to Austin, TX?", "75% travel": `namesPlaceOrAmount`), and never
+  from Landed's own events.
+- Landed picks the resume for each job (its direction against the job), and the
+  file uploaded is always that resume's own (`resume_files`), never another
+  one's; one with no file isn't swapped for another's. Between close resumes
+  (`pick_resume`) the user's own agent reads the posting and names one of them:
+  it sees what each is for, its job titles and skills, never the person's name
+  or contact details; no answer keeps Landed's pick.
 - Workday questionnaire dropdowns take their real nearby / `aria-labelledby`
   question (up to 300 characters), never the `Select One Required` prompt.
   That prompt is empty, so an unknown question enters the Extension page queue;
   global Settings and language controls are not application fields.
-- Approved applications run automatically in queue priority order. Automation's
-  Auto apply card is the single management surface: on/off (on by default),
+- Approved applications run automatically in queue priority order. Workflow's
+  Auto apply stage is the single management surface: on/off (on by default),
   one-to-five simultaneous applications, Run now and current queue/blocker
   status. Turning it off prevents new starts but never revokes a job already
   opened. The linked saved lead is the authorization proof. Execution skips a
@@ -170,6 +192,10 @@ messages (PR title and a clean body, no trailer).
   snapshot), and only the owner's paired computer reads one by ref.
 - A tailored version's one-page PDF is derived: made in the browser from its
   `parsed_json`, never stored, never shrunk below 9.5 pt to fit.
+- Green means the value is there: every filled field is checked again after the
+  page's scripts ran (`lib/fill/settle.js`), pick-from-list boxes are recognized
+  by what they do, and optional blanks aren't yellow. Run `live-check` before
+  releasing fill changes.
 - Fill code lives in `apps/extension/lib/fill/*.js`, each module registered on
   `window.LandedFill` and listed in `manifest.json` before `content.js`.
 - Every read-modify-write of the extension's pending queue goes through
@@ -188,13 +214,23 @@ messages (PR title and a clean body, no trailer).
 - Approving leads (one or many) is `addLeadToPipeline(lead, 'saved')`: no
   "approved" state, and it can be undone.
 - The Applications page holds the board, Leads and "Needs your input". The Agent
-  page holds chat (one agent), agent questions and setup. Automation is exactly
-  three automations (When / Looks at / Then). Extension content is managed on
-  `/extension`.
-- Searching for jobs is configured in one place, Find new jobs: criteria,
-  schedule, and Search with (which agents, which public sources, cloud agents).
+  page holds chat (one agent), agent questions and setup. Workflow (`/workflow`)
+  is laid out like My Resume: the steps in the middle column, grouped What to look
+  for → 1 Find jobs (agent search, job lists, company boards, remove duplicates,
+  rank) → 2 Apply (after the user approves in Leads: auto apply, mark as applied) →
+  3 Keep up to date (email, portals), each with its status; the selected step on
+  the right says who does it (Landed AI, the built-in logic, by default; an agent where one can),
+  when, and holds its switch. A step gets a new executor or setting in its own field
+  of `users.automations`. Extension content is managed on `/extension`.
+- Searching for jobs is configured in one place, Workflow's Find new jobs:
+  criteria, schedule, and its sources: each agent on the computer and each cloud
+  agent ticked on its own (all unticked means none, never a fallback), the job
+  lists and the company boards.
   The chat's brief card saves to it and searches now with the same agents; the
   agent only suggests.
+- Check email is read by the ticked agents the same way: the computer's agent that
+  can (Claude Code with its mail connector) and each cloud agent on its own; none
+  ticked means none.
 
 ## UI
 

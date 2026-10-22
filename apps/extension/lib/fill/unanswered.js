@@ -62,7 +62,10 @@ function unansweredQuestions(manual) {
   const seen = new Set();
   for (const item of manual || []) {
     // Entries of Work Experience / Education (lib/fill/experience.js) come from the resume.
-    if (['敏感信息', '文件上传', '富文本', '多条目', '日期'].includes(item.hint)) continue;
+    // Another country's work authorization or sponsorship is yellow as a
+    // legal question, but the saved (US) answers don't say: asked once.
+    const otherCountry = item.hint === '敏感信息' && CA.asksAboutAnotherCountry(item.label);
+    if (['敏感信息', '文件上传', '富文本', '多条目', '日期', '开放题'].includes(item.hint) && !otherCountry) continue;
     const el = deepAll(`[data-landed-field-id="${item.id}"]`)[0];
     const field = el && describe(el, groups);
     if (!field || !field.empty) continue;
@@ -91,7 +94,8 @@ async function fillPendingFromAnswers(answers) {
   const groups = radioGroups();
   const done = new Set();
   let filled = 0;
-  for (const el of deepAll('[data-landed-status="review"]')) {
+  // Yellow ones, and optional ones left blank (content.js).
+  for (const el of deepAll('[data-landed-status="review"], [data-landed-status="blank"]')) {
     const field = describe(el, groups);
     if (!field || !field.empty || done.has(field.group || el)) continue;
     done.add(field.group || el);

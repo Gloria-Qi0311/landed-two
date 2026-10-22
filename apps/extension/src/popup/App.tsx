@@ -291,11 +291,19 @@ type DbResume = {
   target_json?: ResumeTarget | null
 }
 
-type Pick = { resume: DbResume; why: 'tailored' | 'current' | 'master' | 'newest' }
-const pickFor = (tab: BrowserTab, resumes: DbResume[]): Pick | null =>
-  (resumePick as unknown as { pickResumeForPage: (page: { url: string; title: string }, list: DbResume[]) => Pick | null })
-    .pickResumeForPage({ url: tab.url, title: tab.title }, resumes)
-const WHY: Record<Pick['why'], string> = { tailored: 'tailored for this job', current: 'current', master: 'master', newest: 'newest' }
+type Why = 'tailored' | 'fits' | 'only' | 'no_file' | 'current' | 'master' | 'newest' | 'chosen'
+type Pick = { resume: DbResume; why: Why; unsure?: boolean }
+type PageJob = { jobTitle: string; text: string }
+type StoredFiles = Record<string, { file: { name: string } | null } | undefined>
+type PickApi = {
+  pickResumeForPage: (page: { url: string; title: string; jobTitle?: string; text?: string }, list: DbResume[], opts?: { hasFile: (id: string) => boolean }) => Pick | null
+  fileKnowledge: (list: DbResume[], stored: StoredFiles | null | undefined) => { hasFile: (id: string) => boolean } | null
+}
+const picker = resumePick as unknown as PickApi
+const WHY: Record<Why, string> = {
+  tailored: 'tailored for this job', fits: 'best fit for this job', only: 'the one with a file', no_file: 'no resume file',
+  current: 'current', master: 'master', newest: 'newest', chosen: 'your choice',
+}
 
 type BrowserTab = { id: number; title: string; url: string; active: boolean }
 
@@ -329,6 +337,12 @@ type FillResult = {
   missing?: string[]
   /** the user's own agent checking the filled page (lib/fill/review.js) */
   agentReview?: AgentReview | null
+  /** fields the page cleared after the fill (yellow now; lib/fill/settle.js) */
+  lost?: number
+  /** optional questions left blank: not yellow, not counted as needing review */
+  optionalBlank?: number
+  /** fields left for the user, each with why (a click shows it on the page) */
+  issues?: { id: string; label: string; reason: string }[]
   /** what this fill did, step by step (lib/fill-trace-store.js) */
   traceRef?: string | null
 }
@@ -399,12 +413,16 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
   const [chosenId, setChosenId] = useState<string | null>(null)
   const [fillNotice, setFillNotice] = useState<string | null>(null)
   const [tabs, setTabs] = useState<BrowserTab[]>([])
+  // The job on each tab (content.js 'page-job'), for picking its resume.
+  const [jobs, setJobs] = useState<Record<number, PageJob>>({})
   const [selectedTabs, setSelectedTabs] = useState<number[]>([])
   const [fillResults, setFillResults] = useState<FillResult[]>([])
   const [localAI, setLocalAI] = useState<{ ready: boolean; label: string }>({ ready: false, label: 'Checking local AI…' })
   const needsAuthAt = useNeedsAuth()
   const fatalState = useFatalState()
   const handedOver = useStorageSentinel<{ resumes: DbResume[]; synced_at: string }>(config.LOCAL_RESUMES_KEY)
+  // Resumes' own files the Landed page handed over (uploads' originals, versions' PDFs).
+  const storedFiles = useStorageSentinel<StoredFiles>(config.LOCAL_VERSION_PDFS_KEY)
 
   useEffect(() => {
     if (!signedIn) return
@@ -434,6 +452,12 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       const likely = webTabs.filter(isLikelyApplicationTab)
       const found = likely.length > 0 ? likely : webTabs.filter((tab) => tab.active)
       setTabs(found)
+      for (const tab of found) {
+        chrome.tabs.sendMessage(tab.id, { action: 'page-job' }, (job?: PageJob) => {
+          void chrome.runtime.lastError // no content script there (yet)
+          if (job && typeof job === 'object') setJobs((current) => ({ ...current, [tab.id]: job }))
+        })
+      }
       setSelectedTabs((current) => {
         const valid = current.filter((id) => found.some((tab) => tab.id === id))
         if (valid.length > 0) return valid.slice(0, 5)
@@ -463,11 +487,17 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
 
   const resumes = inCloud ? cloudResumes : byCurrentThenNewest(handedOver?.resumes ?? [])
 
+  const files = picker.fileKnowledge(resumes ?? [], storedFiles)
+  /** Landed picks each page's resume (lib/resume-pick.js); the user can choose one. */
   const resumeFor = (tab: BrowserTab): Pick | null => {
     const list = resumes ?? []
     const chosen = chosenId ? list.find((r) => r.id === chosenId) : null
-    return chosen ? { resume: chosen, why: chosen.is_current ? 'current' : 'newest' } : pickFor(tab, list)
+    if (chosen) return { resume: chosen, why: 'chosen', unsure: !!files && !files.hasFile(chosen.id) && chosen.kind !== 'master' }
+    const job = jobs[tab.id]
+    return picker.pickResumeForPage({ url: tab.url, title: tab.title, jobTitle: job?.jobTitle, text: job?.text }, list, files ?? undefined)
   }
+  /** The file a pick uploads: its own, or (files not handed over yet) the default. */
+  const fileFor = (pick: Pick): string | null => (files ? storedFiles?.[pick.resume.id]?.file?.name ?? null : null)
 
   async function fillAll() {
     setFilling(true); setFillNotice(null)
@@ -484,7 +514,7 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
         }
         // The service worker fills the page and any frame holding a form
         // (embedded application forms, dialogs) and adds them up.
-        chrome.runtime.sendMessage({ action: 'fill-tab', tabId: tab.id, resume: pick.resume.parsed_json, resume_id: pick.resume.id, resume_name: pick.resume.name }, (response) => {
+        chrome.runtime.sendMessage({ action: 'fill-tab', tabId: tab.id, resume: pick.resume.parsed_json, resume_id: pick.resume.id, resume_name: pick.resume.name, resume_kind: pick.resume.kind ?? null }, (response) => {
           const runtimeError = chrome.runtime.lastError
           if (runtimeError || !response || response.error) {
             resolve({ tabId: tab.id, title: tab.title, kind: 'error', error: runtimeError?.message || response?.error || 'No response from page' })
@@ -497,6 +527,9 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
               review: Number(response.review) || 0,
               missing: Array.isArray(response.missing_files) ? response.missing_files : [],
               agentReview: response.agent_review && typeof response.agent_review === 'object' ? response.agent_review : null,
+              lost: Number(response.lost) || 0,
+              issues: Array.isArray(response.issues) ? response.issues : [],
+              optionalBlank: Number(response.optional_blank) || 0,
               traceRef: typeof response.trace_ref === 'string' ? response.trace_ref : null,
             })
           }
@@ -507,7 +540,11 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       const review = results.reduce((sum, result) => sum + (result.review || 0), 0)
       const failed = results.filter((result) => result.kind === 'error').length
       const noResumeFile = results.some((result) => result.missing?.includes('resume'))
+      const lost = results.reduce((sum, result) => sum + (result.lost || 0), 0)
+      const optionalBlank = results.reduce((sum, result) => sum + (result.optionalBlank || 0), 0)
       setFillNotice(`${filled} fields filled · ${review} need review${failed ? ` · ${failed} page${failed === 1 ? '' : 's'} unavailable` : ''}. You submit each page.`
+        + (lost ? ` ${lost} field${lost === 1 ? '' : 's'} didn't keep the value (the page cleared ${lost === 1 ? 'it' : 'them'}): yellow, hover for why.` : '')
+        + (optionalBlank ? ` ${optionalBlank} optional question${optionalBlank === 1 ? '' : 's'} left blank.` : '')
         + reviewLine(results)
         + (noResumeFile ? ' No resume file to attach yet: upload your resume on Landed → My Resume, or add it on the Extension page.' : ''))
     } catch (e) {
@@ -571,7 +608,15 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
                       {new URL(tab.url).hostname}
                       {checked && resumes && resumes.length > 0 && (() => {
                         const pick = resumeFor(tab)
-                        return pick ? <span style={{ color: pick.why === 'tailored' ? 'oklch(0.42 0.12 155)' : 'var(--fg-muted)' }}> · {pick.resume.name} ({WHY[pick.why]})</span> : null
+                        if (!pick) return null
+                        const file = fileFor(pick)
+                        const good = (pick.why === 'tailored' || pick.why === 'fits' || pick.why === 'only') && !pick.unsure
+                        return (
+                          <span style={{ color: good ? 'oklch(0.42 0.12 155)' : pick.unsure ? 'oklch(0.5 0.12 70)' : 'var(--fg-muted)' }}>
+                            {' · '}{pick.resume.name} ({WHY[pick.why]}{pick.unsure ? ', not sure: check it' : ''})
+                            {files && <> · {file ? `file ${file}` : 'no file: upload it on My Resume'}</>}
+                          </span>
+                        )
                       })()}
                     </span>
                   </span>
@@ -644,14 +689,27 @@ function Workspace({ email, onSignOut, onSignIn, busy, error }: {
       {fillResults.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {fillResults.map((result) => (
-            <div key={result.tabId} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 10.5, color: 'var(--fg-muted)' }}>
-              <span style={{ color: result.kind === 'error' ? 'oklch(0.55 0.18 28)' : result.kind === 'done' ? 'oklch(0.42 0.12 155)' : 'var(--fg-muted)' }}>
-                {result.kind === 'running' ? '●' : result.kind === 'done' ? '✓' : '×'}
-              </span>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.title}</span>
-              {result.kind === 'done' && <span>{result.filled} filled · {result.review} review</span>}
-              {result.kind === 'done' && result.traceRef && <TraceRef traceRef={result.traceRef} />}
-              {result.kind === 'error' && <span title={result.error}>unavailable</span>}
+            <div key={result.tabId} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 10.5, color: 'var(--fg-muted)' }}>
+                <span style={{ color: result.kind === 'error' ? 'oklch(0.55 0.18 28)' : result.kind === 'done' ? 'oklch(0.42 0.12 155)' : 'var(--fg-muted)' }}>
+                  {result.kind === 'running' ? '●' : result.kind === 'done' ? '✓' : '×'}
+                </span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.title}</span>
+                {result.kind === 'done' && <span>{result.filled} filled · {result.review} review</span>}
+                {result.kind === 'done' && result.traceRef && <TraceRef traceRef={result.traceRef} />}
+                {result.kind === 'error' && <span title={result.error}>unavailable</span>}
+              </div>
+              {result.kind === 'done' && (result.issues ?? []).map((issue) => (
+                <button key={issue.id} type="button" className="btn-ghost"
+                  onClick={() => {
+                    void chrome.tabs.update(result.tabId, { active: true })
+                    chrome.tabs.sendMessage(result.tabId, { action: 'focus-field', id: issue.id }, () => { void chrome.runtime.lastError })
+                  }}
+                  style={{ display: 'flex', gap: 6, textAlign: 'left', fontSize: 10.5, padding: '1px 0 1px 18px', color: 'var(--fg)', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                  <span style={{ color: 'oklch(0.5 0.12 70)' }}>●</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b style={{ fontWeight: 500 }}>{issue.label}</b> · <span style={{ color: 'var(--fg-muted)' }}>{issue.reason}</span></span>
+                </button>
+              ))}
             </div>
           ))}
         </div>

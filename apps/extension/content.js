@@ -26,7 +26,7 @@
 // answers in lib/choice-answers.js. Type-checked via JSDoc + checkJs
 // (tsconfig.json).
 
-const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectApplyBlocker, detectPortalEventForCurrentPage, existingComboboxTexts, finishTrace, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, fillPendingFromAnswers, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, startTrace, submitApplication, tagFilled, tracePhase, tryFillCombobox, tryFillSelect, unansweredQuestions } = window.LandedFill;
+const { acceptsFile, addManual, answerKindForElement, applicationAnswerForElement, attachFile, choiceGroupQuestion, chooseCity, chooseInCombobox, clickChoice, deepAll, detectApplyBlocker, detectPortalEventForCurrentPage, existingComboboxTexts, fieldId, fileInputKind, fillAllSectionDates, fillExperienceSections, fillField, fillInputBatch, fillPendingFromAnswers, finishTrace, getVisibleInputs, groupChoices, isCustomComboboxTrigger, isMonthSelect, isRendered, isRequired, isSensitiveLabel, isWorkdayPage, isYearSelect, loadApplicationAnswers, loadApplicationFiles, markField, optionText, peekComboboxOptions, repairKnownBadWorkdayValues, resumeValueForElement, runChoiceFallback, runFillReview, runLLMFallback, setSelectOption, setSource, settleFill, startTrace, submitApplication, tagFilled, tracePhase, tryFillCombobox, tryFillSelect, unansweredQuestions, writeOpenAnswers } = window.LandedFill;
 const { normalize, getFieldLabel, matchResumeKey } = window.ResumeFillerFieldDetect;
 const CL = window.ResumeFillerCrossLingual;
 const CA = window.LandedChoiceAnswers;
@@ -35,7 +35,17 @@ const CA = window.LandedChoiceAnswers;
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'fill') {
-    handleFill(msg.resume, msg.customFields || {}, { aiTakeover: !!msg.aiTakeover, resumeId: typeof msg.resumeId === 'string' ? msg.resumeId : null }).then(sendResponse);
+    handleFill(msg.resume, msg.customFields || {}, {
+      aiTakeover: !!msg.aiTakeover,
+      resumeId: typeof msg.resumeId === 'string' ? msg.resumeId : null,
+      resumeKind: typeof msg.resumeKind === 'string' ? msg.resumeKind : null,
+      // For open-ended answers (lib/fill/open-answers.js): the job Landed
+      // opened this tab for, the user's own answers as examples, and answers
+      // already written for this application (by question).
+      job: msg.job && typeof msg.job === 'object' ? msg.job : null,
+      examples: Array.isArray(msg.examples) ? msg.examples : [],
+      drafted: msg.drafted && typeof msg.drafted === 'object' ? msg.drafted : {},
+    }).then(sendResponse);
     return true;
   }
   // The user answered questions on the Extension page: fill the fields still
@@ -44,8 +54,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     loadApplicationAnswers().then(fillPendingFromAnswers).then((filled) => sendResponse({ filled }), () => sendResponse({ filled: 0 }));
     return true;
   }
+  // The job on this page, for picking the resume (lib/resume-pick.js): its
+  // title and the posting's text.
+  if (msg.action === 'page-job') {
+    const heading = document.querySelector('h1, h2');
+    const main = /** @type {HTMLElement} */ (document.querySelector('main, [role="main"], #content, .content') || document.body);
+    sendResponse({
+      title: document.title || '',
+      jobTitle: (heading && heading.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+      text: (main && (main.innerText || main.textContent) || '').replace(/\s+/g, ' ').slice(0, 8000),
+    });
+    return true;
+  }
   if (msg.action === 'submit-application') {
     sendResponse(submitApplication());
+    return true;
+  }
+  // The popup's list of fields left for the user: show this one.
+  if (msg.action === 'focus-field') {
+    const el = typeof msg.id === 'string' ? deepAll(`[data-landed-field-id="${msg.id.replace(/["\\]/g, '')}"]`)[0] : null;
+    if (el) {
+      if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (typeof el.focus === 'function') el.focus({ preventScroll: true });
+    }
+    sendResponse({ ok: !!el });
     return true;
   }
   if (msg.action === 'ping') {
@@ -60,6 +92,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
+
+/** Why a field is yellow when nothing answered it (not a doubt or a file). */
+const NO_ANSWER_HINTS = new Set(['未匹配', '下拉框', '自定义下拉框']);
 
 async function handleFill(resumeData, customFields, opts) {
   opts = opts || {};
@@ -100,7 +135,7 @@ async function handleFill(resumeData, customFields, opts) {
   // fields with nothing saved) stay yellow. Hidden inputs behind an
   // "Attach" button count too.
   const fileInputs = /** @type {HTMLInputElement[]} */ (deepAll('input[type="file"]'));
-  const files = fileInputs.length ? await loadApplicationFiles(opts.resumeId) : {};
+  const files = fileInputs.length ? await loadApplicationFiles(opts.resumeId, opts.resumeKind) : {};
   const answered = /** @type {Set<Element>} */ (new Set(fileInputs));
   const missingFiles = new Set();
   for (const el of fileInputs) {
@@ -427,14 +462,45 @@ async function handleFill(resumeData, customFields, opts) {
   tagFilled('model');
   tracePhase('model');
 
-  // Phase 9: the user's own agent reviews the filled form (local Ollama, else
-  // their Claude Code). Changed fields turn yellow; sensitive ones aren't sent.
+  // Phase 8b: open-ended questions ("Why us?"): the user's own agent writes
+  // them from the posting and this resume, and checks them; none of it is
+  // invented. Without an agent the required ones stay yellow and stop an
+  // approved application with that reason (lib/fill/open-answers.js).
+  const open = opts.aiTakeover ? await writeOpenAnswers(manual, resumeData, opts) : null;
+  if (open && (open.written.length || open.missing || open.error)) tracePhase('open answers');
+
+  // Optional questions nothing answers (Twitter URL, T-shirt size…) aren't
+  // the user's to-do: no yellow, not counted (the popup says how many stayed
+  // blank). Marked `blank`, so they're still asked once on the Extension page
+  // and filled when answered.
+  const optional = [];
+  for (let i = manual.length - 1; i >= 0; i--) {
+    const item = manual[i];
+    if (!NO_ANSWER_HINTS.has(item.hint) || (item.value != null && item.value !== '—')) continue;
+    const el = deepAll(`[data-landed-field-id="${item.id}"]`)[0];
+    if (!el || isRequired(el, item.label)) continue;
+    markField(el, 'blank');
+    optional.unshift(...manual.splice(i, 1));
+  }
+
+  // Phase 9: every field marked filled is checked the way a person would:
+  // retyped where the page offers suggestions (picking the matching one),
+  // then read again after the page's scripts ran. Cleared ones turn yellow.
+  const lost = await settleFill(manual);
+  tracePhase('settle');
+
+  // Phase 10: the user's own agent reviews the filled form (their Claude
+  // Code, else local Ollama). Changed fields turn yellow; sensitive ones aren't sent.
   const review = opts.aiTakeover ? await runFillReview(manual, answers, flat) : null;
 
   // What's still empty and worth asking the user once (the Extension page).
-  const unanswered = unansweredQuestions(manual);
+  // Optional ones are asked too, marked so they never stop an approved application.
+  const required = unansweredQuestions(manual);
+  const asked = new Set(required.map((q) => q.question));
+  const unanswered = [...required, ...unansweredQuestions(optional).filter((q) => !asked.has(q.question)).map((q) => ({ ...q, optional: true }))];
   if (review) tracePhase('review');
 
   const trace = finishTrace({ manual, unanswered, fields });
-  return { filled, manual, missing_files: Array.from(missingFiles), review, unanswered, fields, blocker: null, trace };
+  return { filled, manual, missing_files: Array.from(missingFiles), review, unanswered, fields, blocker: null, lost, optional_blank: optional.map((item) => item.label),
+    open_answers: open ? open.written : [], open_missing: open ? open.missing : 0, trace };
 }

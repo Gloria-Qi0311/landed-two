@@ -293,3 +293,76 @@ export function parseResumeParseInput(raw: unknown): ParseInput | null {
   const text = typeof r.text === 'string' ? r.text.trim().slice(0, MAX_UPLOAD_TEXT) : ''
   return text ? { name, file: null, text } : null
 }
+
+// ─── what an uploaded resume is for ───────────────────────────────────────
+// `resumes.directions`: role names ("Product Manager", "Data Analyst"), the
+// user's own or Landed's guess at upload. Landed picks the resume of a job's
+// direction (apps/web/src/lib/apply-assist.ts, extension lib/resume-pick.js).
+
+export const MAX_DIRECTIONS = 6
+
+/** Validated directions: strings, trimmed, up to 60 characters each, at most
+ *  six, no repeats (case aside). null → []. Anything else → undefined. */
+export function parseDirections(v: unknown): string[] | undefined {
+  if (v === null) return []
+  if (!Array.isArray(v)) return undefined
+  const out: string[] = []
+  for (const x of v) {
+    if (typeof x !== 'string') return undefined
+    const t = x.replace(/\s+/g, ' ').trim()
+    if (!t || t.length > 60) return undefined
+    if (!out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t)
+  }
+  return out.length > MAX_DIRECTIONS ? undefined : out
+}
+
+const QUALIFIER = /\s*(?:[,(|@·–—]|\s-\s|\bat\b).*$/i
+const LEVEL = /\b(?:intern(?:ship)?|co-?op|summer|fall|spring|winter|new grad(?:uate)?|graduate|senior|sr|junior|jr|lead|staff|principal|associate|entry[- ]level|i{1,3}|iv|\d{4})\b\.?/gi
+
+/** One title as a role name, without level, season or qualifier:
+ *  "Product Manager Intern, Summer 2025" → "Product Manager". */
+const CJK_LEVEL = /实习生|实习|高级|资深|初级|校招|应届|管培生?|（[^）]*）|\([^)]*\)/g
+
+export function roleName(title: string): string {
+  return title.replace(QUALIFIER, '').replace(CJK_LEVEL, ' ').replace(LEVEL, ' ').replace(/[^\p{L}\p{N}&/+ ]/gu, ' ').replace(/\s+/g, ' ').trim()
+}
+
+type Entry = { title?: string; start_date?: string }
+
+/** Landed's guess at what an uploaded resume is for: its intended position
+ *  and its latest job titles, as role names (at most three). */
+export function guessDirections(resume: { intent?: { apply_position?: string }; experience?: Entry[]; internship?: Entry[] } | null | undefined): string[] {
+  if (!resume) return []
+  const titles = [...(resume.experience ?? []), ...(resume.internship ?? [])]
+    .filter((e) => e && typeof e.title === 'string' && e.title.trim())
+    .sort((a, b) => String(b.start_date ?? '').localeCompare(String(a.start_date ?? '')))
+    .map((e) => e.title as string)
+  const candidates = [...String(resume.intent?.apply_position ?? '').split(/[;,/、，]/), ...titles]
+  const out: string[] = []
+  for (const c of candidates) {
+    const role = roleName(c)
+    if (role.length >= 2 && role.length <= 60 && !out.some((o) => o.toLowerCase() === role.toLowerCase())) out.push(role)
+    if (out.length === 3) break
+  }
+  return out
+}
+
+// ─── which resume an application was filled from, and why ─────────────────
+// `applications.resume_choice`, written when Landed opens the application
+// (auto apply, Open & autofill); shown in its drawer.
+
+export type ResumeChoice = { resume_id: string; name: string; reason: string; at: string }
+
+/** Validated: a uuid resume id, a name and a reason (trimmed, capped), an ISO
+ *  time. null → null; anything else → undefined. */
+export function parseResumeChoice(v: unknown): ResumeChoice | null | undefined {
+  if (v === null) return null
+  if (!v || typeof v !== 'object') return undefined
+  const r = v as Record<string, unknown>
+  const text = (x: unknown, max: number) => (typeof x === 'string' && x.trim() ? x.replace(/\s+/g, ' ').trim().slice(0, max) : null)
+  const name = text(r.name, 120)
+  const reason = text(r.reason, 300) ?? ''
+  if (typeof r.resume_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(r.resume_id) || !name) return undefined
+  const at = typeof r.at === 'string' && !Number.isNaN(Date.parse(r.at)) ? r.at : new Date().toISOString()
+  return { resume_id: r.resume_id, name, reason, at }
+}

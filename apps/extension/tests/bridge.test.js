@@ -26,7 +26,7 @@ function memoryQueue(events) {
   }
 }
 
-function makeHandler(events = [], openAndFill, takeAssistResults, classifyStatuses) {
+function makeHandler(events = [], openAndFill, takeAssistResults, pickResume, classifyStatuses) {
   const q = memoryQueue(events)
   const saved = {}
   const onQueueChanged = jest.fn()
@@ -43,6 +43,7 @@ function makeHandler(events = [], openAndFill, takeAssistResults, classifyStatus
     openAndFill,
     takeAssistResults,
     onAnswersSynced,
+    pickResume,
     classifyStatuses,
   })
   return { handle, q, saved, onQueueChanged, onAnswersSynced }
@@ -54,6 +55,23 @@ const applied = (company) => ({
 })
 
 describe('bridge handler', () => {
+  test('a file the extension can\'t keep (storage full) is an error the page shows, never dropped silently', async () => {
+    const handle = createBridgeHandler({
+      cfg, snapshotStore: memoryQueue([]).snapshotStore, pushMod, storage: {}, withLock: createQueueLock(), onQueueChanged: jest.fn(), version: '2.2',
+      chromeLocal: { async set() { throw new Error('QUOTA_BYTES quota exceeded') }, get(key, cb) { cb({}) } },
+    })
+    const V = '11111111-2222-4333-8444-555555555555'
+    const file = { id: V, name: 'PM resume.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.7').toString('base64') }
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file } }, FROM_WEB))
+      .toEqual({ ok: false, error: "Couldn't keep this resume's file: the extension's storage is full" })
+    expect(await handle({ type: 'sync-file', payload: { kind: 'resume', file } }, FROM_WEB))
+      .toEqual({ ok: false, error: "Couldn't keep the file: the extension's storage is full" })
+  })
+
+  test('the extension asks for unlimited storage: resumes\' files outgrow Chrome\'s 10 MB default', () => {
+    expect(require('../manifest.json').permissions).toContain('unlimitedStorage')
+  })
+
   test('version PDFs: the ids it has, one in, a null for a version that has none, one out', async () => {
     const { handle } = makeHandler()
     const V = '11111111-2222-4333-8444-555555555555'
@@ -63,10 +81,15 @@ describe('bridge handler', () => {
     expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file } }, FROM_WEB)).toEqual({ ok: true, data: { saved: true } })
     expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: W, hash: 'eeeeffff00001111', file: null } }, FROM_WEB)).toEqual({ ok: true, data: { saved: false } })
     expect(await handle({ type: 'version-pdf-ids' }, FROM_WEB)).toEqual({ ok: true, data: { [V]: 'aaaabbbbccccdddd', [W]: 'eeeeffff00001111' } })
-    // Not a PDF, no hash, not a Landed id: refused.
-    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file: { ...file, name: 'cv.docx' } } }, FROM_WEB)).toMatchObject({ ok: false })
+    // Not a resume file (PDF or Word), no hash, not a Landed id: refused.
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, hash: 'aaaabbbbccccdddd', file: { ...file, name: 'photo.png', mime: 'image/png' } } }, FROM_WEB)).toMatchObject({ ok: false })
     expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: V, file } }, FROM_WEB)).toMatchObject({ ok: false })
     expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: '../x', hash: 'aaaabbbbccccdddd', file } }, FROM_WEB)).toMatchObject({ ok: false })
+    // An uploaded resume's own Word file is taken too (its original, not a PDF).
+    const UPLOAD = '33333333-3333-4333-8333-333333333333'
+    const docx = { id: UPLOAD, name: 'Alex Chen Resume.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', data: Buffer.from('PK word').toString('base64') }
+    expect(await handle({ type: 'sync-version-pdf', payload: { resume_id: UPLOAD, hash: 'aaaabbbbccccdddd', file: docx } }, FROM_WEB)).toMatchObject({ ok: true, data: { saved: true } })
+    await handle({ type: 'sync-version-pdf', payload: { resume_id: UPLOAD, remove: true } }, FROM_WEB)
     await handle({ type: 'sync-version-pdf', payload: { resume_id: V, remove: true } }, FROM_WEB)
     expect(await handle({ type: 'version-pdf-ids' }, FROM_WEB)).toEqual({ ok: true, data: { [W]: 'eeeeffff00001111' } })
   })
@@ -150,6 +173,37 @@ describe('bridge handler', () => {
     expect(await handle({ type: 'sync-resumes', payload: {} }, FROM_WEB)).toMatchObject({ ok: false })
   })
 
+  test('pick-resume sends the host only a job and resumes\' directions, titles and skills, and returns a candidate or nothing', async () => {
+    const pickResume = jest.fn(async () => ({ ok: true, model: 'Claude Code', pick: { resume_id: 'r2', confidence: 0.9, reason: 'SQL and A/B tests.' } }))
+    const { handle } = makeHandler([], undefined, undefined, pickResume)
+    const payload = {
+      job: { role: 'Product Analyst', company: 'Northwind', description: 'Own product metrics.', url: 'https://x.test' },
+      resumes: [
+        { id: 'r1', directions: ['Product Manager'], titles: ['Product Intern'], skills: ['Figma'], email: 'alex@example.com' },
+        { id: 'r2', directions: ['Data Analyst'], titles: ['Analytics Intern'], skills: ['SQL'], phone: '555-0142' },
+      ],
+    }
+    const res = await handle({ type: 'pick-resume', payload }, FROM_WEB)
+    expect(res).toEqual({ ok: true, data: { pick: { resume_id: 'r2', confidence: 0.9, reason: 'SQL and A/B tests.' }, model: 'Claude Code' } })
+    expect(pickResume).toHaveBeenCalledWith({
+      type: 'pick_resume',
+      job: { role: 'Product Analyst', company: 'Northwind', description: 'Own product metrics.' },
+      resumes: [
+        { id: 'r1', directions: ['Product Manager'], titles: ['Product Intern'], skills: ['Figma'] },
+        { id: 'r2', directions: ['Data Analyst'], titles: ['Analytics Intern'], skills: ['SQL'] },
+      ],
+    })
+    // A pick that isn't one of the candidates is no pick.
+    pickResume.mockResolvedValueOnce({ ok: true, model: 'Claude Code', pick: { resume_id: 'r9', confidence: 1, reason: '' } })
+    expect((await handle({ type: 'pick-resume', payload }, FROM_WEB)).data.pick).toBeNull()
+    // One resume is nothing to choose between.
+    expect((await handle({ type: 'pick-resume', payload: { ...payload, resumes: payload.resumes.slice(0, 1) } }, FROM_WEB)).ok).toBe(false)
+    expect(pickResume).toHaveBeenCalledTimes(2)
+    // No Landed for Mac / no agent: an error, and Landed keeps its own pick.
+    pickResume.mockResolvedValueOnce({ ok: false, error: 'Landed for Mac is not installed' })
+    expect(await handle({ type: 'pick-resume', payload }, FROM_WEB)).toEqual({ ok: false, error: 'Landed for Mac is not installed' })
+  })
+
   test('assist-open passes only a safe link, a resume and Landed ids; submit needs an approved lead link', async () => {
     const open = jest.fn(async (req) => ({ ok: true, data: { tab_id: 7, req } }))
     const { handle } = makeHandler([], open)
@@ -157,28 +211,46 @@ describe('bridge handler', () => {
     const lead = '7f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b'
     const res = await handle({ type: 'assist-open', payload: { url: 'https://jobs.lever.co/acme/1', resume_id: 'r1', application_id: app, lead_id: lead, submit_authorized: true } }, FROM_WEB)
     expect(res).toMatchObject({ ok: true, data: { tab_id: 7 } })
-    expect(open).toHaveBeenCalledWith({ url: 'https://jobs.lever.co/acme/1', resume_id: 'r1', application_id: app, lead_id: lead, submit_authorized: true })
+    expect(open).toHaveBeenCalledWith({ url: 'https://jobs.lever.co/acme/1', resume_id: 'r1', application_id: app, lead_id: lead, submit_authorized: true, job: null, examples: [] })
 
     await handle({ type: 'assist-open', payload: { url: 'https://jobs.lever.co/acme/2', resume_id: 'r1', application_id: app, lead_id: 'not-an-id', submit_authorized: true } }, FROM_WEB)
-    expect(open).toHaveBeenLastCalledWith({ url: 'https://jobs.lever.co/acme/2', resume_id: 'r1', application_id: app, lead_id: null, submit_authorized: false })
+    expect(open).toHaveBeenLastCalledWith({ url: 'https://jobs.lever.co/acme/2', resume_id: 'r1', application_id: app, lead_id: null, submit_authorized: false, job: null, examples: [] })
+
+    // For open-ended answers: the job and the user's own answers, plain text and capped.
+    await handle({ type: 'assist-open', payload: {
+      url: 'https://jobs.lever.co/acme/3', resume_id: 'r1', application_id: app, lead_id: lead,
+      job: { role: 'Product Analyst', company: 'Bluefin', description: 'x'.repeat(9000), email: 'alex@example.com' },
+      examples: [{ question: 'Why Contoso?', answer: 'Tools people use.' }, { question: '', answer: 'no question' }, 'junk'],
+    } }, FROM_WEB)
+    const last = open.mock.calls[open.mock.calls.length - 1][0]
+    expect(last.job).toEqual({ role: 'Product Analyst', company: 'Bluefin', description: 'x'.repeat(6000) })
+    expect(last.examples).toEqual([{ question: 'Why Contoso?', answer: 'Tools people use.' }])
 
     for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'https://user:pw@x.com/', 42]) {
       expect(await handle({ type: 'assist-open', payload: { url, resume_id: 'r1' } }, FROM_WEB)).toMatchObject({ ok: false })
     }
     expect(await handle({ type: 'assist-open', payload: { url: 'https://x.com/' } }, FROM_WEB)).toMatchObject({ ok: false })
     expect(await handle({ type: 'assist-open', payload: { url: 'https://x.com/', resume_id: 'r1' } }, { origin: 'https://evil.example' })).toMatchObject({ ok: false })
-    expect(open).toHaveBeenCalledTimes(2)
+    expect(open).toHaveBeenCalledTimes(3)
   })
 
   test('classify-statuses sends only distinct status words and returns stages for those', async () => {
     const classifyStatuses = jest.fn(async () => ({ ok: true, model: 'Claude Code', stages: { 待申请: { stage: 'saved', note: null }, other: { stage: 'offer', note: null } } }))
-    const { handle } = makeHandler([], undefined, undefined, classifyStatuses)
+    const { handle } = makeHandler([], undefined, undefined, undefined, classifyStatuses)
     const res = await handle({ type: 'classify-statuses', payload: { statuses: [' 待申请 ', '待申请', '已申请', 42, ''], company: 'Bluefin' } }, FROM_WEB)
     expect(classifyStatuses).toHaveBeenCalledWith({ type: 'classify_statuses', statuses: ['待申请', '已申请'] })
     expect(res).toEqual({ ok: true, data: { stages: { 待申请: { stage: 'saved', note: null } }, model: 'Claude Code' } })
     classifyStatuses.mockResolvedValueOnce({ ok: false, error: 'Landed for Mac is not installed' })
     expect(await handle({ type: 'classify-statuses', payload: { statuses: ['x'] } }, FROM_WEB)).toEqual({ ok: false, error: 'Landed for Mac is not installed' })
     expect((await handle({ type: 'classify-statuses', payload: { statuses: ['x'] } }, { origin: 'https://evil.example' })).ok).toBe(false)
+  })
+
+  test('take-corrections hands the user\'s corrections over once', async () => {
+    const { handle, saved } = makeHandler()
+    saved['landed:answer-corrections'] = [{ key: 'city', value: 'Bellevue', site: 'jobs.lever.co' }]
+    expect(await handle({ type: 'take-corrections' }, FROM_WEB)).toEqual({ ok: true, data: { corrections: [{ key: 'city', value: 'Bellevue', site: 'jobs.lever.co' }] } })
+    expect(await handle({ type: 'take-corrections' }, FROM_WEB)).toEqual({ ok: true, data: { corrections: [] } })
+    expect((await handle({ type: 'take-corrections' }, { origin: 'https://evil.example' })).ok).toBe(false)
   })
 
   test('take-assist-results hands independent page results over once', async () => {

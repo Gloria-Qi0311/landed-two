@@ -8,15 +8,16 @@
 import Dexie, { type Table } from 'dexie'
 import { parseConversation } from '@landed/schema/conversation'
 import { parseApplicationAnswers } from '@landed/schema/application-answers'
-import { parseApplicationFile } from '@landed/schema/application-files'
-import { parseMasterResume, parseTailorNotes, parseTarget, parseWaitingFile } from '@landed/schema/master-resume'
+import { parseApplicationFile, parseResumeFile } from '@landed/schema/application-files'
+import { MAX_DIRECTIONS, parseDirections, parseMasterResume, parseResumeChoice, type ResumeChoice, parseTailorNotes, parseTarget, parseWaitingFile } from '@landed/schema/master-resume'
 import { leadQueueDefaults, readLeadQueueFields } from '@landed/schema/lead-queue'
+import { parseOpenAnswers, type OpenAnswer } from '@landed/schema/open-answers'
 import { normalizeStage, orderRounds, parseDeadline, parseInterviews, sortRounds, STAGE_VALUES } from '@landed/schema/pipeline'
 import { parseBrief } from '@landed/schema/search-brief'
 import { companyKey, titleKey } from '@landed/observation-processor'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
-  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbApplicationAnswers, type DbApplicationFile, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
+  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbApplicationAnswers, type DbApplicationFile, type DbResumeFile, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
   type DbPortalEvent, type DbResume, type ApplicationsImport, type PortalEventInput, type Snapshot,
 } from './types'
@@ -80,6 +81,7 @@ class LandedDB extends Dexie {
   agent_conversations!: Table<DbConversation, string>
   application_answers!: Table<DbApplicationAnswers, string>
   application_files!: Table<DbApplicationFile & { data: string }, string>
+  resume_files!: Table<DbResumeFile & { data: string }, string>
 
   constructor(name: string) {
     super(name)
@@ -168,6 +170,18 @@ class LandedDB extends Dexie {
         Object.assign(l, leadQueueDefaults(l as unknown as Record<string, unknown>))
       })
     })
+    // v14: each uploaded resume's own file, so a fill uploads the file of the
+    // resume it filled from (one per resume).
+    this.version(14).stores({
+      resume_files: 'id, &resume_id',
+    }).upgrade(async (tx) => {
+      // and what each resume is for (empty until the user or Landed says)
+      await tx.table('resumes').toCollection().modify((r: DbResume) => { if (!Array.isArray(r.directions)) r.directions = [] })
+    })
+    // v15: the open-ended answers each application was sent with.
+    this.version(15).stores({}).upgrade(async (tx) => {
+      await tx.table('applications').toCollection().modify((a: DbApplication) => { if (a.open_answers === undefined) a.open_answers = null })
+    })
   }
 }
 
@@ -179,8 +193,13 @@ function leadQueueOf(input: Record<string, unknown>) {
 }
 
 /** master_json / target_json validated like the server does (null clears). */
-function resumeExtras(input: { master_json?: unknown; target_json?: unknown; file_path?: unknown }) {
-  const out: Partial<Pick<DbResume, 'master_json' | 'target_json' | 'file_path'>> = {}
+function resumeExtras(input: { master_json?: unknown; target_json?: unknown; file_path?: unknown; directions?: unknown }) {
+  const out: Partial<Pick<DbResume, 'master_json' | 'target_json' | 'file_path' | 'directions'>> = {}
+  if (input.directions !== undefined) {
+    const d = parseDirections(input.directions)
+    if (!d) throw new LocalStoreError(400, `directions must be up to ${MAX_DIRECTIONS} role names (60 characters each)`)
+    out.directions = d
+  }
   if (input.file_path !== undefined) {
     const f = parseWaitingFile(input.file_path)
     if (f === undefined) throw new LocalStoreError(400, 'file_path must be a file name (up to 255 characters) or null')
@@ -230,6 +249,22 @@ function deadlineOf(v: unknown): string | null | undefined {
   return d
 }
 
+/** Same as the server: a resume id and a name, or null. */
+function resumeChoiceOf(v: unknown): ResumeChoice | null {
+  if (v === undefined) return null
+  const choice = parseResumeChoice(v)
+  if (choice === undefined) throw new LocalStoreError(400, 'resume_choice needs a resume id and a name')
+  return choice
+}
+
+/** Same as the server: up to 10 questions with their answers, or null. */
+function openAnswersOf(v: unknown): OpenAnswer[] | null {
+  if (v === undefined) return null
+  const answers = parseOpenAnswers(v)
+  if (answers === undefined) throw new LocalStoreError(400, 'open_answers must be up to 10 questions, each with an answer')
+  return answers
+}
+
 function applicationRow(companyId: string, input: ApplicationInput, at: string): DbApplication {
   required(input.role, 'role')
   const { stage, interviews } = stageAndRounds(input.stage, input.interviews, true)
@@ -238,6 +273,8 @@ function applicationRow(companyId: string, input: ApplicationInput, at: string):
     id: uuid(), user_id: LOCAL_USER, company_id: companyId,
     role: input.role, team: input.team ?? null, stage: stage ?? 'saved', interviews: interviews ?? [],
     deadline: deadlineOf(input.deadline) ?? null,
+    resume_choice: resumeChoiceOf(input.resume_choice),
+    open_answers: openAnswersOf(input.open_answers),
     salary: input.salary ?? null, location: input.location ?? null, remote: input.remote ?? null,
     applied_at: input.applied_at ?? null, next_step: input.next_step ?? null,
     referral: input.referral ?? false, source: input.source ?? null, job_id: input.job_id ?? null,
@@ -326,6 +363,8 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         if (stage) clean.stage = stage
         if (interviews) clean.interviews = interviews
         if (clean.deadline !== undefined) clean.deadline = deadlineOf(clean.deadline) ?? null
+        if (clean.resume_choice !== undefined) clean.resume_choice = resumeChoiceOf(clean.resume_choice)
+        if (clean.open_answers !== undefined) clean.open_answers = openAnswersOf(clean.open_answers)
         oneOf(clean.remote, REMOTES, 'remote')
         if (clean.role !== undefined) required(clean.role, 'role')
         const next = { ...row, ...clean, last_activity_at: now() }
@@ -363,7 +402,8 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
     },
 
     async listResumes() {
-      return (await db.resumes.toArray()).sort(byDesc('created_at'))
+      // A resume saved by a build from before directions existed has none.
+      return (await db.resumes.toArray()).map((r) => (Array.isArray(r.directions) ? r : { ...r, directions: [] })).sort(byDesc('created_at'))
     },
     async addResume(input) {
       const { name, parsed_json, set_current } = input
@@ -380,7 +420,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         const row: DbResume = {
           id: uuid(), user_id: LOCAL_USER, name: required(name, 'name'), file_path: null,
           parsed_json: parsed_json ?? null, is_current: !!set_current, created_at: now(),
-          kind, master_json: null, target_json: null, ...extras,
+          kind, master_json: null, target_json: null, directions: [], ...extras,
         }
         await db.resumes.add(row)
         return row
@@ -400,7 +440,11 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
     },
     async deleteResume(id) {
       if (!(await db.resumes.get(id))) throw new LocalStoreError(404, 'resume not found')
-      await db.resumes.delete(id)
+      // Its file goes with it (the server's foreign key does the same).
+      await db.transaction('rw', db.resumes, db.resume_files, async () => {
+        await db.resumes.delete(id)
+        await db.resume_files.where('resume_id').equals(id).delete()
+      })
     },
     async setCurrentResume(id) {
       return db.transaction('rw', db.resumes, async () => {
@@ -620,6 +664,29 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
     async deleteApplicationFile(kind) {
       await db.application_files.where('kind').equals(kind).delete()
     },
+    async listResumeFiles() {
+      return (await db.resume_files.toArray()).map(({ data: _, ...meta }) => meta).sort((a, b) => a.created_at.localeCompare(b.created_at))
+    },
+    async getResumeFileData(resumeId) {
+      const row = await db.resume_files.where('resume_id').equals(resumeId).first()
+      return row ? { id: row.id, data: row.data } : null
+    },
+    async saveResumeFile(input) {
+      const parsed = parseResumeFile({ ...input, id: uuid(), created_at: undefined })
+      if (!parsed.ok) throw new LocalStoreError(400, parsed.error)
+      askPersist()
+      const row = { ...parsed.file, user_id: LOCAL_USER }
+      await db.transaction('rw', db.resumes, db.resume_files, async () => {
+        if (!(await db.resumes.get(row.resume_id))) throw new LocalStoreError(404, 'no such resume')
+        await db.resume_files.where('resume_id').equals(row.resume_id).delete()
+        await db.resume_files.add(row)
+      })
+      const { data: _, ...meta } = row
+      return meta
+    },
+    async deleteResumeFile(resumeId) {
+      await db.resume_files.where('resume_id').equals(resumeId).delete()
+    },
     async saveApplicationAnswers(input) {
       const answers = parseApplicationAnswers(input)
       askPersist()
@@ -668,6 +735,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         agent_conversations: (await db.agent_conversations.toArray()).map(strip),
         application_answers: (await db.application_answers.toArray()).map(strip),
         application_files: (await db.application_files.toArray()).map(strip),
+        resume_files: (await db.resume_files.toArray()).map(strip),
       }))
     },
 
@@ -688,6 +756,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         }))
         await db.resumes.bulkAdd((own(snapshot.resumes) as DbResume[]).map((r) => ({
           ...r, kind: r.kind ?? 'source', master_json: r.master_json ?? null, target_json: r.target_json ?? null,
+          directions: parseDirections(r.directions) ?? [],
         })))
         await db.portal_connections.bulkAdd(own(snapshot.portal_connections) as DbPortalConnection[])
         await db.portal_events.bulkAdd(own(snapshot.portal_events) as DbPortalEvent[])
@@ -704,6 +773,10 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         // Files: validated, one per kind.
         const files = (snapshot.application_files ?? []).map((r) => parseApplicationFile(r)).flatMap((p) => (p.ok ? [p.file] : []))
         await db.application_files.bulkAdd(files.filter((f, i) => files.findIndex((x) => x.kind === f.kind) === i).map((f) => ({ ...f, user_id: LOCAL_USER })))
+        // Resumes' own files: validated, one per resume, only for resumes in the backup.
+        const resumeIds = new Set((snapshot.resumes ?? []).map((r) => r.id))
+        const resumeFiles = (snapshot.resume_files ?? []).map((r) => parseResumeFile(r)).flatMap((p) => (p.ok && resumeIds.has(p.file.resume_id) ? [p.file] : []))
+        await db.resume_files.bulkAdd(resumeFiles.filter((f, i) => resumeFiles.findIndex((x) => x.resume_id === f.resume_id) === i).map((f) => ({ ...f, user_id: LOCAL_USER })))
       })
     },
     async clearAll() {

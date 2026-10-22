@@ -22,6 +22,7 @@ const REASONS = {
   '下拉框': 'no option matched',
   '自定义下拉框': 'no option matched in the dropdown',
   '富文本': 'rich-text editor: left to you',
+  '开放题': 'open-ended: no answer from your agent',
   '选择题': 'choice question with no saved answer',
   '日期': 'date not filled',
   '多条目': 'entry field not filled',

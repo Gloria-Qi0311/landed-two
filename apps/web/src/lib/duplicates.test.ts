@@ -39,7 +39,7 @@ describe('finding them', () => {
 
 describe('merging', () => {
   test('keeps the furthest along by default and fills it in from the others', () => {
-    const base = { company_id: 'c', team: null, salary: null, location: null, remote: null, next_step: null, source: null, job_id: null, portal_application_url: null, notes: null, referral: false, starred: false, interviews: [], deadline: null, user_id: 'local', created_at: '2026-10-01T00:00:00Z' }
+    const base = { company_id: 'c', team: null, salary: null, location: null, remote: null, next_step: null, source: null, job_id: null, portal_application_url: null, notes: null, referral: false, starred: false, interviews: [], deadline: null, resume_choice: null, open_answers: null, user_id: 'local', created_at: '2026-10-01T00:00:00Z' }
     const email = { ...base, id: 'e', role: 'AI产品工程师', stage: 'oa', applied_at: '2026-10-13T12:00:00Z', last_activity_at: '2026-10-13T00:00:00Z', notes: 'OA link in email' }
     const shot = { ...base, id: 's', role: 'AI产品工程师（搜推方向）', stage: 'applied', applied_at: '2026-10-12T12:00:00Z', last_activity_at: '2026-10-14T00:00:00Z', location: '杭州', notes: '第一意向', referral: true }
     expect(pickPrimary([shot, email]).id).toBe('e')

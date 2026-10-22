@@ -4,7 +4,7 @@
   "version": "2.8",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAugov9J8j9dTxKsRLtwWQwry+VwcuMI4MRLospi135Ikg6K8zEk2ZV5v27I4V23G/oibLGRPsUIXBcbkKFu7UtGveTxU6SVtZHD1sav7LgwddPOYlFsvWaty6WLaTEFpWpcSmPbKT4Pv0y4MMoI+Rclnfuv4/x9rnCgxEdgq2cEziHcHIfoJiP9PXTLkB9l3mqiJ2VjF4y5KwLG8ei70dHWq+M27qAABNZXDG+42mt8+1cxRf2xx9FcI0JbhSSKYg+c019lRH6upFomOaVIAjjNFQcPphg1djApGcbsFC0rxceTSFuPx0oEs38xQBwJToU4AUGJ9eRkgWjkOuToEYqwIDAQAB",
   "description": "Landed: job-hunt operations — auto-fill applications + portal sync. (Renamed from ApplyMint after merge in Sprint 3.)",
-  "permissions": ["activeTab", "tabs", "storage", "scripting", "sidePanel", "alarms", "nativeMessaging"],
+  "permissions": ["activeTab", "tabs", "storage", "unlimitedStorage", "scripting", "sidePanel", "alarms", "nativeMessaging"],
   "action": {
     "default_icon": {
       "16": "icons/icon16.png",
@@ -22,13 +22,13 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["schema.js", "lib/field-detect.js", "lib/value-match.js", "lib/cross-lingual.js", "lib/llm-providers.js", "lib/llm-match.js", "lib/portal-parsers/greenhouse.js", "lib/portal-parsers/lever.js", "lib/portal-parsers/workday.js", "lib/portal-parsers/ashby.js", "lib/choice-answers.js", "lib/fill/core.js", "lib/fill/blockers.js", "lib/fill/selects.js", "lib/fill/values.js", "lib/fill/combobox.js", "lib/fill/files.js", "lib/fill/choices.js", "lib/fill/inputs.js", "lib/fill/dates.js", "lib/fill/experience.js", "lib/fill/ai.js", "lib/fill/review.js", "lib/fill/unanswered.js", "lib/fill/frames.js", "lib/fill/portal.js", "lib/fill/submit.js", "lib/fill/trace.js", "content.js"],
+      "js": ["schema.js", "lib/field-detect.js", "lib/value-match.js", "lib/cross-lingual.js", "lib/llm-providers.js", "lib/llm-match.js", "lib/portal-parsers/greenhouse.js", "lib/portal-parsers/lever.js", "lib/portal-parsers/workday.js", "lib/portal-parsers/ashby.js", "lib/choice-answers.js", "lib/fill/core.js", "lib/fill/blockers.js", "lib/fill/selects.js", "lib/fill/values.js", "lib/fill/combobox.js", "lib/fill/files.js", "lib/fill/choices.js", "lib/fill/inputs.js", "lib/fill/dates.js", "lib/fill/experience.js", "lib/fill/ai.js", "lib/fill/review.js", "lib/fill/open-answers.js", "lib/fill/learn.js", "lib/fill/unanswered.js", "lib/fill/frames.js", "lib/fill/portal.js", "lib/fill/submit.js", "lib/fill/trace.js", "lib/fill/settle.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": true,
       "match_about_blank": true
     },
     {
-      "matches": ["https://antaresmac-mini.tail109da9.ts.net/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "matches": ["https://mcn.tail109da9.ts.net/*", "http://localhost/*", "http://127.0.0.1/*"],
       "js": ["lib/web-bridge.js"],
       "run_at": "document_idle"
     }

@@ -56,7 +56,7 @@ export function useUpdateResume() {
   const qc = useQueryClient()
   const { store } = useStore()
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<DbResume, 'name' | 'parsed_json' | 'master_json' | 'target_json'>> }) =>
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<DbResume, 'name' | 'parsed_json' | 'master_json' | 'target_json' | 'directions'>> }) =>
       store.updateResume(id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['resumes'] })
@@ -107,6 +107,7 @@ export function useResumeTaskRunner() {
       onData: () => {
         qc.invalidateQueries({ queryKey: ['resumes'] })
         qc.invalidateQueries({ queryKey: ['application_files'] })
+        qc.invalidateQueries({ queryKey: ['resume_files'] })
       },
     })
   }, [ready, userId, store, qc])

@@ -1,7 +1,7 @@
 // @ts-check
 // lib/fill/files.js — the resume / cover letter files saved on the Extension page,
-// attached to upload fields. A fill with a tailored version uploads that
-// version's one-page PDF as the resume, when it has one.
+// attached to upload fields. The resume file is the picked resume's own (an
+// upload's original, a tailored version's one-page PDF), never another one's.
 //
 // Part of the autofill content script: manifest content_scripts loads
 // lib/fill/* in order, then content.js. Helpers are shared through
@@ -29,13 +29,22 @@ function readLocal(key) {
   });
 }
 
-/** The files to upload: the Extension page's, with the resume replaced by
- *  `resumeId`'s one-page PDF when that tailored version has one. */
-async function loadApplicationFiles(resumeId) {
+/** The files to upload: the Extension page's (cover letter, and the default
+ *  resume file), with the resume replaced by the picked resume's own file (an
+ *  upload's original, a tailored version's one-page PDF). A picked resume with
+ *  no file of its own gets none: never another resume's file under its name.
+ *  Only the master (merged, no file of its own) or a caller that doesn't say
+ *  the kind (older builds) gets the default. */
+async function loadApplicationFiles(resumeId, resumeKind) {
   const files = await readLocal(CA.FILES_KEY);
   if (!resumeId) return files;
-  const version = (await readLocal(VERSION_PDFS_KEY))[resumeId];
-  return version && version.file ? { ...files, resume: version.file } : files;
+  const own = (await readLocal(VERSION_PDFS_KEY))[resumeId];
+  if (own && own.file) return { ...files, resume: own.file };
+  if (resumeKind && resumeKind !== 'master') {
+    const { resume: _, ...rest } = files;
+    return rest;
+  }
+  return files;
 }
 
 /** Does the input take this file? (`accept` lists types or extensions.) */

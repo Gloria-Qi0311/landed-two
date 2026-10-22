@@ -22,6 +22,7 @@ const CA = global.LandedChoiceAnswers;
 //   answers  saved application answers      resume  the resume, by rule
 //   entries  experience / education rows    saved   custom fields, learned mappings
 //   model    the local model                page    there before Landed
+//   draft    an open-ended answer the user's agent wrote and checked
 //   file     an uploaded file
 
 function setSource(el, source) {
@@ -45,7 +46,8 @@ function neverSent(question) {
 
 /** Only these may be replaced; the user's own values are only flagged. */
 const REPLACEABLE = new Set(['resume', 'model', '']);
-const NOT_REVIEWED = new Set(['entries', 'file']);
+// Open-ended answers had their own check (lib/fill/open-answers.js).
+const NOT_REVIEWED = new Set(['entries', 'file', 'draft']);
 const LONG_TEXT_KEYS = new Set(['job_description', 'project_description', 'summary']);
 // Not previously_employed: a saved yes/no can't say it for every company;
 // the resume's employers do (resume.employers).
@@ -88,7 +90,7 @@ function fillReport() {
   let leftOut = 0;
   for (const el of deepAll('[data-landed-field-id]')) {
     const status = el.getAttribute('data-landed-status');
-    if (status !== 'filled' && status !== 'review') continue;
+    if (status !== 'filled' && status !== 'review' && status !== 'blank') continue;
     const id = el.getAttribute('data-landed-field-id');
     /** @type {Omit<ReviewItem, 'id'> | null} */
     let item = null;
@@ -118,6 +120,9 @@ function fillReport() {
     if (!item.value) item.source = '';
     else if (!item.source) item.source = 'page';
     if (neverSent(item.question)) { leftOut++; continue; }
+    // Another country's work authorization or sponsorship: the facts (about
+    // the US) don't answer it, so the reviewer mustn't pick from them.
+    if (CA.asksAboutAnotherCountry(item.question)) continue;
     items.push({ id: item.group ? item.group[0].getAttribute('data-landed-field-id') || id : id, ...item });
     if (items.length >= 60) break;
   }

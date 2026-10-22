@@ -35,6 +35,7 @@ holds the message listener and `handleFill`.
 | `experience.js` | Work Experience and Education sections on English forms (Workday's "My Experience"): one entry per job and school |
 | `ai.js` | Asking the local model for unknown labels and unanswered choices |
 | `review.js` | Where each value came from; the fill report; the agent review after a fill |
+| `open-answers.js` | Open-ended questions ("Why us?"): the user's agent writes and checks them |
 | `unanswered.js` | Empty questions worth asking the user once; filling them on open pages once answered |
 | `trace.js` | What this fill did, step by step: phases, model calls, every field's source or why it was left |
 | `frames.js` | A sub-frame showing a form reports itself to the service worker |
@@ -53,13 +54,51 @@ fill tests run the same code as the browser.
 - **Extension popup**: one Fill button for the current tab (`fill-tab`).
 - **Open & autofill from Landed** (below).
 
-The resume is **automatic by default** (`resume_id: "auto"`). Each page gets the
-version tailored for its job: the application Landed opened it for, the target's
-link, or company + most of the role in the page title; else the current resume;
-else the master (`apps/extension/lib/resume-pick.js`, the same rule as
-`pickResumeFor` on the web). The page bridge sends each version's
-`{role, company, job_url, application_id}` with the resumes. The user can still
-choose one.
+**Landed picks the resume for each job** (product decision 2026-10-20: Landed
+is a fully automatic service, and a user applying to several kinds of roles has
+a resume for each; choosing it is Landed's job). `resume_id: "auto"` by default;
+`apps/extension/lib/resume-pick.js`, the same rule, words and weights as
+`pickResumeFor` on the web (a parity test runs both):
+
+1. The version tailored for this job: the application Landed opened it for, the
+   target's link, or company + most of the role in the page title.
+2. Else, of the resumes with **a file to upload** (an upload's own file, a
+   version's one-page PDF): **the one of this job's direction** (at least half
+   of a direction's words in the job title). Each upload says what it's for
+   (`resumes.directions`, set at upload to Landed's guess, `guessDirections`:
+   its intended position and latest titles without level or season; the user
+   can change it on My Resume, `DirectionsCard`, never required). One resume of
+   the job's direction → that one (`direction`). Several (a role between two
+   directions, "Product Analyst") → `composite`, and what the posting asks for
+   decides among them. None → the best overall, `unsure`. Scoring, when needed:
+   0.75 × the job title against the resume's direction (a version's target role;
+   an upload's intended position, its name minus the person's name and "resume",
+   its two latest job titles; abbreviations and word forms folded: PM = product
+   manager, "Product Management" = manager) + 0.25 × the share of its skills the
+   posting mentions. Under 0.3, or within 0.1 of the next one, it's `unsure`:
+   still picked, and said ("not sure, check it").
+3. None with a file: the current resume, then the master (`no_file`).
+
+**Between close resumes, the user's agent decides** (auto apply). When step 2
+ends `composite` or `unsure`, the pick carries its `candidates` (best first, up
+to four), and before opening the tab auto apply asks the user's own agent
+(`askAgentToPick` → bridge `pick-resume` → native `pick_resume`: their Claude
+Code with no tools, else local Ollama). It gets the job's title, company and
+posting text and, per candidate (`pickCandidate`), what it's for, its job titles
+and skills: never the person's name, contact details or address (a direction
+drawn from a file name with the person's name in it is left out). It can only
+name one of the candidates, with confidence ≥ 0.7; anything else, no agent, or
+an error keeps the rules' pick. Its choice is recorded as `agent`, with its one
+sentence of why ("your agent read the posting: …"). The posting is untrusted
+prompt input.
+
+The page's job title and posting text come from the tab (content.js `page-job`).
+**Which resume and why is recorded on the application** (`applications.resume_choice`
+`{resume_id, name, reason, at}`, written when auto apply or Open & autofill opens
+it, shown in the drawer: "Resume: Data resume · a Product Analyst role fits “Data
+resume” and “PM resume”; the posting asks for SQL, Tableau"). Nothing asks the
+user: Approve is the one decision, and the record is there to look at.
+The popup shows each tab's pick, why, and its file. The user can still choose one.
 
 The extension is a lightweight DOM bridge. It publishes only tab metadata and
 resume names, keeps resume contents in browser storage, receives menu commands,
@@ -83,6 +122,7 @@ Deterministic DOM rules run first. Fields are outlined green (filled) or yellow
 3. **Files**: the resume file and cover letter go into upload fields.
 4. **Unknown labels** go to `apps/daemon/src/native-host.ts` → `match_fields`.
 5. **Unanswered choices** go to `native-host.ts` → `choose_options`.
+5b. **Open-ended questions** ("Why us?") go to `native-host.ts` → `draft_answers` (below).
 6. **Review**: the user's own agent checks the filled form → `review_fill` (below).
 7. **Still empty**: the questions worth asking go to the Extension page, once (below).
 
@@ -132,6 +172,12 @@ the field's own root, and the outline styles are injected there too.
   index (≥ 0.85), and the extension clicks that existing option.
 - **`review_fill`** (below) sends filled values to the user's own agent, with
   sensitive questions left out.
+- **`draft_answers`** ("Open-ended questions", above) is the one request where
+  the agent writes text: answers from the posting and the resume's experience
+  (never contact details), passed by a second check before they go in.
+- **`pick_resume`** (above, "Between close resumes") sends a posting and the
+  candidate resumes' directions, titles and skills to the user's own agent; it
+  names a candidate or nothing.
 - Page labels are untrusted prompt text.
 
 Browser extensions are the only code that touches the DOM. `lib/fill/submit.js`
@@ -140,6 +186,70 @@ the per-job authorization created by Approve. It rejects intermediate Next /
 Continue / Review / Apply-now controls, multiple candidates, blockers, missing
 required fields and yellow review fields. Every other fill surface stops before
 Submit.
+
+### Green means the value is there
+
+A field the fill marked green must still hold its value once the page's own
+scripts have run (`lib/fill/settle.js`, after every other phase, before the
+review). Some sites clear what was typed unless it was picked from their list
+(Lever's Current location is a plain input with plain-div results, and it
+empties itself on blur), so marking a field green the moment Landed wrote to it
+showed green fields that were empty.
+
+- **Type, then pick, recognized by behavior**: each short text field Landed
+  filled is retyped key by key. If suggestions appear by the field (elements the
+  page adds or shows next to it that share a word with what was typed), the
+  matching one is clicked: a place by its city and state (`chooseCity`), else
+  the closest text. If nothing on the page changes within about 0.4 s, it's a
+  plain field; if the page changes but nothing appears by the field within about
+  1.2 s, too (results can take that long from the site's server, Lever's
+  location search), so pages that restyle on every keystroke don't hold each
+  plain field 2 s. Roles and ids aren't needed, so a widget that doesn't announce
+  itself works too. **Never a button, link or submit** (owner's review,
+  2026-10-22): a candidate that is or sits inside a `button` (a `<button>` in a
+  form submits unless its type says "button"), `a[href]`, `[role=button]`,
+  `[role=link]` or `[role=menuitem]` is never clicked, unless it's a
+  `role=option`; a submit never, even inside a list.
+- **Then every green field is read again** the way a person sees it: a text
+  field's value, a select's chosen option, a dropdown's choice shown in its
+  control (react-select keeps its search input empty), not a placeholder like
+  "Select…". One that's empty now turns yellow, with "didn't keep the value"
+  on it, and counts in `lost`. Upload fields aren't re-read (sites empty the
+  input once they've sent the file), nor are fields the page has hidden since.
+- **Type, then pick only the same thing**: a place is picked by its city and
+  state; a company or school only when the suggestion is the same name (legal
+  suffixes and a qualifier after a separator aside: "Google LLC",
+  "University of Washington - Seattle"), never a different one that starts alike
+  ("Google Cloud"). Otherwise nothing is clicked: better left for the user than
+  wrong, above all when an approved application submits on its own.
+- **For approved applications** (auto apply): a field that didn't keep its
+  value is a review issue named in the blocker ("Current location didn't keep the
+  value…"), so that application stops and the others go on. Optional questions
+  are asked once but marked `optional`, so `unanswered` counts only required ones
+  and an optional blank never stops a submit.
+- **The popup lists the fields left for the user**, each with why (no saved
+  answer, didn't keep the value, sensitive, the review flagged it…); a click
+  brings the tab forward and focuses that field (content.js `focus-field`).
+- **Optional questions nothing answers** (no `required` / `aria-required`, no
+  `*` / `✱` / "required" in the label) aren't yellow and don't count as needing
+  review. They're marked `blank`, so they're still asked once on the Extension
+  page and filled when answered. The popup says how many stayed blank.
+- **A field's question is text a person sees** (`getStrictLabel`): hidden text
+  and suggestion lists or menus beside the field (Lever's "No location found…")
+  are never its label. This is also what the reviewer is sent.
+- **On real sites**: `pnpm --filter ./apps/extension live-check` fills real
+  application pages (one open posting from a few public Lever, Greenhouse and
+  Ashby boards, or the URLs given) with a made-up applicant, and fails on any
+  green field that's empty. Nothing reaches the company: every form `submit`
+  event is blocked, and once the fill starts every request that isn't a read is
+  blocked at the network (Ashby and Greenhouse's React forms submit with fetch,
+  no submit event). A GraphQL query is a read (Ashby looks up locations with
+  POST); a mutation never is. Blocked writes are listed; one named like a
+  submission (submit / apply) counts as a submit and fails the page, the rest
+  (Ashby saving each field as a draft, analytics) are blocked but aren't. Saved test pages
+  can't show this, because they don't run the site's scripts.
+  `LANDED_EXTENSION_DIR` points it at another copy, such as the installed one.
+  Run it before releasing fill changes; it's not in CI, since live sites change.
 
 ### Review after filling
 
@@ -178,6 +288,43 @@ about 1.5k tokens a call.
    page itself are only flagged. Changed and flagged fields turn yellow with the
    reason (`data-landed-note`, also the field's tooltip) and join the review list.
    The popup says what the agent changed and how many to look at.
+
+### Open-ended questions
+
+Product decision (2026-10-22, #98, as a fully automatic service): Approve is the
+user's one decision, so an approved application doesn't stop at "Why do you want
+to work here?". `lib/fill/open-answers.js`, after the model step:
+
+- **Which**: empty textareas nothing else answered, and one-line boxes that
+  plainly ask for an essay ("Why…", "Describe…", "Tell us…"); required ones, and
+  optional ones only when they ask why (interest, motivation). Never sensitive
+  questions (`neverSent`), links, salary or dates. Limits from the field's
+  `maxlength` and its label or hint ("max 500 characters", "200 words", "300字");
+  none given: about 180 words. The resume summary no longer fills a question
+  about the job or one experience ("What interests you about this role?",
+  "Tell us about a project"): `field-detect.js` `SUMMARY_QUESTION_*`.
+- **Who writes**: the user's own agent, `draft_answers` (their Claude Code with no
+  tools, `sonnet`, else local Ollama). It gets the job (title, company, posting
+  text: the lead's, else the page's), the resume this application is filled from
+  (experience, internships, projects, education, skills, summary: never the name,
+  contact details or address) and up to four answers the user edited before, as
+  their voice. It may only use the resume's facts and the posting; a question
+  the facts can't answer truthfully gets no answer.
+- **The check**: a second call reads every answer against the same facts and
+  passes only ones that claim nothing the resume doesn't say, answer the
+  question and say nothing about the company the posting doesn't. The host also
+  drops answers over their limit or with a placeholder. Only passed answers go
+  in: green, source `draft` (not sent to `review_fill` again), with a note.
+- **No agent, or nothing passed**: the field stays empty. A required one is
+  yellow (`开放题`, "needs an answer to an open-ended question") and an approved
+  application stops with that reason; an optional one stays blank.
+- **Kept**: what was written goes back with the fill result
+  (`open_answers`, the assist results queue) and onto the application
+  (`applications.open_answers`, migration 0024, Dexie v15). The drawer shows
+  them under "Answers sent"; the user can edit one, and edited ones are the
+  examples the agent follows next time (`openAnswerExamples`). A Landed-opened
+  tab keeps what it wrote (`drafted`, by question), so a reload or the form's
+  next page doesn't ask the agent again.
 
 ### Questions a fill couldn't answer
 
@@ -267,6 +414,16 @@ voluntary EEO, LinkedIn / GitHub / website links, "18 or older", "onsite N days 
 week", plus free "other questions" (`packages/schema/src/application-answers.ts`,
 `parseApplicationAnswers`).
 
+Work authorization and sponsorship are about the US. A question that names
+another country and not the US ("Are you authorized to work in the United
+Kingdom?", "Do you require sponsorship to work in Germany?", 新加坡…) isn't what
+they say: `classify` doesn't map it to them (`asksAboutAnotherCountry` in
+`lib/choice-answers.js`), the local model isn't asked to pick it from them
+(`choose_options`, `match_fields`), and the review doesn't see it. It stays
+yellow and is asked once as its own question; `sameQuestion` answers it after
+that. "The US or Canada" and "the country where this job is located" still take
+the saved answers.
+
 **What Landed already knows is filled in on its own** (product decision
 2026-10-19). Many of these questions are answered by the resume (master, else
 current) or the active job search. `useKnownAnswers` (`apps/web/src/hooks/answers.ts`,
@@ -292,6 +449,36 @@ where (validated by `parseApplicationAnswers`, kept by `mergeAnswers`), so one t
 user cleared, changed or undid isn't filled in again. Never filled in: date of
 birth, street address, work authorization, "18 or older", EEO and consent. The
 never-guessed rules below still hold for everything else.
+
+**A correction on a form is remembered** (product decision 2026-10-22: Landed
+is an automatic service; the user shouldn't make the same fix on every form).
+When the user changes a field on a page Landed filled (a trusted `change`,
+never Landed's own events), `lib/fill/learn.js` reads what the question is about
+and the new answer. Only facts that hold for every application are kept
+(`LEARNABLE`): city, state, country, earliest start, LinkedIn / GitHub /
+website, how they heard, and the general yes/nos (18 or older, authorized to
+work, sponsorship, relocate, travel, onsite, other locations, non-compete,
+talent network). Never date of birth, street address, EEO, consent, "worked
+here before?" (one company's) or open-ended text; a bare "Location" isn't kept
+either (it may be where they'd work). **Nor a question about one place or one
+amount** (owner's review, 2026-10-22): "No" to "Are you willing to relocate to
+Austin, TX?" isn't "No" to relocating anywhere, and a UK work-authorization
+"No" must never flip the saved US one. `namesPlaceOrAmount` (extension
+`lib/choice-answers.js`, the same rule in `packages/schema` for `learnAnswers`,
+a web test runs both): a percentage or a number of days / hours / weeks; a
+country other than the US, a US state, "City, ST", a Chinese city or
+"办公室 / 分公司"; or a capitalized name inside a sentence (a city, an office, a
+company), unless the label capitalizes every word. The US and its visas
+(H-1B, OPT…) are general. The extension sends the question along, and the page
+drops a correction without one or with such a question. A city from a location box keeps the city
+("Bellevue, Washington, United States" → Bellevue); a yes/no takes the option's
+first word. The background queues one per question (`landed:answer-corrections`,
+the latest wins), the open Landed tab takes them (bridge `take-corrections`)
+and `learnAnswers` saves each as the answer, noted in
+`application_answers.learned` with what it was before and the site. The
+Extension page lists them ("Remembered from forms you corrected": City: Bellevue
+· was Seattle · on jobs.lever.co) with **Undo** for each, which puts the old
+answer back. A remembered answer also takes its question off the waiting list.
 
 One row per account in the data store (`application_answers`, Dexie v11,
 migration 0019, in snapshots, deleted server-side when Cloud is turned off). The
@@ -343,9 +530,30 @@ only when the user clicks.
 
 ### Files to upload
 
-Same page: the user's own resume file and an optional cover letter, one per kind.
-The newest PDF or Word file uploaded on My Resume becomes the resume file
-(`keepResumeFile` in `lib/resume-tasks.ts`). Limits: .pdf/.doc/.docx ≤ 3 MB
+**The file uploaded is the picked resume's own, never another one's** (the form
+and the file must be the same resume). Each uploaded resume keeps the file it was
+read from (`resume_files`, migration 0023, Dexie v14; saved when its upload
+becomes a resume, `keepFileFor` in `lib/resume-tasks.ts`; My Resume shows it on
+the resume, `SourceFileCard`, with a way to add it when missing). A version's
+file is its one-page PDF (below). The Landed page hands every upload's file to
+the extension by resume id (bridge `sync-version-pdf`; `null` for one with no
+file, so the extension knows), and `loadApplicationFiles(resumeId, kind)` uses
+it. The extension keeps the newest 40 resumes' files and asks for
+`unlimitedStorage` (Chrome caps `storage.local` at 10 MB without it, and a few
+resumes' files are more; it adds no install warning). A hand-over that still
+fails comes back as an error, and the file's place says so (My Resume's file
+card, the Extension page's file slots: "Your browser extension couldn't keep
+this file…", `useFileHandoff`) instead of the file being dropped silently.
+A picked resume with no file of its own gets none, and the popup says so.
+Only the master (merged, no file of its own) gets the account's default file.
+Until the page has handed over uploads' files (an older Landed page), the
+extension keeps the old behavior: the default file. Uploads from before resumes
+kept their files get the account's file when it's named after them
+(`adoptKeptFiles`); older files were replaced and must be uploaded again.
+
+Same page: the account's default resume file and an optional cover letter, one
+per kind. The newest PDF or Word file uploaded on My Resume becomes the default
+(`keepResumeFile`). Limits: .pdf/.doc/.docx ≤ 3 MB
 (`packages/schema/src/application-files.ts`; `application_files`, Dexie v12,
 migration 0020, stored as base64 text so snapshots carry them; the list is
 metadata, bytes one file at a time).
@@ -411,7 +619,7 @@ each submission is handled once (`portal-applied:` ledger suggestion, so deletin
 the application doesn't bring it back). Events older than 30 days are ignored.
 
 **Approved-lead execution** (#99) starts automatically after Approve and keeps a
-manual Retry approved control. Automation owns its on/off switch, 1–5 concurrent
+manual Retry approved control. Workflow's Auto apply stage owns its on/off switch, 1–5 concurrent
 limit, Run now and queue/blocker status (`automations.auto_apply`). The global
 `useAutoApplyRunner` stays mounted on every Landed route. It uses the same
 `priority` order as the cards and opens only as many linked `saved` applications

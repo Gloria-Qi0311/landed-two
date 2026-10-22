@@ -8,7 +8,9 @@
 import type { Resume } from '@landed/schema'
 import type { Conversation } from '@landed/schema/conversation'
 import type { ApplicationAnswers } from '@landed/schema/application-answers'
-import type { ApplicationFile, FileKind } from '@landed/schema/application-files'
+import type { ApplicationFile, FileKind, ResumeFile } from '@landed/schema/application-files'
+import type { ResumeChoice } from '@landed/schema/master-resume'
+import type { OpenAnswer } from '@landed/schema/open-answers'
 import type { MasterResume, ResumeTarget, TailorNotes } from '@landed/schema/master-resume'
 import type { InterviewRound } from '@landed/schema/pipeline'
 import type { LEAD_QUEUE_FIELDS } from '@landed/schema/lead-queue'
@@ -53,6 +55,11 @@ export type DbApplication = {
   interviews: InterviewRound[]
   /** apply-by date "YYYY-MM-DD" (mostly for ones not applied to yet) */
   deadline: string | null
+  /** the resume Landed filled it from, and why (when it opened it) */
+  resume_choice: ResumeChoice | null
+  /** the open-ended answers it was sent with ("Why us?"): written by the
+   *  user's agent, editable in the drawer */
+  open_answers: OpenAnswer[] | null
 }
 
 /** My Resume: uploads (`source`) → one `master` (most complete, every
@@ -74,6 +81,9 @@ export type DbResume = {
   master_json: MasterResume | null
   /** what a version is aimed at, and why it picked what it did */
   target_json: (ResumeTarget & { notes: TailorNotes }) | null
+  /** what an upload is for, as role names ("Product Manager"): the user's or
+   *  Landed's guess at upload (parseDirections); Landed picks by these */
+  directions: string[]
 }
 
 export type ResumeInput = {
@@ -85,6 +95,7 @@ export type ResumeInput = {
   target_json?: (ResumeTarget & { notes?: TailorNotes }) | null
   /** uploaded without a computer: the file still to be read in full (parseWaitingFile) */
   file_path?: string | null
+  directions?: string[]
 }
 
 export type PortalProvider =
@@ -188,6 +199,10 @@ export type DbConversation = Conversation & { user_id: string }
  *  getApplicationFileData). One per kind per account. */
 export type DbApplicationFile = ApplicationFile & { user_id: string }
 
+/** An uploaded resume's own file (metadata; bytes from getResumeFileData):
+ *  a fill with that resume uploads it. One per resume. */
+export type DbResumeFile = ResumeFile & { user_id: string }
+
 /** The account's answers to the questions forms ask that a resume doesn't
  *  (one row per account). */
 export type DbApplicationAnswers = {
@@ -210,7 +225,7 @@ export type ApplicationInput = Partial<Omit<DbApplication, 'id' | 'user_id' | 'c
 
 export const APPLICATION_PATCH_FIELDS = [
   'role', 'team', 'stage', 'salary', 'location', 'remote', 'applied_at', 'next_step',
-  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline',
+  'referral', 'source', 'notes', 'starred', 'interviews', 'portal_application_url', 'deadline', 'resume_choice', 'open_answers',
 ] as const
 export type ApplicationPatch = Partial<Pick<DbApplication, typeof APPLICATION_PATCH_FIELDS[number]>>
 
@@ -267,11 +282,14 @@ export type Snapshot = {
   application_answers?: Owned<DbApplicationAnswers>[]
   /** with `data` (base64) */
   application_files?: (Owned<DbApplicationFile> & { data: string })[]
+  /** with `data` (base64); absent in older backups */
+  resume_files?: (Owned<DbResumeFile> & { data: string })[]
 }
 
 export const SNAPSHOT_TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
   'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers', 'application_files',
+  'resume_files',
 ] as const
 
 export function snapshotRowCount(s: Snapshot): number {
@@ -299,7 +317,7 @@ export interface DataStore {
   listResumes(): Promise<DbResume[]> // created_at desc
   /** At most one `master` per account (a second is a 409). */
   addResume(input: ResumeInput): Promise<DbResume>
-  updateResume(id: string, patch: Partial<Pick<DbResume, 'name' | 'parsed_json' | 'master_json' | 'target_json' | 'file_path'>>): Promise<DbResume>
+  updateResume(id: string, patch: Partial<Pick<DbResume, 'name' | 'parsed_json' | 'master_json' | 'target_json' | 'file_path' | 'directions'>>): Promise<DbResume>
   deleteResume(id: string): Promise<void>
   /** Promotes one resume and demotes the previous current one atomically. */
   setCurrentResume(id: string): Promise<DbResume>
@@ -358,6 +376,12 @@ export interface DataStore {
   /** Replaces this kind's file; validated (parseApplicationFile). */
   saveApplicationFile(input: { kind: FileKind; name: string; data: string }): Promise<DbApplicationFile>
   deleteApplicationFile(kind: FileKind): Promise<void>
+
+  listResumeFiles(): Promise<DbResumeFile[]> // metadata only
+  getResumeFileData(resumeId: string): Promise<{ id: string; data: string } | null>
+  /** Replaces this resume's file; validated (parseResumeFile). 404 without the resume. */
+  saveResumeFile(input: { resume_id: string; name: string; data: string }): Promise<DbResumeFile>
+  deleteResumeFile(resumeId: string): Promise<void>
 
   exportSnapshot(): Promise<Snapshot>
 }

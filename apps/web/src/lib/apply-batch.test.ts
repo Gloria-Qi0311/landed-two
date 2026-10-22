@@ -9,7 +9,7 @@ const app = (id: string, companyId: string, over: Record<string, unknown> = {}) 
 const resume = (): DbResume => ({
   id: '11111111-2222-4333-8444-555555555555', user_id: 'local', name: 'Master', file_path: null,
   parsed_json: { name: 'Alex' } as never, is_current: true, created_at: '2026-10-01T00:00:00Z',
-  kind: 'master', master_json: null, target_json: null,
+  kind: 'master', master_json: null, target_json: null, directions: [],
 })
 const lead = (application_id: string, score: number): DbJobLead => ({
   id: crypto.randomUUID(), user_id: 'local', fingerprint: crypto.randomUUID(), ats_key: null, canonical_url: null,
@@ -91,7 +91,7 @@ describe('apply-assist results', () => {
   test('bounds and validates extension results', () => {
     const application_id = '11111111-2222-4333-8444-555555555555'
     expect(parseApplyAssistResults([{ application_id, tab_id: 7, status: 'blocked', blocker: 'captcha', message: 'Needs you', filled: 2, review: 1, at: '2026-10-19T12:00:00Z' }]))
-      .toEqual([{ application_id, lead_id: null, tab_id: 7, status: 'blocked', blocker: 'captcha', message: 'Needs you', filled: 2, review: 1, at: '2026-10-19T12:00:00Z', trace_ref: null }])
+      .toEqual([{ application_id, lead_id: null, tab_id: 7, status: 'blocked', blocker: 'captcha', message: 'Needs you', filled: 2, review: 1, at: '2026-10-19T12:00:00Z', trace_ref: null, open_answers: [] }])
     expect(parseApplyAssistResults([{ tab_id: 7, status: 'ready', trace_ref: 'K7Q2MX' }])[0].trace_ref).toBe('K7Q2MX')
     expect(parseApplyAssistResults([{ tab_id: 7, status: 'ready', trace_ref: '<script>' }])[0].trace_ref).toBeNull()
     expect(parseApplyAssistResults([{ tab_id: 'x', status: 'ready' }, null])).toEqual([])

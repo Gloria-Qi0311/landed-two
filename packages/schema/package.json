@@ -20,7 +20,8 @@
     "./application-answers": "./src/application-answers.ts",
     "./application-files": "./src/application-files.ts",
     "./lead-queue": "./src/lead-queue.ts",
-    "./fill-trace": "./src/fill-trace.ts"
+    "./fill-trace": "./src/fill-trace.ts",
+    "./open-answers": "./src/open-answers.ts"
   },
   "scripts": {
     "build": "echo 'no build \u2014 consumed as source via workspace alias'",

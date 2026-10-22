@@ -8,6 +8,7 @@ import { MAX_FILE_BYTES, type FileKind } from '@landed/schema/application-files'
 import { Icon } from './primitives'
 import { formatRelative } from '../lib/time'
 import { useApplicationFiles, useDeleteApplicationFile, useSaveApplicationFile } from '../hooks/answers'
+import { useFileHandoff } from '../hooks/extension-bridge'
 import { muted, danger, card } from './ui'
 
 
@@ -34,6 +35,7 @@ function Slot({ kind, title, help }: { kind: FileKind; title: string; help: stri
   const picker = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
   const current = files.find((f) => f.kind === kind)
+  const handoff = useFileHandoff((st) => st.errors[`file:${kind}`])
   const busy = save.isPending || remove.isPending
 
   const onPick = async (file: File | undefined) => {
@@ -77,6 +79,7 @@ function Slot({ kind, title, help }: { kind: FileKind; title: string; help: stri
         </span>
       </div>
       {error && <div role="alert" style={{ ...muted, color: danger, gridColumn: '1 / -1' }}>{error}</div>}
+      {current && handoff && <div role="alert" style={{ ...muted, color: danger, gridColumn: '1 / -1' }}>Your browser extension couldn't keep this file, so applications can't upload it ({handoff}). Reload the extension, then this page.</div>}
     </div>
   )
 }

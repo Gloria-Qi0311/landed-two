@@ -19,6 +19,9 @@ import {
 import { useApplications, useCompanies, useUpdateApplication } from './queries'
 import { useJobLeads, useRecordApplyClick, useSuggestions } from './inbox'
 import { useResumes } from './resumes'
+import { askAgentToPick, resumeChoiceFor, type AgentPick, type AskAgent } from '../lib/apply-assist'
+import { openAnswerExamples } from '../lib/open-answers'
+import { useResumeFiles } from './answers'
 import { useAutomations } from './automation'
 
 type AutoApplyControl = {
@@ -31,6 +34,13 @@ type AutoApplyControl = {
   awaiting_confirmation: number
   last_started_at: string | null
   request: number
+}
+
+
+/** Ask the user's own agent, through the extension and Landed for Mac. */
+const askAgent: AskAgent = async (request) => {
+  const res = await bridgeCall<{ pick: AgentPick }>('pick-resume', request, 100_000)
+  return res.ok ? res.data.pick : null
 }
 
 export const useAutoApplyControl = create<AutoApplyControl>(() => ({
@@ -110,6 +120,12 @@ export function useAutoApplyRunner() {
   const leads = leadsQuery.data ?? []
   const resumes = resumesQuery.data ?? []
   const suggestions = suggestionsQuery.data ?? []
+  const resumeFiles = useResumeFiles().data
+  const hasFile = useMemo(() => {
+    if (!resumeFiles) return undefined
+    const ids = new Set(resumeFiles.map((f) => f.resume_id))
+    return (id: string) => ids.has(id)
+  }, [resumeFiles])
   const names = useMemo(() => new Map(companies.map((company) => [company.id, company.name])), [companies])
   const authorized = useMemo(() => new Set(leads
     .filter((lead) => lead.status === 'saved' && lead.application_id)
@@ -124,8 +140,9 @@ export function useAutoApplyRunner() {
     leads,
     suggestions,
     resumes,
+    hasFile,
     limit: Math.max(0, max - active),
-  }), [active, apps, leads, max, names, resumes, suggestions])
+  }), [active, apps, hasFile, leads, max, names, resumes, suggestions])
   const autoKey = plan.items.map((item) => item.app.id).join('|')
 
   useEffect(() => {
@@ -166,16 +183,23 @@ export function useAutoApplyRunner() {
     }
 
     useAutoApplyControl.setState({ busy: true, note: null })
+    const examples = openAnswerExamples(apps)
     const opened: string[] = []
     const failed: string[] = []
     try {
       for (const item of plan.items.slice(0, APPLY_BATCH_LIMIT)) {
+        // Between close resumes, the user's agent reads the posting and
+        // chooses; without one the rules' pick stands.
+        const pick = await askAgentToPick(item.resume, { role: item.app.role, company: item.company, description: item.description }, askAgent)
         const res = await bridgeCall<{ tab_id: number }>('assist-open', {
           url: item.target.url,
-          resume_id: item.resume.resume.id,
+          resume_id: pick.resume.id,
           application_id: item.target.application_id,
           lead_id: item.target.lead_id,
           submit_authorized: true,
+          // For open-ended answers: the job, and the user's own edited answers.
+          job: { role: item.app.role, company: item.company, description: item.description ?? '' },
+          examples,
         })
         if (!res.ok) {
           failed.push(`${item.company} · ${item.app.role}`)
@@ -184,7 +208,8 @@ export function useAutoApplyRunner() {
         opened.push(item.app.id)
         record({ kind: 'application', id: item.app.id, role: item.app.role, stage: item.app.stage, company_name: item.company })
         try {
-          await update.mutateAsync({ id: item.app.id, patch: { next_step: APPLY_FILLING } })
+          // Which resume, and why, stays on the application (its drawer).
+          await update.mutateAsync({ id: item.app.id, patch: { next_step: APPLY_FILLING, resume_choice: resumeChoiceFor(pick) } })
         } catch {
           // The authorized tab is already running; one write failure must not
           // stop the rest of the queue.
@@ -203,7 +228,7 @@ export function useAutoApplyRunner() {
     } finally {
       useAutoApplyControl.setState({ busy: false })
     }
-  }, [active, extension.data, max, plan, record, update])
+  }, [active, apps, extension.data, max, plan, record, update])
 
   useEffect(() => {
     if (!loaded || appsQuery.isLoading || companiesQuery.isLoading || leadsQuery.isLoading || resumesQuery.isLoading || suggestionsQuery.isLoading || extension.isLoading || busy) return

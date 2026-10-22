@@ -9,6 +9,7 @@ import { ApplicationAssist } from './apply-assist';
 import { InterviewRounds } from './interview-rounds';
 import { EditableText } from './editable';
 import { DeadlineChip } from './deadline-chip';
+import { OpenAnswers } from './open-answers';
 
 const label: CSSProperties = { fontSize: 10.5, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 };
 const REMOTES = ['Remote', 'Hybrid', 'On-site'];
@@ -208,7 +209,14 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onDele
           </div>
         </div>
 
-        {/* Next step */}
+        {/* Which resume Landed filled it from, and why */}
+        {app.resume_choice && (
+          <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5, marginBottom: 10, display: 'flex', gap: 6 }}>
+            <Icon name="doc" size={11} />
+            <span><span style={{ color: 'var(--fg)' }}>Resume: {app.resume_choice.name}</span>{app.resume_choice.reason ? ` · ${app.resume_choice.reason}` : ''}</span>
+          </div>
+        )}
+                {/* Next step */}
         <div style={{
           background: app.nextStep && app.nextStep !== '—' ? col.bg : 'var(--surface-2)',
           border: `0.5px solid ${app.nextStep && app.nextStep !== '—' ? col.ring : 'var(--border)'}`, borderRadius: 8,
@@ -222,6 +230,9 @@ export const DetailDrawer = ({ appId, apps, companies, onClose, onUpdate, onDele
               onSave={(next_step) => onUpdate(app.id, { next_step: next_step || null })} />
           </div>
         </div>
+
+        {/* The open-ended answers it was sent with ("Why us?") */}
+        <OpenAnswers answers={app.open_answers} onSave={(open_answers) => onUpdate(app.id, { open_answers })} />
 
         {/* Notes */}
         <div style={{ marginBottom: 18 }}>

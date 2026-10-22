@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickQuietPortals, pickSearchAgents,
+  AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickAgents, pickQuietPortals, pickSearchAgents,
   type Abilities, type AutomationKind, type AutomationResult, type AutomationRun, type Automations, type SyncContext, type SyncInput, type SyncOutput,
 } from '@landed/schema/automation'
 import { home } from './config.ts'
@@ -183,22 +183,47 @@ function describeRun(kind: AutomationKind, n: number, input: Record<string, unkn
 }
 
 /** Run a kind now. Find new jobs runs once per agent chosen on the
- *  Automation page (pickSearchAgents), one after another; the browser
+ *  Workflow page (pickSearchAgents), one after another; the browser
  *  merges what they find. */
 async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
   const st = s()
   if (running.has(kind) || !st.context || !runTaskFn) return
+  // Every agent unticked: nothing to search with here. The lists, boards and
+  // cloud agents still search, so it's a quiet success, not an error.
+  if (kind === 'job_search' && st.automations?.job_search.sources?.agents.length === 0) {
+    recordSkip(kind, 'Skipped: no agent on this computer is ticked under Agent search. Tick Claude Code there to search with it; the job lists, company boards and ticked cloud agents still look.')
+    return
+  }
+  // Email is read by the agent ticked under Check email (the first of them
+  // that can here); none ticked: the cloud agents read it, not this computer.
+  const readers = kind === 'email_check' ? st.automations?.email_check.readers : undefined
+  if (readers && readers.agents.length === 0) {
+    recordSkip(kind, 'Skipped: no agent on this computer is ticked under Check email. Tick Claude Code there to read email with it; ticked cloud agents still do.')
+    return
+  }
   const several = kind === 'job_search' && agentsFor ? pickSearchAgents(agentsFor(kind), st.automations?.job_search.sources) : null
   running.add(kind)
   try {
     if (several && several.length > 0) {
       for (const agent of several) await runWith(kind, agent.id, several.length > 1 ? agent.label : null, opts)
+    } else if (readers && agentsFor) {
+      await runWith(kind, pickAgents(agentsFor(kind), readers)[0]?.id ?? null, null, opts)
     } else {
       await runWith(kind, pickAgent(kind), null, opts)
     }
   } finally {
     running.delete(kind)
   }
+}
+
+/** A run with nothing to do: a success, so the schedule moves on. */
+function recordSkip(kind: AutomationKind, summary: string) {
+  const st = s()
+  const at = new Date().toISOString()
+  st.runs = [{ id: randomUUID(), kind, started_at: at, finished_at: at, status: 'ok' as const, summary, error: null }, ...st.runs].slice(0, MAX_RUNS)
+  st.last_success[kind] = at
+  delete st.last_failure[kind]
+  save()
 }
 
 async function runWith(kind: AutomationKind, agent: string | null, agentLabel: string | null, opts: RunOptions) {

@@ -406,15 +406,22 @@ try {
   })
 } catch { /* tabs API unavailable */ }
 
-function fillFrame(tabId, frameId, resume) {
+function fillFrame(tabId, frameId, resume, extra = {}) {
   return new Promise((resolve) => {
     try {
       chrome.tabs.sendMessage(tabId, {
         action: 'fill',
         resume: resume.parsed_json,
-        // A tailored version's own PDF goes into the resume upload (lib/fill/files.js).
+        // The picked resume's own file goes into the resume upload, never
+        // another one's (lib/fill/files.js); its kind says whether it has one.
         resumeId: typeof resume.id === 'string' ? resume.id : null,
+        resumeKind: typeof resume.kind === 'string' ? resume.kind : null,
         aiTakeover: true,
+        // Open-ended answers (lib/fill/open-answers.js): the job, the user's
+        // own answers as examples, answers already written for this tab.
+        job: extra.job || null,
+        examples: extra.examples || [],
+        drafted: extra.drafted || {},
       }, { frameId }, (response) => {
         const error = chrome.runtime.lastError
         if (error || !response) resolve({ error: error?.message || 'No response from page' })
@@ -454,9 +461,14 @@ async function traceFill(tabId, resume, via, result, answered) {
 }
 
 /** via: popup | menu | assist (a tab Landed opened) — for the trace. */
-async function fillTab(tabId, resume, via = 'menu') {
+async function fillTab(tabId, picked, via = 'menu', extra = {}) {
+  // Once the Landed page hands over each upload's own file, a fill uploads
+  // only the picked resume's own file (its kind tells lib/fill/files.js);
+  // before that, the account's default file as always.
+  const known = self.LandedResumePick.fileKnowledge(assistResumes, await storedResumeFiles())
+  const resume = { ...picked, kind: known ? picked.kind || assistResumes.find((r) => r.id === picked.id)?.kind || null : null }
   const frames = [0, ...((await loadFormFrames())[tabId] || []).filter((id) => id !== 0)]
-  const responses = await Promise.all(frames.map((frameId) => fillFrame(tabId, frameId, resume)))
+  const responses = await Promise.all(frames.map((frameId) => fillFrame(tabId, frameId, resume, extra)))
   const answered = responses.filter((r) => !r.error)
   if (answered.length === 0) return { tabId, error: responses[0]?.error || 'No response from page' }
   const result = await addUpFill(tabId, answered)
@@ -483,11 +495,33 @@ async function addUpFill(tabId, answered) {
   const attached = new Set(answered.flatMap((r) => (Array.isArray(r.filled) ? r.filled : [])).filter((f) => String(f).startsWith('file:')).map((f) => String(f).slice(5)))
   const missing = [...new Set(answered.flatMap((r) => (Array.isArray(r.missing_files) ? r.missing_files : [])))].filter((kind) => !attached.has(kind))
   const unanswered = answered.flatMap((r) => (Array.isArray(r.unanswered) ? r.unanswered : []))
+  const required = unanswered.filter((q) => !q?.optional)
   await queueQuestions(tabId, unanswered)
   return {
-    tabId, filled: count('filled'), review: count('manual'), fields, missing_files: missing, frames: answered.length, agent_review: addReviews(answered),
-    unanswered: unanswered.length,
+    // A field the page cleared after the fill isn't filled (it's yellow, in `manual`).
+    tabId, filled: Math.max(0, count('filled') - count('lost')), review: count('manual'), fields, missing_files: missing, frames: answered.length, agent_review: addReviews(answered),
+    // Only required questions stop an approved application; optional ones are still asked once.
+    unanswered: required.length, lost: count('lost'), optional_blank: count('optional_blank'),
+    // Open-ended answers the user's agent wrote (for the application's record),
+    // and the required ones it couldn't.
+    open_answers: openAnswersOf(answered),
+    open_missing: answered.reduce((sum, r) => sum + (Number.isSafeInteger(Number(r.open_missing)) ? Math.max(0, Number(r.open_missing)) : 0), 0),
+    lost_fields: answered.flatMap((r) => (Array.isArray(r.lost) ? r.lost : [])).map((l) => String(l).replace(/\s+/g, ' ').replace(/\s*[*✱]\s*$/, '').trim().slice(0, 80)).slice(0, 5),
+    issues: fieldIssues(answered),
   }
+}
+
+/** Open-ended answers from every frame: one per question, at most ten. */
+function openAnswersOf(answered) {
+  const out = []
+  for (const r of answered) {
+    for (const a of Array.isArray(r.open_answers) ? r.open_answers : []) {
+      const question = typeof a?.question === 'string' ? a.question.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+      const answer = typeof a?.answer === 'string' ? a.answer.trim().slice(0, 4000) : ''
+      if (question && answer && !out.some((x) => x.question === question)) out.push({ question, answer })
+    }
+  }
+  return out.slice(0, 10)
 }
 
 function submitFrame(tabId, frameId) {
@@ -522,10 +556,37 @@ async function submitTab(tabId) {
   }
 }
 
+// Why a field is left for the user, from the fill's internal hints.
+const ISSUE_REASONS = {
+  没留住: "didn't keep the value: pick it from the list or type it", 未匹配: 'no saved answer', 下拉框: 'no matching option',
+  自定义下拉框: 'no matching option', 敏感信息: 'sensitive: answer it yourself', 文件上传: 'needs a file', 复核存疑: 'the review flagged it',
+  复核已改: 'the review changed it: check it', 日期: 'a date to fill', 富文本: 'a long answer', 多条目: 'an entry to check',
+  开放题: 'an open-ended answer: Landed writes these with your agent',
+}
+
+/** The fields left for the user, each with why: the popup lists them and jumps to one. */
+function fieldIssues(answered) {
+  const clean = (t) => String(t || '').replace(/\s+/g, ' ').replace(/\s*[*✱]\s*$/, '').trim().slice(0, 80)
+  return answered.flatMap((r) => (Array.isArray(r.manual) ? r.manual : []))
+    .filter((m) => m && typeof m.id === 'string' && m.label)
+    .map((m) => ({ id: m.id, label: clean(m.label), reason: ISSUE_REASONS[m.hint] || 'to check' }))
+    .slice(0, 20)
+}
+
 /** Aggregate fill result → why an approved application still cannot submit. */
 function submissionBlocker(result) {
+  // Said by name: the page cleared what Landed filled (lib/fill/settle.js).
+  if (Array.isArray(result.lost_fields) && result.lost_fields.length) {
+    const names = result.lost_fields.join(', ')
+    return { kind: 'review', message: `${names} didn't keep the value (the page cleared it): fill ${result.lost_fields.length === 1 ? 'it' : 'them'} in the tab, then submit` }
+  }
   if (Array.isArray(result.missing_files) && result.missing_files.length) {
     return { kind: 'files', message: `Missing required ${result.missing_files.join(' and ').replace(/_/g, ' ')}` }
+  }
+  // "Why us?" with no agent to write it (or none its check passed).
+  if (Number(result.open_missing) > 0) {
+    const n = Number(result.open_missing)
+    return { kind: 'answers', message: `Needs ${n === 1 ? 'an answer' : `answers`} to ${n === 1 ? 'an open-ended question' : `${n} open-ended questions`}: Landed writes these with your agent (Landed for Mac with Claude Code or Ollama)` }
   }
   if (Number(result.unanswered) > 0) {
     return { kind: 'answers', message: `${result.unanswered} required question${result.unanswered === 1 ? '' : 's'} need your saved answer` }
@@ -592,6 +653,40 @@ async function queueQuestions(tabId, questions) {
   }
 }
 
+// ── corrections the user made on forms Landed filled (lib/fill/learn.js) ──
+// Queued in local storage until the open Landed tab takes them (bridge
+// 'take-corrections') and saves them as answers, marked with Undo. One per
+// question: the latest wins.
+const LEARNABLE_KEYS = new Set([
+  'city', 'state', 'country', 'earliest_start', 'linkedin', 'github', 'website', 'heard_from',
+  'adult', 'work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'onsite', 'open_to_other_locations', 'non_compete', 'talent_network',
+])
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.action !== 'answer-corrected') return
+  const key = typeof msg.key === 'string' && LEARNABLE_KEYS.has(msg.key) ? msg.key : null
+  const value = typeof msg.value === 'string' ? msg.value.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+  // Only from a page's content script.
+  if (!key || !value || !sender?.tab) {
+    sendResponse({ ok: false })
+    return true
+  }
+  const site = typeof msg.site === 'string' ? msg.site.slice(0, 120) : null
+  // The question goes along: the page checks it isn't about one place or amount.
+  const question = typeof msg.question === 'string' ? msg.question.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+  if (!question) {
+    sendResponse({ ok: false })
+    return true
+  }
+  const storeKey = self.LandedConfig.LOCAL_CORRECTIONS_KEY
+  withQueueLock(async () => {
+    const queued = (await readArea(chrome.storage.local, storeKey)) || []
+    const next = [{ key, value, question, site }, ...(Array.isArray(queued) ? queued : []).filter((c) => c && c.key !== key)].slice(0, 20)
+    await writeArea(chrome.storage.local, { [storeKey]: next })
+  }).then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false }))
+  return true
+})
+
 /** The answers changed: pages that had empty questions fill what they now cover. */
 async function fillAnsweredTabs() {
   const tabs = (await readArea(tabArea(), QUESTION_TABS_KEY)) || {}
@@ -635,7 +730,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ error: 'invalid fill request' })
     return true
   }
-  const resume = { parsed_json: msg.resume, id: typeof msg.resume_id === 'string' ? msg.resume_id : null, name: typeof msg.resume_name === 'string' ? msg.resume_name.slice(0, 120) : null }
+  const resume = {
+    parsed_json: msg.resume, id: typeof msg.resume_id === 'string' ? msg.resume_id : null,
+    name: typeof msg.resume_name === 'string' ? msg.resume_name.slice(0, 120) : null,
+    kind: typeof msg.resume_kind === 'string' ? msg.resume_kind : null,
+  }
   fillTab(msg.tabId, resume, 'popup').then(sendResponse, (error) => sendResponse({ error: String(error) }))
   return true
 })
@@ -655,15 +754,36 @@ function getTab(tabId) {
   })
 }
 
+/** The resume files the Landed page handed over (resume id → { file | null }):
+ *  uploads' originals and versions' one-page PDFs (bridge 'sync-version-pdf'). */
+function storedResumeFiles() {
+  const key = self.LandedConfig.LOCAL_VERSION_PDFS_KEY || 'landed:version-pdfs'
+  return new Promise((resolve) => {
+    try { chrome.storage.local.get(key, (r) => { void chrome.runtime.lastError; resolve((r && r[key]) || {}) }) }
+    catch { resolve({}) }
+  })
+}
+
+/** The job on a tab: its title and posting text (content.js 'page-job'). */
+function pageJob(tabId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(tabId, { action: 'page-job' }, { frameId: 0 }, (r) => { void chrome.runtime.lastError; resolve(r || null) })
+    } catch { resolve(null) }
+  })
+}
+
 /** "auto": the resume lib/resume-pick.js picks for this page — the version
- *  tailored for its job (or the application Landed opened it for), else the
- *  current one. */
+ *  tailored for its job, else the resume with a file whose direction fits
+ *  the job best, else the current one. */
 async function autoResumeFor(tabId) {
-  const [tab, tabs] = await Promise.all([getTab(tabId), loadAssistTabs()])
+  const [tab, tabs, job, stored] = await Promise.all([getTab(tabId), loadAssistTabs(), pageJob(tabId), storedResumeFiles()])
   const opened = tabs[tabId]
+  const files = self.LandedResumePick.fileKnowledge(assistResumes, stored)
   const pick = self.LandedResumePick.pickResumeForPage({
-    url: tab?.url || '', title: tab?.title || '', applicationId: opened?.application_id || null,
-  }, assistResumes)
+    url: tab?.url || '', title: tab?.title || '', jobTitle: job?.jobTitle || '', text: job?.text || '',
+    applicationId: opened?.application_id || null,
+  }, assistResumes, files || undefined)
   return pick ? pick.resume : null
 }
 
@@ -787,8 +907,9 @@ function updateAssistTabs(fn) {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** A small, non-sensitive result queue for the open Landed tab. Values and
- * resume contents never enter it — only Landed ids, counts and a blocker. */
+/** A small result queue for the open Landed tab: Landed ids, counts, a
+ * blocker, and the open-ended answers the user's agent wrote for this
+ * application (kept on it). Field values and resume contents never enter it. */
 async function queueAssistResult(entry, result, status) {
   // How it ended goes on the fill's trace too.
   if (result.trace_ref) void fillTraces.setOutcome(result.trace_ref, { status, blocker: result.blocker || null }).catch(() => {})
@@ -803,6 +924,9 @@ async function queueAssistResult(entry, result, status) {
     review: Number(result.review) || 0,
     at: new Date().toISOString(),
     trace_ref: result.trace_ref || null,
+    // What the user's agent wrote for this application's open-ended questions:
+    // the open Landed tab keeps them on the application (its drawer).
+    open_answers: Array.isArray(result.open_answers) ? result.open_answers.slice(0, 10) : [],
   }
   await withAssistResultsLock(async () => {
     const stored = await readArea(chrome.storage.local, ASSIST_RESULTS_KEY)
@@ -834,7 +958,17 @@ async function fillAssistTab(tabId) {
       await loadAssistResumes()
       const resume = assistResumes.find((item) => item.id === entry.resume_id)
       if (!resume) return
-      const result = await fillTab(tabId, resume, 'assist')
+      const result = await fillTab(tabId, resume, 'assist', { job: entry.job || null, examples: entry.examples || [], drafted: entry.drafted || {} })
+      // Answers written once stay this tab's (a reload or the next page of the
+      // form doesn't ask the agent again).
+      if (Array.isArray(result.open_answers) && result.open_answers.length) {
+        await updateAssistTabs((tabs) => {
+          if (!tabs[tabId]) return
+          const drafted = { ...(tabs[tabId].drafted || {}) }
+          for (const a of result.open_answers) drafted[a.question] = a.answer
+          tabs[tabId].drafted = drafted
+        })
+      }
       if (result.blocker) {
         await updateAssistTabs((tabs) => { if (tabs[tabId]) tabs[tabId].blocker = result.blocker.kind })
         await queueAssistResult(entry, result, 'blocked')
@@ -894,7 +1028,7 @@ async function fillAssistTab(tabId) {
   }
 }
 
-async function openAndFill({ url, resume_id, application_id, lead_id, submit_authorized = false }) {
+async function openAndFill({ url, resume_id, application_id, lead_id, submit_authorized = false, job = null, examples = [] }) {
   await loadAssistResumes()
   const resume = assistResumes.find((item) => item.id === resume_id)
   if (!resume) return { ok: false, error: "That resume isn't in this browser yet. Reload Landed so it syncs, then try again." }
@@ -908,6 +1042,8 @@ async function openAndFill({ url, resume_id, application_id, lead_id, submit_aut
       resume_id, application_id, lead_id,
       submit_authorized: submit_authorized === true && !!application_id && !!lead_id,
       filled: false, submitting: false, submitted: false, blocker: null, opened_at: Date.now(),
+      // For open-ended answers: the job and the user's own answers as examples.
+      job, examples, drafted: {},
     }
   })
   return { ok: true, data: { tab_id: tab.id, resume: resume.name } }
@@ -987,6 +1123,9 @@ const handleBridge = self.LandedBridge.createBridgeHandler({
   version: chrome.runtime.getManifest().version,
   openAndFill,
   takeAssistResults,
+  // Which resume fits a job, when Landed's rules can't tell (bridge-handler.js
+  // builds the request; the host asks the user's own agent).
+  pickResume: (request) => askNative(request),
   onAnswersSynced: () => { void fillAnsweredTabs() },
   // What an imported spreadsheet's statuses mean (bridge-handler.js sends
   // only the status words; the host asks the user's own agent).

@@ -120,7 +120,7 @@ async function run(config: Config, opts: { service?: boolean } = {}): Promise<'r
   void redetect()
   const timers = [
     setInterval(redetect, REDETECT_MS),
-    // Scheduled work (Automation page): check every minute what's due.
+    // Scheduled work (Workflow page): check every minute what's due.
     setInterval(tick, 60_000),
   ]
   timers.forEach((t) => t.unref())

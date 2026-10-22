@@ -18,6 +18,18 @@ export const PREFILLABLE = [
   'preferred_locations', 'needs_sponsorship',
 ] as const
 export type Prefillable = typeof PREFILLABLE[number]
+
+/** Answers Landed remembers when the user corrects a form it filled (the
+ *  extension sees the change, apps/extension/lib/fill/learn.js): facts that
+ *  hold for every application. Never date of birth, street address, EEO,
+ *  consent, "worked here before?" (one company's) or open-ended text. */
+export const LEARNABLE = [
+  'city', 'state', 'country', 'earliest_start', 'linkedin', 'github', 'website', 'heard_from',
+  'adult', 'work_authorized', 'needs_sponsorship', 'relocate', 'travel', 'onsite', 'open_to_other_locations', 'non_compete', 'talent_network',
+] as const
+export type Learnable = typeof LEARNABLE[number]
+/** Remembered from a correction: the answer before (Undo puts it back) and where. */
+export type Learned = { value: string; previous: string | null; site: string | null; at: string }
 /** What was filled in on its own, as written, and from where. */
 export type Prefilled = { value: string | string[]; from: 'resume' | 'search' }
 
@@ -92,6 +104,9 @@ export type ApplicationAnswers = {
    *  while they're as written, and a question here is never filled in again
    *  (so one the user cleared stays clear) */
   prefilled: Partial<Record<Prefillable, Prefilled>>
+  /** answers Landed remembered from the user's corrections on forms: the
+   *  Extension page lists them with Undo while they're as remembered */
+  learned: Partial<Record<Learnable, Learned>>
 }
 
 export const EMPTY_ANSWERS: ApplicationAnswers = {
@@ -100,7 +115,7 @@ export const EMPTY_ANSWERS: ApplicationAnswers = {
   work_authorized: null, needs_sponsorship: null, earliest_start: null, relocate: null, travel: null, preferred_locations: [],
   open_to_other_locations: null, previously_employed: null, non_compete: null, heard_from: null, talent_network: null,
   gender: null, hispanic_latino: null, race: null, veteran: null, disability: null, agree_to_terms: false, custom: [],
-  unanswered: [], skipped: [], prefilled: {},
+  unanswered: [], skipped: [], prefilled: {}, learned: {},
 }
 
 export const MAX_CUSTOM_ANSWERS = 40
@@ -123,7 +138,7 @@ const yesNo = (v: unknown): YesNo | null => (v === 'yes' || v === 'no' ? v : nul
  *  yes/no or nothing. Anything else becomes "not answered". */
 export function parseApplicationAnswers(raw: unknown): ApplicationAnswers {
   const r = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
-  const out: ApplicationAnswers = { ...EMPTY_ANSWERS, preferred_locations: [], custom: [], unanswered: [], skipped: [], prefilled: {} }
+  const out: ApplicationAnswers = { ...EMPTY_ANSWERS, preferred_locations: [], custom: [], unanswered: [], skipped: [], prefilled: {}, learned: {} }
   for (const [key, max] of Object.entries(TEXT_FIELDS)) (out as Record<string, unknown>)[key] = text(r[key], max)
   for (const key of YES_NO_FIELDS) out[key] = yesNo(r[key])
   out.agree_to_terms = r.agree_to_terms === true
@@ -151,7 +166,24 @@ export function parseApplicationAnswers(raw: unknown): ApplicationAnswers {
       : text(p.value, 300)
     if (value !== null) out.prefilled[key] = { value, from: p.from }
   }
+  const learned = (r.learned && typeof r.learned === 'object' && !Array.isArray(r.learned) ? r.learned : {}) as Record<string, unknown>
+  for (const key of LEARNABLE) {
+    const l = learned[key] as { value?: unknown; previous?: unknown; site?: unknown; at?: unknown } | undefined
+    const value = l && learnedValue(key, l.value)
+    if (!l || !value) continue
+    out.learned[key] = {
+      value,
+      previous: learnedValue(key, l.previous),
+      site: text(l.site, 120),
+      at: typeof l.at === 'string' && !Number.isNaN(Date.parse(l.at)) ? l.at : new Date(0).toISOString(),
+    }
+  }
   return out
+}
+
+/** A remembered answer as saved: "yes"/"no" for a yes/no question, else text. */
+function learnedValue(key: Learnable, v: unknown): string | null {
+  return (YES_NO_FIELDS as readonly string[]).includes(key) ? yesNo(v) : text(v, TEXT_FIELDS[key as keyof typeof TEXT_FIELDS])
 }
 
 /** `next` on top of `base`: what `next` answers replaces, blanks keep
@@ -161,7 +193,7 @@ export function parseApplicationAnswers(raw: unknown): ApplicationAnswers {
 export function mergeAnswers(base: ApplicationAnswers, next: ApplicationAnswers): ApplicationAnswers {
   const out: ApplicationAnswers = { ...base }
   for (const [key, value] of Object.entries(next) as [keyof ApplicationAnswers, unknown][]) {
-    if (['custom', 'preferred_locations', 'agree_to_terms', 'unanswered', 'skipped', 'prefilled'].includes(key)) continue
+    if (['custom', 'preferred_locations', 'agree_to_terms', 'unanswered', 'skipped', 'prefilled', 'learned'].includes(key)) continue
     if (value !== null) (out as Record<string, unknown>)[key] = value
   }
   if (next.preferred_locations.length) out.preferred_locations = next.preferred_locations
@@ -175,7 +207,7 @@ export function mergeAnswers(base: ApplicationAnswers, next: ApplicationAnswers)
 
 /** How many questions are answered, for "18 answered". */
 export function answeredCount(a: ApplicationAnswers): number {
-  const { custom, preferred_locations, agree_to_terms: _, unanswered: _u, skipped: _s, prefilled: _p, ...rest } = a
+  const { custom, preferred_locations, agree_to_terms: _, unanswered: _u, skipped: _s, prefilled: _p, learned: _l, ...rest } = a
   return Object.values(rest).filter((v) => v !== null).length + (preferred_locations.length ? 1 : 0) + custom.length
 }
 
@@ -355,4 +387,79 @@ export function skipPending(a: ApplicationAnswers, question: string): Applicatio
     unanswered: a.unanswered.filter((p) => p !== q),
     skipped: [...new Set([questionKey(q.question), ...a.skipped])].slice(0, MAX_SKIPPED),
   }
+}
+
+// ── answers remembered from the user's corrections ───────────────────────
+// The user changes a field on a form Landed filled (a city, a start date, a
+// yes/no): the extension reports what the question was about and the new
+// answer (apps/extension/lib/fill/learn.js), the page bridge brings it here
+// (hooks/extension-bridge.ts), and it becomes the saved answer on its own,
+// marked on the Extension page with Undo. Landed is an automatic service:
+// the user shouldn't have to make the same fix on the next form.
+
+/** One correction the extension reported, with the question it answered. */
+export type ReportedCorrection = { key?: unknown; value?: unknown; question?: unknown; site?: unknown }
+
+// A question about one place or one amount isn't a fact for every application:
+// "No" to "Willing to relocate to Austin, TX?" isn't "No" to relocating
+// anywhere, nor 75% travel to all travel (owner's review, 2026-10-22). The same
+// rule as namesPlaceOrAmount in apps/extension/lib/choice-answers.js (a web
+// test runs both).
+const AMOUNT = /\d\s*%|percent|百分之|\b\d+\s*\+?\s*(?:days?|hours?|hrs?|weeks?|months?|years?|miles?|km|times?)\b|[0-9一二两三四五六七]\s*(?:天|小时|周)/i
+const US_STATE = /\b(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming)\b/i
+const CJK_PLACE = /市|省|办公室|分公司|总部|园区|北京|上海|深圳|广州|杭州|成都|南京|武汉|西安|苏州|天津|重庆|台北|东京|伦敦|纽约|西雅图|旧金山|硅谷/
+const OTHER_COUNTRY = /\b(united kingdom|u\.?k|great britain|britain|england|scotland|wales|ireland|canada|mexico|brazil|germany|france|netherlands|spain|italy|switzerland|sweden|norway|denmark|finland|poland|portugal|austria|belgium|european union|eu|eea|australia|new zealand|india|singapore|japan|china|hong kong|taiwan|korea|israel|united arab emirates|uae)\b|英国|加拿大|德国|法国|荷兰|澳大利亚|新西兰|新加坡|日本|中国|香港|台湾|韩国|欧盟|印度/
+const GENERAL_NAMES = new Set(['i', 'us', 'u.s', 'u.s.', 'usa', 'u.s.a', 'u.s.a.', 'united', 'states', 'america', 'american', 'h-1b', 'h1b', 'opt', 'cpt', 'stem', 'ead', 'eeo', 'hr'])
+const WORD = /[A-Za-z][A-Za-z0-9.'’-]*/g
+
+/** Does the question name one place (a country but the US, a state, a city,
+ *  an office, a company) or an amount (a percentage, a number of days)? */
+export function namesPlaceOrAmount(question: string): boolean {
+  const q = String(question ?? '')
+  const n = q.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim()
+  if (AMOUNT.test(q) || CJK_PLACE.test(q) || US_STATE.test(q) || /,\s*[A-Z]{2}\b/.test(q) || OTHER_COUNTRY.test(n)) return true
+  // A name inside a sentence, unless the label capitalizes every word
+  // ("Willing To Relocate") and says nothing.
+  const words = q.match(WORD) ?? []
+  if (!words.length || words.filter((w) => /^[A-Z]/.test(w)).length / words.length > 0.5) return false
+  return q.split(/[.?!:;]\s+|\n/).some((sentence) => (sentence.match(WORD) ?? []).slice(1)
+    .some((w) => /^[A-Z]/.test(w) && !GENERAL_NAMES.has(w.toLowerCase().replace(/['’]s$/, '').replace(/[.,]+$/, ''))))
+}
+
+/** The answers with the corrections remembered (the latest one per question
+ *  wins); the same object when none changes anything. */
+export function learnAnswers(a: ApplicationAnswers, reported: ReportedCorrection[], now: string): ApplicationAnswers {
+  let out = a
+  for (const r of Array.isArray(reported) ? reported : []) {
+    const key = (LEARNABLE as readonly string[]).includes(String(r?.key)) ? r!.key as Learnable : null
+    const value = key && learnedValue(key, r.value)
+    // Only a general question's answer is everyone's (checked here again).
+    const question = typeof r?.question === 'string' ? r.question : ''
+    if (!key || !value || !question.trim() || namesPlaceOrAmount(question)) continue
+    const current = (out as Record<string, unknown>)[key]
+    if (typeof current === 'string' && current.toLowerCase() === value.toLowerCase()) continue
+    const before = out.learned?.[key]
+    out = {
+      ...out,
+      [key]: value,
+      // Undo goes back to what the user had before Landed remembered anything.
+      learned: { ...out.learned, [key]: { value, previous: before && before.value === current ? before.previous : learnedValue(key, current), site: text(r.site, 120), at: now } },
+    }
+  }
+  return out === a ? a : prunePending(out)
+}
+
+/** Remembered and still as remembered: the ones the Extension page lists. */
+export function stillLearned(a: ApplicationAnswers): [Learnable, Learned][] {
+  return (Object.entries(a.learned ?? {}) as [Learnable, Learned][])
+    .filter(([key, l]) => (a as Record<string, unknown>)[key] === l.value)
+    .sort((x, y) => y[1].at.localeCompare(x[1].at))
+}
+
+/** Undo one: the answer goes back to what it was, and the mark goes. */
+export function undoLearned(a: ApplicationAnswers, key: Learnable): ApplicationAnswers {
+  const l = a.learned?.[key]
+  if (!l) return a
+  const { [key]: _, ...learned } = a.learned
+  return { ...a, [key]: l.previous, learned }
 }

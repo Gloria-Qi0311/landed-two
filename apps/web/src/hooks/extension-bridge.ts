@@ -18,13 +18,16 @@
 //     (only the ones the extension doesn't have yet)
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { bridgeRequest, onExtensionReady } from '../lib/extension-bridge'
+import { create } from 'zustand'
+import { bridgeCall, bridgeRequest, onExtensionReady } from '../lib/extension-bridge'
 import { useStore, type PortalEventInput } from '../lib/store'
 import { ingestPortalConfirmations } from '../lib/inbox'
 import { useResumes } from './resumes'
-import { useApplicationAnswers, useApplicationFiles } from './answers'
+import { useApplicationAnswers, useApplicationFiles, useResumeFiles } from './answers'
+import { adoptKeptFiles } from '../lib/resume-tasks'
+import { mergeOpenAnswers } from '../lib/open-answers'
 import { FILE_KINDS } from '@landed/schema/application-files'
-import { addUnanswered, EMPTY_ANSWERS, type ReportedQuestion } from '@landed/schema/application-answers'
+import { addUnanswered, EMPTY_ANSWERS, learnAnswers, type ReportedCorrection, type ReportedQuestion } from '@landed/schema/application-answers'
 import {
   APPLY_ASSIST_RESULT_EVENT,
   nextStepForAssistResult,
@@ -32,6 +35,24 @@ import {
 } from '../lib/apply-batch'
 
 const PULL_INTERVAL_MS = 60_000
+/** The hash an upload with no file of its own is handed over with. */
+const NO_FILE = '0000000000000000'
+
+
+/** Files the extension couldn't keep (its storage full, or a write it
+ *  refused), by resume id or `file:<kind>`: shown where the file is, since an
+ *  application then can't upload it. Cleared when a later hand-over works. */
+export const useFileHandoff = create<{ errors: Record<string, string> }>(() => ({ errors: {} }))
+
+/** Hand one file over; remember whether it worked. A missing extension isn't
+ *  a failure (nothing to tell). */
+async function handOver(key: string, type: 'sync-file' | 'sync-version-pdf', payload: unknown) {
+  const res = await bridgeCall(type, payload, 15_000)
+  const errors = { ...useFileHandoff.getState().errors }
+  if (res.ok || res.error === 'no_extension') delete errors[key]
+  else errors[key] = res.error
+  useFileHandoff.setState({ errors })
+}
 
 export function useExtensionBridge() {
   const qc = useQueryClient()
@@ -39,6 +60,7 @@ export function useExtensionBridge() {
   const { data: resumes } = useResumes()
   const { data: answers } = useApplicationAnswers()
   const { data: files } = useApplicationFiles()
+  const { data: resumeFiles } = useResumeFiles()
 
   useEffect(() => {
     if (!ready) return
@@ -61,6 +83,17 @@ export function useExtensionBridge() {
             qc.invalidateQueries({ queryKey: ['application_answers'] })
           }
         }
+        // The user corrected an answer on a form Landed filled: remember it
+        // (the Extension page marks it, with Undo).
+        const corrected = await bridgeRequest<{ corrections: ReportedCorrection[] }>('take-corrections')
+        if (corrected?.corrections?.length) {
+          const current = (await store.getApplicationAnswers())?.answers ?? EMPTY_ANSWERS
+          const next = learnAnswers(current, corrected.corrections, new Date().toISOString())
+          if (next !== current) {
+            await store.saveApplicationAnswers(next)
+            qc.invalidateQueries({ queryKey: ['application_answers'] })
+          }
+        }
         // A Landed-opened application page finished filling, or stopped at
         // a human-only login/account/CAPTCHA. Keep that on the application
         // card and notify the batch control; one result never gates another.
@@ -76,6 +109,15 @@ export function useExtensionBridge() {
               if (app.next_step !== next_step) {
                 const updated = await store.updateApplication(app.id, { next_step })
                 Object.assign(app, updated)
+                changed = true
+              }
+            }
+            // What the user's agent wrote for its open-ended questions stays
+            // on the application (the drawer shows it; edits teach the agent).
+            if (app && result.open_answers.length) {
+              const open_answers = mergeOpenAnswers(app.open_answers, result.open_answers, result.at)
+              if (open_answers) {
+                Object.assign(app, await store.updateApplication(app.id, { open_answers }))
                 changed = true
               }
             }
@@ -155,9 +197,9 @@ export function useExtensionBridge() {
         if ((have[kind] ?? null) === (meta?.id ?? null)) continue
         const content = meta ? await store.getApplicationFileData(kind) : null
         if (cancelled) return
-        await bridgeRequest('sync-file', {
+        await handOver(`file:${kind}`, 'sync-file', {
           kind, file: meta && content ? { id: meta.id, name: meta.name, mime: meta.mime, data: content.data } : null,
-        }, 15_000)
+        })
       }
     }
     void sync().catch((e) => console.warn('[landed] could not hand files to the extension', e))
@@ -181,18 +223,42 @@ export function useExtensionBridge() {
     return onExtensionReady(send)
   }, [resumes])
 
-  // Tailored versions' PDFs: only the ones the extension lacks or that
-  // changed. Made here, in the browser; never stored.
+  // Uploads from before resumes kept their own files: the account's resume
+  // file goes to the upload named after it (lib/resume-tasks.ts), once.
   useEffect(() => {
-    if (!resumes) return
+    if (!ready || !resumes || !resumeFiles || !files) return
+    void adoptKeptFiles(store).then((n) => { if (n) void qc.invalidateQueries({ queryKey: ['resume_files'] }) })
+      .catch((e) => console.warn('[landed] could not give the kept file to its resume', e))
+  }, [ready, store, qc, resumes, resumeFiles, files])
+
+  // Each resume's own file, by resume id, for the fill to upload the picked
+  // one's and never another's: an upload's original (null when it has none,
+  // so the extension knows), a tailored version's one-page PDF (made here, in
+  // the browser; never stored). Only the ones the extension lacks or that
+  // changed.
+  useEffect(() => {
+    if (!resumes || !resumeFiles) return
     let cancelled = false
     const versions = resumes
       .filter((r) => r.kind === 'version' && r.parsed_json)
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .slice(0, 20)
+    const uploads = resumes.filter((r) => r.kind === 'source').slice(0, 20)
+    const fileOf = new Map(resumeFiles.map((f) => [f.resume_id, f]))
     const sync = async () => {
       const have = await bridgeRequest<Record<string, string>>('version-pdf-ids')
       if (!have || cancelled) return // no extension here
+      for (const u of uploads) {
+        const meta = fileOf.get(u.id)
+        const hash = meta ? meta.id.replace(/-/g, '') : NO_FILE
+        if (have[u.id] === hash) continue
+        const content = meta ? await store.getResumeFileData(u.id) : null
+        if (cancelled) return
+        await handOver(u.id, 'sync-version-pdf', {
+          resume_id: u.id, hash,
+          file: meta && content ? { id: meta.id, name: meta.name, mime: meta.mime, data: content.data } : null,
+        })
+      }
       const { makeResumePdf, toBase64, versionHash } = await import('../lib/resume-pdf')
       const { normalizeResume } = await import('@landed/schema')
       for (const v of versions) {
@@ -205,21 +271,21 @@ export function useExtensionBridge() {
           console.warn('[landed] could not make the PDF for', v.name, e)
         }
         if (cancelled) return
-        await bridgeRequest('sync-version-pdf', {
+        await handOver(v.id, 'sync-version-pdf', {
           resume_id: v.id, hash,
           file: pdf?.ok ? { id: v.id, name: pdf.name, mime: 'application/pdf', data: toBase64(pdf.bytes) } : null,
-        }, 15_000)
+        })
       }
-      const keep = new Set(versions.map((v) => v.id))
+      const keep = new Set([...versions, ...uploads].map((r) => r.id))
       for (const id of Object.keys(have)) {
         if (!keep.has(id) && !cancelled) await bridgeRequest('sync-version-pdf', { resume_id: id, remove: true })
       }
     }
-    void sync().catch((e) => console.warn('[landed] could not hand version PDFs to the extension', e))
+    void sync().catch((e) => console.warn('[landed] could not hand resume files to the extension', e))
     const off = onExtensionReady(() => void sync().catch(() => {}))
     return () => {
       cancelled = true
       off()
     }
-  }, [resumes])
+  }, [resumes, resumeFiles, store])
 }

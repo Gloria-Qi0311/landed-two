@@ -14,9 +14,9 @@
 // Loaded by background.js via importScripts and by lib/auth.js via require().
 
 (function (global) {
-  const API_URL = 'https://antaresmac-mini.tail109da9.ts.net';
+  const API_URL = 'https://mcn.tail109da9.ts.net:8443';
   const WEB_ORIGINS = [
-    'https://antaresmac-mini.tail109da9.ts.net',
+    'https://mcn.tail109da9.ts.net:8443',
     'http://localhost:5173', 'http://127.0.0.1:5173',
     'http://localhost:8787', 'http://127.0.0.1:8787',
   ];
@@ -29,14 +29,17 @@
   const LOCAL_ANSWERS_KEY = 'landed:application-answers';
   // Resume / cover letter files from the Landed page, by kind.
   const LOCAL_FILES_KEY = 'landed:application-files';
-  // One-page PDFs of tailored resume versions, by version id (made by the
-  // Landed tab, bridge 'sync-version-pdf'); a fill with that version uploads it.
+  // Each resume's own file, by resume id: an upload's original, a tailored
+  // version's one-page PDF (handed over by the Landed tab, bridge
+  // 'sync-version-pdf'; null when it has none). A fill uploads the picked one's.
   const LOCAL_VERSION_PDFS_KEY = 'landed:version-pdfs';
   // Questions fills had to leave empty, until the Landed tab takes them to
   // the Extension page (lib/fill/unanswered.js, bridge 'take-questions').
   const LOCAL_QUESTIONS_KEY = 'landed:unanswered-questions';
+  // Corrections the user made on forms, until the Landed tab takes them (lib/fill/learn.js).
+  const LOCAL_CORRECTIONS_KEY = 'landed:answer-corrections';
 
-  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY, LOCAL_FILES_KEY, LOCAL_VERSION_PDFS_KEY, LOCAL_QUESTIONS_KEY };
+  global.LandedConfig = { API_URL, WEB_ORIGINS, SESSION_STORAGE_KEY, LOCAL_RESUMES_KEY, LOCAL_ANSWERS_KEY, LOCAL_FILES_KEY, LOCAL_VERSION_PDFS_KEY, LOCAL_QUESTIONS_KEY, LOCAL_CORRECTIONS_KEY };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.LandedConfig;
   }

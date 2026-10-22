@@ -31,6 +31,9 @@ export type BatchItem = {
   company: string
   target: AssistTarget
   resume: ResumePick
+  /** the posting's text, when the lead has it (the user's agent reads it to
+   *  choose between close resumes: askAgentToPick) */
+  description?: string | null
 }
 
 export type ApplyAssistBlocker = 'login' | 'account' | 'captcha' | 'answers' | 'files' | 'review' | 'submit'
@@ -46,6 +49,8 @@ export type ApplyAssistResult = {
   at: string
   /** the fill's trace (`landed fill-trace <ref>`), when the extension kept one */
   trace_ref: string | null
+  /** open-ended answers the user's agent wrote for it (kept on the application) */
+  open_answers: { question: string; answer: string }[]
 }
 
 const ACTIVE_COMPANY_STAGES = new Set(['oa', 'interview', 'phone', 'onsite', 'offer'])
@@ -61,6 +66,7 @@ export function planApplyBatch({
   leads,
   suggestions,
   resumes,
+  hasFile,
   now = new Date(),
   limit = APPLY_BATCH_LIMIT,
 }: {
@@ -69,6 +75,8 @@ export function planApplyBatch({
   leads: DbJobLead[]
   suggestions: DbSuggestion[]
   resumes: DbResume[]
+  /** which resumes have their own file (lib/apply-assist.ts pickResumeFor); unknown while loading */
+  hasFile?: (resumeId: string) => boolean
   now?: Date
   limit?: number
 }): { items: BatchItem[]; skipped: BatchSkip[] } {
@@ -124,12 +132,14 @@ export function planApplyBatch({
       role: app.role,
       url: app.portal_application_url,
     }
-    const resume = pickResumeFor(target, resumes)
+    // Landed picks the resume of this job's direction, with its own file (the
+    // posting's text from the lead helps tell close directions apart).
+    const resume = pickResumeFor({ ...target, description: lead.description }, resumes, hasFile)
     if (!resume) {
       skipped.push({ app, company, reason: 'missing-resume', message: `${company} · ${app.role} needs a resume first` })
       continue
     }
-    items.push({ app, company, target, resume })
+    items.push({ app, company, target, resume, description: lead.description })
   }
   return { items, skipped }
 }
@@ -175,6 +185,12 @@ export function parseApplyAssistResults(raw: unknown): ApplyAssistResult[] {
       review: Number.isSafeInteger(Number(r.review)) ? Math.max(0, Number(r.review)) : 0,
       at: typeof r.at === 'string' && !Number.isNaN(Date.parse(r.at)) ? r.at : new Date().toISOString(),
       trace_ref: typeof r.trace_ref === 'string' && FILL_TRACE_REF.test(r.trace_ref) ? r.trace_ref : null,
+      open_answers: (Array.isArray(r.open_answers) ? r.open_answers : []).slice(0, 10).flatMap((a: unknown) => {
+        const x = a && typeof a === 'object' ? a as Record<string, unknown> : {}
+        const question = typeof x.question === 'string' ? x.question.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+        const answer = typeof x.answer === 'string' ? x.answer.trim().slice(0, 4000) : ''
+        return question && answer ? [{ question, answer }] : []
+      }),
     }]
   })
 }

@@ -47,6 +47,14 @@ module.exports = [
     }
   },
   {
+    // Node ES modules run by hand (scripts/live-check.mjs).
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      sourceType: "module",
+      globals: { ...globals.node }
+    }
+  },
+  {
     files: ["tests/**/*.js"],
     languageOptions: {
       globals: {

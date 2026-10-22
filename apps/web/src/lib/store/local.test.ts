@@ -264,6 +264,80 @@ describe('application files', () => {
   })
 })
 
+describe('directions and resume choice', () => {
+  test('a resume says what it is for; an application records its resume, validated like the server, in snapshots', async () => {
+    const store = fresh()
+    const r = await store.addResume({ name: 'Data resume', parsed_json: null, set_current: true, directions: ['Data Analyst', ' data analyst '] })
+    expect(r.directions).toEqual(['Data Analyst'])
+    expect((await store.addResume({ name: 'Old', parsed_json: null, set_current: false })).directions).toEqual([])
+    await expect(store.updateResume(r.id, { directions: 'x' as never })).rejects.toThrow(/directions/)
+    const app = await store.addApplication({ name: 'Bluefin Analytics' }, { role: 'Product Analyst' })
+    expect(app.resume_choice).toBeNull()
+    const choice = { resume_id: r.id, name: 'Data resume', reason: 'the resume for Data Analyst roles', at: '2026-10-21T20:00:00.000Z' }
+    expect((await store.updateApplication(app.id, { resume_choice: choice })).resume_choice).toEqual(choice)
+    await expect(store.updateApplication(app.id, { resume_choice: { name: 'x' } as never })).rejects.toThrow(/resume_choice/)
+    const copy = fresh()
+    await copy.replaceWith(await store.exportSnapshot())
+    expect((await copy.listResumes()).find((x) => x.id === r.id)?.directions).toEqual(['Data Analyst'])
+    expect((await copy.listApplications())[0].resume_choice).toEqual(choice)
+  })
+
+  test('an application keeps the open-ended answers it was sent with, validated like the server, in snapshots', async () => {
+    const store = fresh()
+    const app = await store.addApplication({ name: 'Bluefin Analytics' }, { role: 'Product Analyst' })
+    expect(app.open_answers).toBeNull()
+    const answers = [{ question: 'Why Bluefin?', answer: 'I built the SQL dashboards my team used daily.\n\nBluefin does that at scale.', at: '2026-10-22T08:00:00.000Z' }]
+    expect((await store.updateApplication(app.id, { open_answers: answers })).open_answers).toEqual(answers)
+    const edited = [{ ...answers[0], answer: 'My own words.', edited: true }]
+    expect((await store.updateApplication(app.id, { open_answers: edited })).open_answers).toEqual(edited)
+    await expect(store.updateApplication(app.id, { open_answers: [{ question: 'Why?', answer: '' }] as never })).rejects.toThrow(/open_answers/)
+    await expect(store.updateApplication(app.id, { open_answers: 'x' as never })).rejects.toThrow(/open_answers/)
+    const copy = fresh()
+    await copy.replaceWith(await store.exportSnapshot())
+    expect((await copy.listApplications())[0].open_answers).toEqual(edited)
+  })
+
+  test('a resume saved before directions existed reads as having none', async () => {
+    const name = `landed-test-old-${++n}`
+    const store = createLocalStore(name)
+    const r = await store.addResume({ name: 'Old', parsed_json: null, set_current: true })
+    // As an older build wrote it: no directions at all.
+    const raw = await new Dexie(name).open()
+    await raw.table('resumes').update(r.id, { directions: undefined })
+    raw.close()
+    expect((await store.listResumes())[0].directions).toEqual([])
+  })
+})
+
+describe('resume files', () => {
+  test('one per resume, only on a resume that exists, gone with the resume, in snapshots', async () => {
+    const store = fresh()
+    const data = btoa('%PDF-1.4 fake resume')
+    const pm = await store.addResume({ name: 'PM resume', parsed_json: null, set_current: true })
+    const data2 = await store.addResume({ name: 'Data resume', parsed_json: null, set_current: false })
+    await expect(store.saveResumeFile({ resume_id: crypto.randomUUID(), name: 'x.pdf', data })).rejects.toThrow(/no such resume/)
+    await expect(store.saveResumeFile({ resume_id: pm.id, name: 'photo.png', data })).rejects.toThrow(/pdf/)
+    const first = await store.saveResumeFile({ resume_id: pm.id, name: 'PM resume.pdf', data })
+    expect(first).toMatchObject({ resume_id: pm.id, name: 'PM resume.pdf', mime: 'application/pdf', size: 20 })
+    expect('data' in first).toBe(false)
+    const replaced = await store.saveResumeFile({ resume_id: pm.id, name: 'PM resume v2.pdf', data })
+    expect(replaced.id).not.toBe(first.id)
+    await store.saveResumeFile({ resume_id: data2.id, name: 'Data resume.pdf', data })
+    expect((await store.listResumeFiles()).map((f) => [f.resume_id, f.name])).toEqual(expect.arrayContaining([[pm.id, 'PM resume v2.pdf'], [data2.id, 'Data resume.pdf']]))
+    expect(await store.listResumeFiles()).toHaveLength(2)
+    expect(await store.getResumeFileData(pm.id)).toEqual({ id: replaced.id, data })
+
+    const copy = fresh()
+    await copy.replaceWith(await store.exportSnapshot())
+    expect((await copy.getResumeFileData(data2.id))?.data).toBe(data)
+
+    await store.deleteResume(pm.id)
+    expect((await store.listResumeFiles()).map((f) => f.resume_id)).toEqual([data2.id])
+    await store.deleteResumeFile(data2.id)
+    expect(await store.listResumeFiles()).toEqual([])
+  })
+})
+
 describe('job leads: apply-queue fields (docs/leads-model.md)', () => {
   const lead = (over: Record<string, unknown> = {}) => ({
     id: crypto.randomUUID(), fingerprint: `url:jobs.example.com/${crypto.randomUUID()}`, ats_key: null, canonical_url: 'jobs.example.com/1',
