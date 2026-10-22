@@ -183,7 +183,7 @@ function describeRun(kind: AutomationKind, n: number, input: Record<string, unkn
 }
 
 /** Run a kind now. Find new jobs runs once per agent chosen on the
- *  Automation page (pickSearchAgents), one after another; the browser
+ *  Workflow page (pickSearchAgents), one after another; the browser
  *  merges what they find. */
 async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
   const st = s()

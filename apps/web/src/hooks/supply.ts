@@ -60,7 +60,7 @@ export function useAutoSupply() {
   }, [on, searchId]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-/** The company boards a check looks at (Automation → Find new jobs). */
+/** The company boards a check looks at (Workflow → Find new jobs). */
 export function useFollowedBoards() {
   const { store, ready } = useStore()
   const search = useActiveSearch()

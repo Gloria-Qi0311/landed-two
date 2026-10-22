@@ -180,8 +180,8 @@ messages (PR title and a clean body, no trailer).
   question (up to 300 characters), never the `Select One Required` prompt.
   That prompt is empty, so an unknown question enters the Extension page queue;
   global Settings and language controls are not application fields.
-- Approved applications run automatically in queue priority order. Automation's
-  Auto apply card is the single management surface: on/off (on by default),
+- Approved applications run automatically in queue priority order. Workflow's
+  Auto apply stage is the single management surface: on/off (on by default),
   one-to-five simultaneous applications, Run now and current queue/blocker
   status. Turning it off prevents new starts but never revokes a job already
   opened. The linked saved lead is the authorization proof. Execution skips a
@@ -215,11 +215,17 @@ messages (PR title and a clean body, no trailer).
 - Approving leads (one or many) is `addLeadToPipeline(lead, 'saved')`: no
   "approved" state, and it can be undone.
 - The Applications page holds the board, Leads and "Needs your input". The Agent
-  page holds chat (one agent), agent questions and setup. Automation is exactly
-  three automations (When / Looks at / Then). Extension content is managed on
-  `/extension`.
-- Searching for jobs is configured in one place, Find new jobs: criteria,
-  schedule, and Search with (which agents, which public sources, cloud agents).
+  page holds chat (one agent), agent questions and setup. Workflow (`/workflow`)
+  is laid out like My Resume: the steps in the middle column, grouped What to look
+  for → 1 Find jobs (agent search, job lists, company boards, remove duplicates,
+  rank) → 2 Apply (after the user approves in Leads: auto apply, mark as applied) →
+  3 Keep up to date (email, portals), each with its status; the selected step on
+  the right says who does it (Landed AI, the built-in logic, by default; an agent where one can),
+  when, and holds its switch. A step gets a new executor or setting in its own field
+  of `users.automations`. Extension content is managed on `/extension`.
+- Searching for jobs is configured in one place, Workflow's Find new jobs:
+  criteria, schedule, and its sources (which agents, the job lists, company boards,
+  cloud agents).
   The chat's brief card saves to it and searches now with the same agents; the
   agent only suggests.
 

@@ -118,7 +118,7 @@ export function BriefCard({ brief, setup, latest }: { brief: SearchBrief; setup:
 
         {confirmed && (
           <div style={muted}>
-            Saved to <Link to="/automation">Find new jobs</Link>{job.enabled ? ` — on, ${describeSchedule(job.schedule).toLowerCase()}` : ' (turned off)'}. New jobs land in the
+            Saved to <Link to="/workflow#agents">Find new jobs</Link>{job.enabled ? ` — on, ${describeSchedule(job.schedule).toLowerCase()}` : ' (turned off)'}. New jobs land in the
             Leads column; run it again from the bar at the top.
           </div>
         )}
@@ -135,7 +135,7 @@ export function BriefCard({ brief, setup, latest }: { brief: SearchBrief; setup:
               </button>
             </div>
             <div style={muted}>
-              {`Turns on Find new jobs (${describeSchedule(schedule).toLowerCase()}) with these criteria; change either on the Automation page.`}
+              {`Turns on Find new jobs (${describeSchedule(schedule).toLowerCase()}) with these criteria; change either on the Workflow page.`}
               {choices.length === 0 && (outdated
                 ? ' The Landed daemon on your computer needs an update to search; the lists and job boards still run.'
                 : ' Your agents search once your computer is back online.')}

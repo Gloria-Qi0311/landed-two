@@ -91,7 +91,7 @@ export function AgentPage() {
                   <div style={{ flex: 1, minWidth: 220 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>Chat with</div>
                     <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-                      The agent you talk to here. Which agents search for jobs is set under Automation → Find new jobs.
+                      The agent you talk to here. Which agents search for jobs is set under Workflow → Find new jobs.
                     </div>
                   </div>
                   <AgentPicker choices={choices} value={`${ready.id}:${agent.id}`} onChange={(v) => { setPreferred(v); writeChatAgent(v) }} />

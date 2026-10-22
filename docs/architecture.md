@@ -48,7 +48,7 @@ Two ideas shape the code:
 
 | Part | What it is | Start reading at |
 |---|---|---|
-| `apps/web` | Vite + React app: Applications board, Agent page, Automation, My Resume, Extension | `src/App.tsx`, `src/lib/store/types.ts` |
+| `apps/web` | Vite + React app: Applications board, Agent page, Workflow, My Resume, Extension | `src/App.tsx`, `src/lib/store/types.ts` |
 | `apps/server` | Hono API on Postgres. Auth, Cloud data, agent relay, runtime hub, MCP/OAuth, downloads | `src/app.ts`, `src/routes/` |
 | `apps/daemon` | Node daemon plus the Swift menu bar app, packaged as Landed for Mac | `src/cli.ts`, `src/agents.ts`, `macos/LandedMenuBar.swift` |
 | `apps/extension` | MV3 extension for Chrome, Edge, Brave and Safari. Autofill and portal status detection | `manifest.json`, `background.js`, `content.js`, `lib/fill/` |

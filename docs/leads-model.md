@@ -101,7 +101,7 @@ never go through the Landed server.
 - It works for every account, with or without a paired computer.
 - The cost: it only refreshes while Landed is open (like the agent relay pull).
   The parsers in `packages/supply` are pure, so the daemon can run the same fetch
-  on the Automation schedule later (Landed closed). That is a follow-up, not part
+  on the Workflow schedule later (Landed closed). That is a follow-up, not part
   of this decision. A server-side cache stays out unless a source stops allowing
   browser requests.
 
@@ -264,7 +264,7 @@ in New Grad).
 ## Approved-lead execution (#99)
 
 Approve starts linked `saved` applications automatically in the same `priority`
-order as the column. Automation manages on/off, 1–5 simultaneous applications,
+order as the column. Workflow's Auto apply stage manages on/off, 1–5 simultaneous applications,
 Run now and queue/blocker status. The extension opens, fills,
 reviews and clicks one unambiguous final submit control when every check passes.
 A company already at OA, interview, offer or active recruiter contact is skipped

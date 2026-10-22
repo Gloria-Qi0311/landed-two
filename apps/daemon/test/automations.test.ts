@@ -152,7 +152,7 @@ test('a new pairing starts fresh: no old results, runs or email window', async (
   assert.ok(back > 29, 'a new account reads 30 days back, not from the old account\'s last check')
 })
 
-test('Find new jobs searches with each agent chosen on the Automation page that is here, one after another', async () => {
+test('Find new jobs searches with each agent chosen on the Workflow page that is here, one after another', async () => {
   resetAutomationsForTests()
   const calls: string[] = []
   setupAutomations({

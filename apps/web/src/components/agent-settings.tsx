@@ -2,7 +2,7 @@
 // agents via the Landed daemon), cloud agents — ChatGPT, Claude, Gemini…
 // through Landed's MCP connector (OAuth), or with a token over the agent
 // protocol (Meta Muse) — and the raw reports. Scheduled work and the
-// auto-apply preference live on the Automation page.
+// auto-apply preference live on the Workflow page.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from './primitives'
 import { useAuth } from '../lib/auth'

@@ -30,7 +30,7 @@ export function searchTargets(runtimes: Runtime[] | undefined): SearchTarget[] {
 }
 
 /** Who searches now (Run now, "Save & search now"): the computer that runs
- *  the Automation schedule (else the first online one that can search),
+ *  the Workflow schedule (else the first online one that can search),
  *  with the agents chosen under Find new jobs → Search with, so a search
  *  now and the scheduled one use the same agents. */
 export function chosenSearchTargets(runtimes: Runtime[] | undefined, automations: Automations): SearchTarget[] {
@@ -57,7 +57,7 @@ export function needsDaemonUpdate(runtimes: Runtime[] | undefined) {
 }
 
 /** Confirm a brief (it becomes the active search) and start searching. */
-/** Change the search criteria in place (Automation page): the edited brief
+/** Change the search criteria in place (Workflow page): the edited brief
  *  becomes the active search, and the previous one is archived — the same
  *  as confirming a new brief in the chat. */
 export function useEditBrief() {

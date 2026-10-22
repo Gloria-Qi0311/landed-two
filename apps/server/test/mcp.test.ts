@@ -209,7 +209,7 @@ describe('MCP', () => {
     // No automation on yet; then on, but nothing shared yet.
     let tasks = await tool(access, 'get_tasks')
     assert.deepEqual(tasks.structuredContent.tasks, [])
-    assert.match(tasks.structuredContent.note, /Automation/)
+    assert.match(tasks.structuredContent.note, /Workflow page/)
     await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true } } } })
     tasks = await tool(access, 'get_tasks')
     assert.deepEqual(tasks.structuredContent.tasks, [])
