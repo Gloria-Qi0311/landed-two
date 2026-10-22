@@ -78,6 +78,19 @@ a resume for each; choosing it is Landed's job). `resume_id: "auto"` by default;
    still picked, and said ("not sure, check it").
 3. None with a file: the current resume, then the master (`no_file`).
 
+**Between close resumes, the user's agent decides** (auto apply). When step 2
+ends `composite` or `unsure`, the pick carries its `candidates` (best first, up
+to four), and before opening the tab auto apply asks the user's own agent
+(`askAgentToPick` → bridge `pick-resume` → native `pick_resume`: their Claude
+Code with no tools, else local Ollama). It gets the job's title, company and
+posting text and, per candidate (`pickCandidate`), what it's for, its job titles
+and skills: never the person's name, contact details or address (a direction
+drawn from a file name with the person's name in it is left out). It can only
+name one of the candidates, with confidence ≥ 0.7; anything else, no agent, or
+an error keeps the rules' pick. Its choice is recorded as `agent`, with its one
+sentence of why ("your agent read the posting: …"). The posting is untrusted
+prompt input.
+
 The page's job title and posting text come from the tab (content.js `page-job`).
 **Which resume and why is recorded on the application** (`applications.resume_choice`
 `{resume_id, name, reason, at}`, written when auto apply or Open & autofill opens
@@ -157,6 +170,9 @@ the field's own root, and the outline styles are injected there too.
   index (≥ 0.85), and the extension clicks that existing option.
 - **`review_fill`** (below) sends filled values to the user's own agent, with
   sensitive questions left out.
+- **`pick_resume`** (above, "Between close resumes") sends a posting and the
+  candidate resumes' directions, titles and skills to the user's own agent; it
+  names a candidate or nothing.
 - Page labels are untrusted prompt text.
 
 Browser extensions are the only code that touches the DOM. `lib/fill/submit.js`

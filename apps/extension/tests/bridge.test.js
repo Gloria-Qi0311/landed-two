@@ -26,7 +26,7 @@ function memoryQueue(events) {
   }
 }
 
-function makeHandler(events = [], openAndFill, takeAssistResults, classifyStatuses) {
+function makeHandler(events = [], openAndFill, takeAssistResults, pickResume, classifyStatuses) {
   const q = memoryQueue(events)
   const saved = {}
   const onQueueChanged = jest.fn()
@@ -43,6 +43,7 @@ function makeHandler(events = [], openAndFill, takeAssistResults, classifyStatus
     openAndFill,
     takeAssistResults,
     onAnswersSynced,
+    pickResume,
     classifyStatuses,
   })
   return { handle, q, saved, onQueueChanged, onAnswersSynced }
@@ -172,6 +173,37 @@ describe('bridge handler', () => {
     expect(await handle({ type: 'sync-resumes', payload: {} }, FROM_WEB)).toMatchObject({ ok: false })
   })
 
+  test('pick-resume sends the host only a job and resumes\' directions, titles and skills, and returns a candidate or nothing', async () => {
+    const pickResume = jest.fn(async () => ({ ok: true, model: 'Claude Code', pick: { resume_id: 'r2', confidence: 0.9, reason: 'SQL and A/B tests.' } }))
+    const { handle } = makeHandler([], undefined, undefined, pickResume)
+    const payload = {
+      job: { role: 'Product Analyst', company: 'Northwind', description: 'Own product metrics.', url: 'https://x.test' },
+      resumes: [
+        { id: 'r1', directions: ['Product Manager'], titles: ['Product Intern'], skills: ['Figma'], email: 'alex@example.com' },
+        { id: 'r2', directions: ['Data Analyst'], titles: ['Analytics Intern'], skills: ['SQL'], phone: '555-0142' },
+      ],
+    }
+    const res = await handle({ type: 'pick-resume', payload }, FROM_WEB)
+    expect(res).toEqual({ ok: true, data: { pick: { resume_id: 'r2', confidence: 0.9, reason: 'SQL and A/B tests.' }, model: 'Claude Code' } })
+    expect(pickResume).toHaveBeenCalledWith({
+      type: 'pick_resume',
+      job: { role: 'Product Analyst', company: 'Northwind', description: 'Own product metrics.' },
+      resumes: [
+        { id: 'r1', directions: ['Product Manager'], titles: ['Product Intern'], skills: ['Figma'] },
+        { id: 'r2', directions: ['Data Analyst'], titles: ['Analytics Intern'], skills: ['SQL'] },
+      ],
+    })
+    // A pick that isn't one of the candidates is no pick.
+    pickResume.mockResolvedValueOnce({ ok: true, model: 'Claude Code', pick: { resume_id: 'r9', confidence: 1, reason: '' } })
+    expect((await handle({ type: 'pick-resume', payload }, FROM_WEB)).data.pick).toBeNull()
+    // One resume is nothing to choose between.
+    expect((await handle({ type: 'pick-resume', payload: { ...payload, resumes: payload.resumes.slice(0, 1) } }, FROM_WEB)).ok).toBe(false)
+    expect(pickResume).toHaveBeenCalledTimes(2)
+    // No Landed for Mac / no agent: an error, and Landed keeps its own pick.
+    pickResume.mockResolvedValueOnce({ ok: false, error: 'Landed for Mac is not installed' })
+    expect(await handle({ type: 'pick-resume', payload }, FROM_WEB)).toEqual({ ok: false, error: 'Landed for Mac is not installed' })
+  })
+
   test('assist-open passes only a safe link, a resume and Landed ids; submit needs an approved lead link', async () => {
     const open = jest.fn(async (req) => ({ ok: true, data: { tab_id: 7, req } }))
     const { handle } = makeHandler([], open)
@@ -194,7 +226,7 @@ describe('bridge handler', () => {
 
   test('classify-statuses sends only distinct status words and returns stages for those', async () => {
     const classifyStatuses = jest.fn(async () => ({ ok: true, model: 'Claude Code', stages: { 待申请: { stage: 'saved', note: null }, other: { stage: 'offer', note: null } } }))
-    const { handle } = makeHandler([], undefined, undefined, classifyStatuses)
+    const { handle } = makeHandler([], undefined, undefined, undefined, classifyStatuses)
     const res = await handle({ type: 'classify-statuses', payload: { statuses: [' 待申请 ', '待申请', '已申请', 42, ''], company: 'Bluefin' } }, FROM_WEB)
     expect(classifyStatuses).toHaveBeenCalledWith({ type: 'classify_statuses', statuses: ['待申请', '已申请'] })
     expect(res).toEqual({ ok: true, data: { stages: { 待申请: { stage: 'saved', note: null } }, model: 'Claude Code' } })

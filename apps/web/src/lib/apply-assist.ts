@@ -17,9 +17,12 @@ export type AssistTarget = {
 
 export type ResumePick = {
   resume: DbResume
-  why: 'tailored' | 'similar' | 'direction' | 'fits' | 'only' | 'no_file' | 'master' | 'current'
+  why: 'tailored' | 'similar' | 'direction' | 'fits' | 'agent' | 'only' | 'no_file' | 'master' | 'current'
   /** low or close fit, or no resume of the job's direction */
   unsure?: boolean
+  /** composite or unsure: the resumes it was between, best first (the user's
+   *  agent may choose among them: askAgentToPick) */
+  candidates?: DbResume[]
   /** several resumes of the job's direction: decided by what the posting asks */
   composite?: boolean
   /** why, in a sentence, for the application's record */
@@ -174,9 +177,11 @@ export function pickResumeFor(
       const reason = ofDirection.length > 1
         ? `a ${target.role} role fits ${[top.r, ...ofDirection.filter((r) => r !== top.r)].slice(0, 2).map((r) => `“${r.name}”`).join(' and ')}${asked.length ? `; the posting asks for ${asked.join(', ')}` : ''}`
         : `no resume is for ${target.role} roles; the closest one${asked.length ? ` (the posting asks for ${asked.join(', ')})` : ''}`
+      const composite = ofDirection.length > 1
+      const unsure = ofDirection.length === 0 || top.s < UNSURE_BELOW || top.s - next.s < UNSURE_MARGIN
       return {
-        resume: top.r, why: 'fits', composite: ofDirection.length > 1, reason,
-        unsure: ofDirection.length === 0 || top.s < UNSURE_BELOW || top.s - next.s < UNSURE_MARGIN,
+        resume: top.r, why: 'fits', composite, reason, unsure,
+        ...(composite || unsure ? { candidates: ranked.slice(0, 4).map((x) => x.r) } : {}),
       }
     }
   }
@@ -191,6 +196,7 @@ export const PICK_TEXT: Record<ResumePick['why'], string> = {
   similar: 'tailored for a similar role here',
   direction: 'the resume for this kind of role',
   fits: 'the best fit for this role',
+  agent: 'your agent read the posting and chose it',
   only: 'the one with a file to upload',
   no_file: 'none of your resumes has a file to upload yet',
   master: 'your master resume',
@@ -200,4 +206,48 @@ export const PICK_TEXT: Record<ResumePick['why'], string> = {
 /** What an application records about its resume: which one, and why. */
 export function resumeChoiceFor(pick: ResumePick, now = new Date()): ResumeChoice {
   return { resume_id: pick.resume.id, name: pick.resume.name, reason: pick.reason ?? PICK_TEXT[pick.why], at: now.toISOString() }
+}
+
+// ── when the rules can't tell: the user's own agent reads the posting ─────
+// A role between two directions, or none clearly: the posting and, per
+// candidate, what it's for, its job titles and skills (never the person's
+// name or contact details) go to the user's own agent (their Claude Code,
+// else local Ollama, through the extension and Landed for Mac). It names one
+// candidate or nothing; nothing, no agent or an error keeps the rules' pick.
+
+export type PickCandidate = { id: string; directions: string[]; titles: string[]; skills: string[] }
+export type AgentPick = { resume_id: string; reason: string } | null
+export type AskAgent = (request: { job: { role: string; company: string; description: string }; resumes: PickCandidate[] }) => Promise<AgentPick>
+
+/** What the agent sees of a resume. */
+export function pickCandidate(r: DbResume): PickCandidate {
+  const p = (r.parsed_json ?? {}) as Parsed
+  const jobs = [...(Array.isArray(p.experience) ? p.experience : []), ...(Array.isArray(p.internship) ? p.internship : [])]
+  const b = p.basic ?? {}
+  const person = new Set(titleWords(`${b.name ?? ''} ${b.firstName ?? ''} ${b.lastName ?? ''} ${b.englishName ?? ''}`))
+  return {
+    id: r.id,
+    // A direction drawn from the file name could carry the person's name.
+    directions: directions(r).filter((d) => !titleWords(d).some((w) => person.has(w))).slice(0, 6),
+    titles: jobs.map((e) => e?.title || e?.position || e?.role || '').filter(Boolean).slice(0, 6),
+    skills: (Array.isArray(p.skills) ? p.skills : []).map((x) => String(x ?? '').trim()).filter(Boolean).slice(0, 30),
+  }
+}
+
+/** The rules' pick, or the candidate the user's agent chose. */
+export async function askAgentToPick(
+  pick: ResumePick, target: { role: string; company: string; description?: string | null }, ask: AskAgent,
+): Promise<ResumePick> {
+  const candidates = pick.candidates ?? []
+  if (candidates.length < 2) return pick
+  let answer: AgentPick = null
+  try {
+    answer = await ask({ job: { role: target.role, company: target.company, description: target.description ?? '' }, resumes: candidates.map(pickCandidate) })
+  } catch {
+    return pick
+  }
+  const chosen = answer && candidates.find((r) => r.id === answer.resume_id)
+  if (!chosen) return pick
+  const why = answer!.reason.trim()
+  return { resume: chosen, why: 'agent', reason: why ? `your agent read the posting: ${why}` : PICK_TEXT.agent }
 }

@@ -1,6 +1,6 @@
 // Which resume "Open & autofill" fills with.
 import { describe, expect, test } from 'vitest'
-import { pickResumeFor, resumeChoiceFor } from './apply-assist'
+import { askAgentToPick, pickCandidate, pickResumeFor, resumeChoiceFor, type AskAgent } from './apply-assist'
 import type { DbResume } from './store/types'
 
 const resume = (id: string, over: Partial<DbResume> = {}): DbResume => ({
@@ -93,5 +93,44 @@ describe('the reason an application records', () => {
   test('resumeChoiceFor keeps which and why', () => {
     const pick = pickResumeFor(job('Data Analyst Intern'), [pm, data], all)!
     expect(resumeChoiceFor(pick, new Date('2026-10-21T20:00:00.000Z'))).toEqual({ resume_id: 'data', name: 'Data resume', reason: 'the resume for Data Analyst roles', at: '2026-10-21T20:00:00.000Z' })
+  })
+})
+
+describe('between close resumes, the user\'s agent reads the posting', () => {
+  const pm = resume('pm', {
+    name: 'Alex_Rivera_PM_resume', directions: ['Product Manager'],
+    parsed_json: { basic: { name: 'Alex Rivera', email: 'alex.rivera@example.com', phone: '(206) 555-0142' }, skills: ['Figma', 'roadmaps'], experience: [{ title: 'Product Intern' }] } as never,
+  })
+  const data = resume('data', { name: 'Data resume', directions: ['Data Analyst'], parsed_json: { skills: ['SQL', 'Tableau'], internship: [{ title: 'Analytics Intern' }] } as never })
+  const all = () => true
+  const job = { application_id: 'a1', company: 'Bluefin Analytics', role: 'Product Data Analyst', url: '', description: 'Own product metrics in SQL.' }
+
+  test('a role between two directions lists both as candidates; a clear one asks nobody', async () => {
+    const between = pickResumeFor(job, [pm, data], all)!
+    expect(between.composite).toBe(true)
+    expect(between.candidates?.map((r) => r.id).sort()).toEqual(['data', 'pm'])
+    const clear = pickResumeFor({ ...job, role: 'Data Analyst Intern' }, [pm, data], all)!
+    expect(clear.candidates).toBeUndefined()
+    let asked = 0
+    expect(await askAgentToPick(clear, job, async () => { asked++; return null })).toBe(clear)
+    expect(asked).toBe(0)
+  })
+
+  test('the agent sees what each resume is for, its titles and skills, never the person; its choice and why are recorded', async () => {
+    const between = pickResumeFor(job, [pm, data], all)!
+    let sent: Parameters<AskAgent>[0] | null = null
+    const chosen = await askAgentToPick(between, job, async (request) => { sent = request; return { resume_id: 'data', reason: 'The posting is about SQL metrics.' } })
+    expect(chosen).toMatchObject({ resume: { id: 'data' }, why: 'agent', reason: 'your agent read the posting: The posting is about SQL metrics.' })
+    expect(resumeChoiceFor(chosen).reason).toBe('your agent read the posting: The posting is about SQL metrics.')
+    expect(sent!.job).toEqual({ role: 'Product Data Analyst', company: 'Bluefin Analytics', description: 'Own product metrics in SQL.' })
+    expect(JSON.stringify(sent)).not.toMatch(/Alex|Rivera|example\.com|555/)
+    expect(pickCandidate(pm)).toEqual({ id: 'pm', directions: ['Product Manager'], titles: ['Product Intern'], skills: ['Figma', 'roadmaps'] })
+  })
+
+  test('no answer, a resume that isn\'t a candidate, or no agent: the rules\' pick stands', async () => {
+    const between = pickResumeFor(job, [pm, data], all)!
+    expect(await askAgentToPick(between, job, async () => null)).toBe(between)
+    expect(await askAgentToPick(between, job, async () => ({ resume_id: 'elsewhere', reason: 'x' }))).toBe(between)
+    expect(await askAgentToPick(between, job, async () => { throw new Error('Landed for Mac is not installed') })).toBe(between)
   })
 })

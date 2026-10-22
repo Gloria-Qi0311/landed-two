@@ -1045,6 +1045,9 @@ const handleBridge = self.LandedBridge.createBridgeHandler({
   version: chrome.runtime.getManifest().version,
   openAndFill,
   takeAssistResults,
+  // Which resume fits a job, when Landed's rules can't tell (bridge-handler.js
+  // builds the request; the host asks the user's own agent).
+  pickResume: (request) => askNative(request),
   onAnswersSynced: () => { void fillAnsweredTabs() },
   // What an imported spreadsheet's statuses mean (bridge-handler.js sends
   // only the status words; the host asks the user's own agent).

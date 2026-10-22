@@ -31,6 +31,9 @@ export type BatchItem = {
   company: string
   target: AssistTarget
   resume: ResumePick
+  /** the posting's text, when the lead has it (the user's agent reads it to
+   *  choose between close resumes: askAgentToPick) */
+  description?: string | null
 }
 
 export type ApplyAssistBlocker = 'login' | 'account' | 'captcha' | 'answers' | 'files' | 'review' | 'submit'
@@ -134,7 +137,7 @@ export function planApplyBatch({
       skipped.push({ app, company, reason: 'missing-resume', message: `${company} · ${app.role} needs a resume first` })
       continue
     }
-    items.push({ app, company, target, resume })
+    items.push({ app, company, target, resume, description: lead.description })
   }
   return { items, skipped }
 }

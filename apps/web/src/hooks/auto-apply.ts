@@ -19,7 +19,7 @@ import {
 import { useApplications, useCompanies, useUpdateApplication } from './queries'
 import { useJobLeads, useRecordApplyClick, useSuggestions } from './inbox'
 import { useResumes } from './resumes'
-import { resumeChoiceFor } from '../lib/apply-assist'
+import { askAgentToPick, resumeChoiceFor, type AgentPick, type AskAgent } from '../lib/apply-assist'
 import { useResumeFiles } from './answers'
 import { useAutomations } from './automation'
 
@@ -33,6 +33,13 @@ type AutoApplyControl = {
   awaiting_confirmation: number
   last_started_at: string | null
   request: number
+}
+
+
+/** Ask the user's own agent, through the extension and Landed for Mac. */
+const askAgent: AskAgent = async (request) => {
+  const res = await bridgeCall<{ pick: AgentPick }>('pick-resume', request, 100_000)
+  return res.ok ? res.data.pick : null
 }
 
 export const useAutoApplyControl = create<AutoApplyControl>(() => ({
@@ -179,9 +186,12 @@ export function useAutoApplyRunner() {
     const failed: string[] = []
     try {
       for (const item of plan.items.slice(0, APPLY_BATCH_LIMIT)) {
+        // Between close resumes, the user's agent reads the posting and
+        // chooses; without one the rules' pick stands.
+        const pick = await askAgentToPick(item.resume, { role: item.app.role, company: item.company, description: item.description }, askAgent)
         const res = await bridgeCall<{ tab_id: number }>('assist-open', {
           url: item.target.url,
-          resume_id: item.resume.resume.id,
+          resume_id: pick.resume.id,
           application_id: item.target.application_id,
           lead_id: item.target.lead_id,
           submit_authorized: true,
@@ -194,7 +204,7 @@ export function useAutoApplyRunner() {
         record({ kind: 'application', id: item.app.id, role: item.app.role, stage: item.app.stage, company_name: item.company })
         try {
           // Which resume, and why, stays on the application (its drawer).
-          await update.mutateAsync({ id: item.app.id, patch: { next_step: APPLY_FILLING, resume_choice: resumeChoiceFor(item.resume) } })
+          await update.mutateAsync({ id: item.app.id, patch: { next_step: APPLY_FILLING, resume_choice: resumeChoiceFor(pick) } })
         } catch {
           // The authorized tab is already running; one write failure must not
           // stop the rest of the queue.

@@ -20,6 +20,10 @@
 //                 so the "thanks for applying" page lands on that one. Only
 //                 a linked application + lead may carry submit authorization.
 //   take-assist-results  fill-ready / human-blocker results, delivered once
+//   pick-resume   which of several resumes fits a job, when Landed's rules
+//                 can't tell: the posting and each candidate's directions,
+//                 job titles and skills (no contact details) go to the user's
+//                 own agent through Landed for Mac; it names one or nothing
 //   classify-statuses  what an imported spreadsheet's statuses mean: only the
 //                 status words go to the user's own agent through Landed for Mac
 //   hello         presence + version check
@@ -113,6 +117,21 @@
     return role ? { role, company: text(raw.company, 120), job_url: text(raw.job_url, 2000), application_id: text(raw.application_id, 64) } : null
   }
 
+  /** A pick-resume request as the host takes it: short, plain text only. */
+  function sanitizePick(raw) {
+    if (!raw || typeof raw !== 'object') return null
+    const text = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '')
+    const list = (v, n, max) => (Array.isArray(v) ? v : []).map((x) => text(x, max)).filter(Boolean).slice(0, n)
+    const job = raw.job && typeof raw.job === 'object' ? raw.job : {}
+    const role = text(job.role, 200)
+    const resumes = (Array.isArray(raw.resumes) ? raw.resumes : []).slice(0, 6).flatMap((r) => {
+      const id = r && text(r.id, 64)
+      return id ? [{ id, directions: list(r.directions, 6, 80), titles: list(r.titles, 6, 120), skills: list(r.skills, 30, 60) }] : []
+    })
+    if (!role || resumes.length < 2) return null
+    return { type: 'pick_resume', job: { role, company: text(job.company, 120), description: text(job.description, 6000) }, resumes }
+  }
+
   /** A write that may not fit (resume files are big): what went wrong, in
    *  words the page can show, instead of dropping the file silently. */
   async function keep(write) {
@@ -126,7 +145,7 @@
   }
 
   function createBridgeHandler(deps) {
-    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced, classifyStatuses } = deps
+    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced, pickResume, classifyStatuses } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
 
     return async function handle(msg, sender) {
@@ -285,6 +304,16 @@
         case 'take-assist-results': {
           const results = takeAssistResults ? await takeAssistResults() : []
           return { ok: true, data: { results: Array.isArray(results) ? results.slice(0, 50) : [] } }
+        }
+
+        case 'pick-resume': {
+          const request = sanitizePick(msg.payload)
+          if (!request) return { ok: false, error: 'a job and at least two resumes are required' }
+          if (!pickResume) return { ok: false, error: 'this browser cannot ask your agent' }
+          const res = await pickResume(request)
+          if (!res || !res.ok) return { ok: false, error: (res && res.error) || 'your agent did not answer' }
+          const pick = res.pick && request.resumes.some((r) => r.id === res.pick.resume_id) ? res.pick : null
+          return { ok: true, data: { pick, model: typeof res.model === 'string' ? res.model : null } }
         }
 
         case 'classify-statuses': {

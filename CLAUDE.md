@@ -158,6 +158,10 @@ messages (PR title and a clean body, no trailer).
   Questions only the user's answers can answer never take a resume value.
 - Landed picks the resume for each job (its direction against the job), and the
   file uploaded is always that resume's own (`resume_files`), never another
+  one's; one with no file isn't swapped for another's. Between close resumes
+  (`pick_resume`) the user's own agent reads the posting and names one of them:
+  it sees what each is for, its job titles and skills, never the person's name
+  or contact details; no answer keeps Landed's pick.
   one's; one with no file isn't swapped for another's.
 - Workday questionnaire dropdowns take their real nearby / `aria-labelledby`
   question (up to 300 characters), never the `Select One Required` prompt.
