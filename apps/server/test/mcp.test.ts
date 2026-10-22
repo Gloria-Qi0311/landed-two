@@ -238,7 +238,14 @@ describe('MCP', () => {
     tasks = await tool(access, 'get_tasks')
     assert.deepEqual(tasks.structuredContent.tasks.map((t: { id: string }) => t.id), ['email_check'])
     await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true, sources: { agents: ['claude'], cloud_agents: false } }, email_check: { enabled: false } } } })
-    assert.match((await tool(access, 'get_tasks')).structuredContent.note, /own computer/)
+    assert.match((await tool(access, 'get_tasks')).structuredContent.note, /doesn't use this agent/)
+
+    // Or leave out just this agent: it gets no search; another one would.
+    const mine = (await call('GET', '/api/agent-connections', { token: session })).body.filter((c: { revoked_at: string | null }) => !c.revoked_at).map((c: { id: string }) => c.id)
+    await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true, sources: { agents: ['claude'], cloud_skip: mine } }, email_check: { enabled: true } } } })
+    assert.deepEqual((await tool(access, 'get_tasks')).structuredContent.tasks.map((t: { id: string }) => t.id), ['email_check'])
+    await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true, sources: { agents: ['claude'], cloud_skip: ['00000000-0000-4000-8000-000000000000'] } }, email_check: { enabled: true } } } })
+    assert.deepEqual((await tool(access, 'get_tasks')).structuredContent.tasks.map((t: { id: string }) => t.id), ['job_search', 'email_check'])
     await call('PATCH', '/api/me', { token: session, body: { automations: { job_search: { enabled: true }, email_check: { enabled: true } } } })
 
     // Jobs: invalid ones dropped, repeats recognized.

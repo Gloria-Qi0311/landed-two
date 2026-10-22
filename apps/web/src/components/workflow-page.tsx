@@ -20,7 +20,7 @@ import { Children, useEffect, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AUTO_APPLY_CONCURRENCY, describeSchedule, INTERVAL_HOURS, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
+  AUTO_APPLY_CONCURRENCY, cloudAgentSearches, describeSchedule, INTERVAL_HOURS, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
   type Abilities, type AutomationKind, type AutomationRun, type Automations, type Schedule,
 } from '@landed/schema/automation'
 import { parseBrief, type RemotePreference, type SearchBrief } from '@landed/schema/search-brief'
@@ -298,9 +298,12 @@ function statuses(w: W): Record<StepId, Status> {
   const sched = (s: Schedule) => describeSchedule(s).replace(/^Every /, 'every ')
   return {
     criteria: w.search ? { dot: 'on', text: w.search.brief.roles.join(' · ') || 'Set' } : { dot: 'needs', text: 'Not set yet' },
-    agents: !find.enabled ? findOff
-      : !w.anyAgent && !w.cloud.length ? { dot: 'needs', text: 'No agent online' }
-        : { dot: 'on', text: `${(w.searchers.length ? w.searchers : w.cloud.map((c) => c.display_name)).join(', ')} · ${sched(find.schedule)}` },
+    agents: (() => {
+      if (!find.enabled) return findOff
+      const names = [...w.searchers, ...w.cloud.filter((c) => cloudAgentSearches(sources, c.id)).map((c) => c.display_name)]
+      if (names.length) return { dot: 'on' as const, text: `${names.join(', ')} · ${sched(find.schedule)}` }
+      return sources.agents.length === 0 ? { dot: 'off' as const, text: 'No agent ticked' } : { dot: 'needs' as const, text: 'No agent online' }
+    })(),
     lists: !find.enabled || !sources.job_lists ? findOff : { dot: 'on', text: 'SimplifyJobs · every 6 hours' },
     boards: !find.enabled || !sources.company_boards ? findOff : { dot: 'on', text: `${w.boards.length} ${w.boards.length === 1 ? 'company' : 'companies'} · every 6 hours` },
     dedupe: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
@@ -352,6 +355,7 @@ export function WorkflowPage() {
             </div>
           )}
           {w.sync.error && <div style={{ ...mutedLarge, color: danger, marginBottom: 12 }}>Couldn't reach your computer: {w.sync.error}</div>}
+          {w.set.error && <div role="alert" style={{ ...mutedLarge, color: danger, marginBottom: 12 }}>Couldn't save that change: {(w.set.error as Error).message}</div>}
           <StepPane id={active} w={w} onSelect={select} />
         </div>
       </div>
@@ -492,9 +496,9 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
       {!w.search && <Needs>Add the roles to look for first. <button type="button" className="btn-secondary" style={smallBtn} onClick={() => onSelect('criteria')}>What to look for</button></Needs>}
       {!w.anyAgent && w.designated && <Needs>No agent on your computer can search the web yet.</Needs>}
       <Settings>
-        <Field label="Done by" help="Each ticked agent searches; cloud agents run on their own schedule">
+        <Field label="Done by" help="Each ticked agent searches; cloud agents run on their own schedule. Untick them all and only the job lists and company boards look.">
           {w.choices.length || w.cloud.length
-            ? <AgentSourcesPicker agents={w.choices} sources={a.sources!} cloud={w.cloud.map((c) => c.display_name)} disabled={w.set.isPending} onChange={setSources} />
+            ? <AgentSourcesPicker agents={w.choices} sources={a.sources!} cloud={w.cloud.map((c) => ({ id: c.id, name: c.display_name }))} disabled={w.set.isPending} onChange={setSources} />
             : <span style={muted}>No agent online that can search. Connect your computer on the Agent page.</span>}
         </Field>
         <Field label="When">

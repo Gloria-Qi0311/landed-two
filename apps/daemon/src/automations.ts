@@ -188,6 +188,12 @@ function describeRun(kind: AutomationKind, n: number, input: Record<string, unkn
 async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
   const st = s()
   if (running.has(kind) || !st.context || !runTaskFn) return
+  // Every agent unticked: nothing to search with here. The lists, boards and
+  // cloud agents still search, so it's a quiet success, not an error.
+  if (kind === 'job_search' && st.automations?.job_search.sources?.agents.length === 0) {
+    recordSkip(kind, 'No agent ticked to search here; the job lists, company boards and cloud agents still do')
+    return
+  }
   const several = kind === 'job_search' && agentsFor ? pickSearchAgents(agentsFor(kind), st.automations?.job_search.sources) : null
   running.add(kind)
   try {
@@ -199,6 +205,16 @@ async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
   } finally {
     running.delete(kind)
   }
+}
+
+/** A run with nothing to do: a success, so the schedule moves on. */
+function recordSkip(kind: AutomationKind, summary: string) {
+  const st = s()
+  const at = new Date().toISOString()
+  st.runs = [{ id: randomUUID(), kind, started_at: at, finished_at: at, status: 'ok' as const, summary, error: null }, ...st.runs].slice(0, MAX_RUNS)
+  st.last_success[kind] = at
+  delete st.last_failure[kind]
+  save()
 }
 
 async function runWith(kind: AutomationKind, agent: string | null, agentLabel: string | null, opts: RunOptions) {

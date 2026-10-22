@@ -70,7 +70,7 @@ export function BriefCard({ brief, setup, latest }: { brief: SearchBrief; setup:
   const { automations, loaded } = useAutomations()
   const setAutomations = useSetAutomations()
   const saveBrief = useEditBrief()
-  const cloud = (useAgentConnections().data ?? []).filter((c) => !c.revoked_at && c.scopes.includes('tasks:read')).map((c) => c.display_name)
+  const cloud = (useAgentConnections().data ?? []).filter((c) => !c.revoked_at && c.scopes.includes('tasks:read')).map((c) => ({ id: c.id, name: c.display_name }))
   const choices = searchComputer(runtimes.data, automations).map((t) => t.agent)
   const confirmed = !!active && sameBrief(active.brief, brief)
   const stale = !latest && !confirmed

@@ -2,7 +2,7 @@
 // (the computer is mocked: it answers with a finished email check).
 import 'fake-indexeddb/auto'
 import { describe, expect, test, vi } from 'vitest'
-import { DEFAULT_SEARCH_SOURCES, describeSchedule, isDue, nextRun, parseAutomations, parseSyncInput, parseSyncOutput, pickSearchAgents } from '@landed/schema/automation'
+import { cloudAgentSearches, DEFAULT_SEARCH_SOURCES, describeSchedule, isDue, nextRun, parseAutomations, parseSyncInput, parseSyncOutput, pickSearchAgents } from '@landed/schema/automation'
 import { createLocalStore } from './store/local'
 
 const syncs: Record<string, unknown>[] = []
@@ -155,9 +155,11 @@ describe('connectors: look again when the page is waiting', () => {
 
 describe('Find new jobs → Search with', () => {
   test('sources: Claude Code and the free sources by default; stored ones validated', () => {
-    expect(parseAutomations({}).job_search.sources).toEqual({ agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true })
-    expect(parseAutomations({ job_search: { enabled: true, sources: { agents: ['codex', 'gemini', 'codex', 'Bad Id!', 7], job_lists: false, cloud_agents: 'yes' } } }).job_search.sources)
-      .toEqual({ agents: ['codex', 'gemini'], job_lists: false, company_boards: true, cloud_agents: true })
+    expect(parseAutomations({}).job_search.sources).toEqual({ agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true, cloud_skip: [] })
+    const chatgpt = '11111111-2222-4333-8444-555555555555'
+    expect(parseAutomations({ job_search: { enabled: true, sources: { agents: ['codex', 'gemini', 'codex', 'Bad Id!', 7], job_lists: false, cloud_agents: 'yes', cloud_skip: [chatgpt, chatgpt, 'nope', 3] } } }).job_search.sources)
+      .toEqual({ agents: ['codex', 'gemini'], job_lists: false, company_boards: true, cloud_agents: true, cloud_skip: [chatgpt] })
+    expect(parseAutomations({ job_search: { enabled: true, sources: { agents: [] } } }).job_search.sources?.agents).toEqual([])
     expect(parseAutomations({ email_check: { enabled: true, sources: { agents: ['x'] } } }).email_check.sources).toBeUndefined()
   })
 
@@ -167,5 +169,19 @@ describe('Find new jobs → Search with', () => {
     expect(pickSearchAgents(here, { ...DEFAULT_SEARCH_SOURCES, agents: ['codex'] }).map((a) => a.id)).toEqual(['codex'])
     expect(pickSearchAgents(here, { ...DEFAULT_SEARCH_SOURCES, agents: ['gemini'] }).map((a) => a.id)).toEqual(['claude'])
     expect(pickSearchAgents([], DEFAULT_SEARCH_SOURCES)).toEqual([])
+  })
+
+  test('every agent unticked is none, not the first that can', () => {
+    const here = [{ id: 'claude', label: 'Claude Code' }]
+    expect(pickSearchAgents(here, { ...DEFAULT_SEARCH_SOURCES, agents: [] })).toEqual([])
+  })
+
+  test('each cloud agent searches unless it was unticked, or all were', () => {
+    const chatgpt = '11111111-2222-4333-8444-555555555555'
+    const claudeAi = '66666666-7777-4888-9999-000000000000'
+    expect(cloudAgentSearches(DEFAULT_SEARCH_SOURCES, chatgpt)).toBe(true)
+    expect(cloudAgentSearches({ ...DEFAULT_SEARCH_SOURCES, cloud_skip: [chatgpt] }, chatgpt)).toBe(false)
+    expect(cloudAgentSearches({ ...DEFAULT_SEARCH_SOURCES, cloud_skip: [chatgpt] }, claudeAi)).toBe(true)
+    expect(cloudAgentSearches({ ...DEFAULT_SEARCH_SOURCES, cloud_agents: false }, claudeAi)).toBe(false)
   })
 })

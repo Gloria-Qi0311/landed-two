@@ -4,7 +4,7 @@
 // (AgentSourcesPicker) and the public sources as separate rows; the brief card
 // in the Agent chat shows them all at once (SearchSourcesPicker). Saved to
 // users.automations.job_search.sources (packages/schema/src/automation.ts).
-import { pickSearchAgents, type SearchSources } from '@landed/schema/automation'
+import { cloudAgentSearches, pickSearchAgents, type SearchSources } from '@landed/schema/automation'
 import type { RuntimeAgent } from '../hooks/runtimes'
 import { mutedLarge as muted } from './ui'
 
@@ -20,45 +20,62 @@ function Chip({ on, label, title, disabled, onChange }: { on: boolean; label: st
   )
 }
 
+/** A connected cloud agent (ChatGPT, Claude.ai…): it pulls the search itself. */
+export type CloudAgent = { id: string; name: string }
+
 type PickerProps = {
   /** the agents on the computer that searches */
   agents: RuntimeAgent[]
   sources: SearchSources
-  /** connected cloud agents' names */
-  cloud: string[]
+  /** connected cloud agents */
+  cloud: CloudAgent[]
   disabled?: boolean
   onChange: (next: SearchSources) => void
 }
 
+/** Which agents search: one chip per agent on the computer and per cloud
+ *  agent. Unticking every one is allowed: then only the lists and boards look. */
 function AgentChips({ agents, sources, cloud, disabled, onChange }: PickerProps) {
   const searching = pickSearchAgents(agents, sources)
   const toggleAgent = (id: string, on: boolean) => {
+    // Ticked ones that are here, as shown (not the fallback for a computer without them).
     const ids = new Set(sources.agents.filter((a) => agents.some((x) => x.id === a)))
+    for (const a of searching) ids.add(a.id)
     if (on) ids.add(id)
     else ids.delete(id)
     onChange({ ...sources, agents: [...ids] })
+  }
+  const cloudOn = (c: CloudAgent) => cloudAgentSearches(sources, c.id)
+  const toggleCloud = (id: string, on: boolean) => {
+    // Every cloud agent was off: turning one on leaves the others off.
+    const skip = new Set(sources.cloud_agents ? sources.cloud_skip : cloud.map((c) => c.id))
+    if (on) skip.delete(id)
+    else skip.add(id)
+    onChange({ ...sources, cloud_agents: cloud.some((c) => !skip.has(c.id)), cloud_skip: [...skip] })
   }
   return (
     <>
       {agents.map((a) => (
         <Chip key={a.id} on={searching.includes(a)} label={a.label} disabled={disabled}
-          title="Searches the web with your own subscription" onChange={(on) => toggleAgent(a.id, on)} />
+          title="Searches the web from your computer, with your own subscription" onChange={(on) => toggleAgent(a.id, on)} />
       ))}
-      {cloud.length > 0 && (
-        <Chip on={sources.cloud_agents} label={cloud.length === 1 ? cloud[0] : `Cloud agents (${cloud.length})`} disabled={disabled}
-          title={`${cloud.join(', ')}: they run the search on their own schedule`} onChange={(on) => onChange({ ...sources, cloud_agents: on })} />
-      )}
+      {cloud.map((c) => (
+        <Chip key={c.id} on={cloudOn(c)} label={c.name} disabled={disabled}
+          title={`${c.name} (cloud agent): it runs the search on its own schedule`} onChange={(on) => toggleCloud(c.id, on)} />
+      ))}
     </>
   )
 }
 
 /** Who searches, in words. */
-function agentsLine(agents: RuntimeAgent[], sources: SearchSources, publicSources: string): string {
-  const searching = pickSearchAgents(agents, sources)
-  if (agents.length === 0) return `No computer with an agent that can search is online right now.${publicSources}`
-  return searching.length > 1
-    ? `${searching.map((a) => a.label).join(' and ')} each search, with your own subscription; what they find is merged.${publicSources}`
-    : `${searching[0].label} searches, with your own subscription${sources.agents.length === 0 ? ' (none ticked, so the first that can)' : ''}.${publicSources}`
+function agentsLine(agents: RuntimeAgent[], sources: SearchSources, cloud: CloudAgent[], publicSources: string): string {
+  const names = [...pickSearchAgents(agents, sources).map((a) => a.label), ...cloud.filter((c) => cloudAgentSearches(sources, c.id)).map((c) => c.name)]
+  if (names.length === 0) {
+    return agents.length || cloud.length ? `No agent ticked: only the public sources look.${publicSources}` : `No computer with an agent that can search is online right now.${publicSources}`
+  }
+  return names.length > 1
+    ? `${names.join(' and ')} each search, with your own subscriptions; what they find is merged.${publicSources}`
+    : `${names[0]} searches, with your own subscription.${publicSources}`
 }
 
 /** Workflow → Find jobs → Agent search: the agents only, as chips. */
@@ -81,7 +98,7 @@ export function SearchSourcesPicker(props: PickerProps) {
       <div style={muted}>
         {props.agents.length === 0
           ? 'No computer with an agent that can search is online right now; the lists and job boards still run.'
-          : agentsLine(props.agents, sources, ' The lists and job boards cost nothing.')}
+          : agentsLine(props.agents, sources, props.cloud, ' The lists and job boards cost nothing.')}
       </div>
     </div>
   )

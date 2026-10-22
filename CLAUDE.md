@@ -175,7 +175,6 @@ messages (PR title and a clean body, no trailer).
   (`pick_resume`) the user's own agent reads the posting and names one of them:
   it sees what each is for, its job titles and skills, never the person's name
   or contact details; no answer keeps Landed's pick.
-  one's; one with no file isn't swapped for another's.
 - Workday questionnaire dropdowns take their real nearby / `aria-labelledby`
   question (up to 300 characters), never the `Select One Required` prompt.
   That prompt is empty, so an unknown question enters the Extension page queue;
@@ -224,8 +223,9 @@ messages (PR title and a clean body, no trailer).
   when, and holds its switch. A step gets a new executor or setting in its own field
   of `users.automations`. Extension content is managed on `/extension`.
 - Searching for jobs is configured in one place, Workflow's Find new jobs:
-  criteria, schedule, and its sources (which agents, the job lists, company boards,
-  cloud agents).
+  criteria, schedule, and its sources: each agent on the computer and each cloud
+  agent ticked on its own (all unticked means none, never a fallback), the job
+  lists and the company boards.
   The chat's brief card saves to it and searches now with the same agents; the
   agent only suggests.
 

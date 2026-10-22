@@ -363,14 +363,19 @@ is authorization; the setting never broadens it.
 
 - **Agents** on the computer that runs the schedule (Claude Code, Codex, any ACP
   agent there). Each ticked one searches, one after another, with the user's own
-  subscription (`pickSearchAgents`; none of them here → the first that can
-  search). The daemon's scheduled run and Run now both use it, and the results
+  subscription (`pickSearchAgents`; ticked ones that aren't on this computer →
+  the first that can search). Unticking every one means none: the daemon records
+  a quiet "No agent ticked" run and the lists, boards and cloud agents still
+  search. The daemon's scheduled run and Run now both use it, and the results
   are merged by the processor. Default: Claude Code.
 - **SimplifyJobs lists** and **company job boards**, fetched by the browser while
   Landed is open (`lib/supply.ts`, `refreshSupply`'s `sources`); they cost no
   tokens. Run now refreshes them too.
-- **Cloud agents** (only shown when one is connected): unticked, `get_tasks`
-  gives them no job search (`routes/mcp.ts`).
+- **Cloud agents**, one chip each (only connected ones show): an unticked one
+  is in `cloud_skip` and `get_tasks` gives it no job search
+  (`cloudAgentSearches`, `routes/mcp.ts`). `cloud_agents` stays the switch for all
+  of them (older Landed versions read only that): unticking the last one turns it
+  off, ticking one again turns it on with the others still skipped.
 
 They run on a schedule the user sets (`users.automations` via `/me`, migration
 0015; `packages/schema/src/automation.ts`, which also has the schedule math).

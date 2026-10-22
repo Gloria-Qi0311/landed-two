@@ -177,6 +177,15 @@ test('Find new jobs searches with each agent chosen on the Workflow page that is
   sync({ automations: search(['copilot']), context: withBrief, run_now: ['job_search'] })
   await settle()
   assert.deepEqual(calls, ['claude'])
+
+  // Every agent unticked: none searches here, and that's a quiet success.
+  calls.length = 0
+  sync({ automations: search([]), context: withBrief, run_now: ['job_search'] })
+  await settle()
+  assert.deepEqual(calls, [], 'not the first that can')
+  const none = sync({ automations: search([]), context: withBrief }).runs.find((r) => r.kind === 'job_search')
+  assert.equal(none?.status, 'ok')
+  assert.match(String(none?.summary), /No agent ticked/)
 })
 
 test('a page waiting for a connector makes every computer look again, and hears what they reach', () => {
