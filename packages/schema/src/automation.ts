@@ -23,18 +23,22 @@ export type Schedule =
   | { kind: 'interval'; hours: number }
   | { kind: 'daily'; time: string; days: number[] }
 
-/** Where Find new jobs looks (job_search only). `agents`: ids of the agents
- *  on the user's computer to search with (claude, codex, an ACP agent…);
- *  each runs the search, and the results are merged; none means none (the
- *  user unticked them all). The public sources run in the browser
- *  (apps/web/src/lib/supply.ts); cloud agents pull the task themselves
- *  (get_tasks): all of them while `cloud_agents` is on, except the
- *  connections in `cloud_skip`. */
-export type SearchSources = { agents: string[]; job_lists: boolean; company_boards: boolean; cloud_agents: boolean; cloud_skip: string[] }
+/** Who does a step: `agents`, ids of the agents on the user's computer
+ *  (claude, codex, an ACP agent…; none means none: the user unticked them
+ *  all), and the cloud agents, which pull the task themselves (get_tasks):
+ *  all of them while `cloud_agents` is on, except the connections in
+ *  `cloud_skip`. */
+export type AgentSources = { agents: string[]; cloud_agents: boolean; cloud_skip: string[] }
+
+/** Where Find new jobs looks (job_search only): the agents (each runs the
+ *  search and the results are merged), plus the public sources the browser
+ *  reads itself (apps/web/src/lib/supply.ts). */
+export type SearchSources = AgentSources & { job_lists: boolean; company_boards: boolean }
 
 /** `quiet_days` (portal_check only): look at an application's portal once
- *  it has had no news for this many days. `sources` (job_search only). */
-export type AutomationConfig = { enabled: boolean; schedule: Schedule; quiet_days?: number; sources?: SearchSources }
+ *  it has had no news for this many days. `sources` (job_search only).
+ *  `readers` (email_check only): who reads the email. */
+export type AutomationConfig = { enabled: boolean; schedule: Schedule; quiet_days?: number; sources?: SearchSources; readers?: AgentSources }
 export type AutoApplyConfig = { enabled: boolean; max_concurrent: number }
 export type Automations = Record<AutomationKind, AutomationConfig> & { auto_apply: AutoApplyConfig }
 
@@ -48,6 +52,8 @@ export const MAX_PORTALS_PER_RUN = 5
 
 /** Claude Code, plus the public sources, which cost no tokens. */
 export const DEFAULT_SEARCH_SOURCES: SearchSources = { agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true, cloud_skip: [] }
+/** Claude Code with its mail connector, and every cloud agent (they read email with their own connectors). */
+export const DEFAULT_EMAIL_READERS: AgentSources = { agents: ['claude'], cloud_agents: true, cloud_skip: [] }
 const CONNECTION_ID = /^[0-9a-f-]{36}$/i
 const MAX_CLOUD_SKIP = 20
 export const MAX_SEARCH_AGENTS = 6
@@ -82,6 +88,7 @@ export function parseAutomations(raw: unknown): Automations {
     out[kind] = { enabled: x?.enabled === true, schedule: parseSchedule(x?.schedule, d.schedule) }
     if (kind === 'portal_check') out[kind].quiet_days = QUIET_DAY_CHOICES.includes(x?.quiet_days as number) ? x!.quiet_days as number : d.quiet_days
     if (kind === 'job_search') out[kind].sources = parseSearchSources(x?.sources)
+    if (kind === 'email_check') out[kind].readers = parseAgentSources(x?.readers, DEFAULT_EMAIL_READERS)
   }
   const auto = r.auto_apply
   out.auto_apply = {
@@ -93,18 +100,25 @@ export function parseAutomations(raw: unknown): Automations {
   return out
 }
 
-/** Stored search sources → valid ones; missing → the defaults. */
-export function parseSearchSources(raw: unknown): SearchSources {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEFAULT_SEARCH_SOURCES, agents: [...DEFAULT_SEARCH_SOURCES.agents], cloud_skip: [] }
+/** Stored agent choices → valid ones; missing → `defaults`. */
+export function parseAgentSources(raw: unknown, defaults: AgentSources): AgentSources {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { agents: [...defaults.agents], cloud_agents: defaults.cloud_agents, cloud_skip: [...defaults.cloud_skip] }
   const r = raw as Record<string, unknown>
   const agents = Array.isArray(r.agents)
     ? [...new Set(r.agents.filter((a): a is string => typeof a === 'string' && /^[a-z0-9][a-z0-9:._-]{0,39}$/.test(a)))].slice(0, MAX_SEARCH_AGENTS)
-    : [...DEFAULT_SEARCH_SOURCES.agents]
-  const flag = (k: 'job_lists' | 'company_boards' | 'cloud_agents') => (typeof r[k] === 'boolean' ? r[k] as boolean : DEFAULT_SEARCH_SOURCES[k])
+    : [...defaults.agents]
   const cloud_skip = Array.isArray(r.cloud_skip)
     ? [...new Set(r.cloud_skip.filter((id): id is string => typeof id === 'string' && CONNECTION_ID.test(id)))].slice(0, MAX_CLOUD_SKIP)
     : []
-  return { agents, job_lists: flag('job_lists'), company_boards: flag('company_boards'), cloud_agents: flag('cloud_agents'), cloud_skip }
+  return { agents, cloud_agents: typeof r.cloud_agents === 'boolean' ? r.cloud_agents : defaults.cloud_agents, cloud_skip }
+}
+
+/** Stored search sources → valid ones; missing → the defaults. */
+export function parseSearchSources(raw: unknown): SearchSources {
+  const who = parseAgentSources(raw, DEFAULT_SEARCH_SOURCES)
+  const r = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
+  const flag = (k: 'job_lists' | 'company_boards') => (typeof r[k] === 'boolean' ? r[k] as boolean : DEFAULT_SEARCH_SOURCES[k])
+  return { agents: who.agents, job_lists: flag('job_lists'), company_boards: flag('company_boards'), cloud_agents: who.cloud_agents, cloud_skip: who.cloud_skip }
 }
 
 /** The agents here a search runs with: the chosen ones that are here. None
@@ -112,18 +126,22 @@ export function parseSearchSources(raw: unknown): SearchSources {
  *  agents still search. Chosen ones that aren't on this computer: the first
  *  that can search, so it still searches. Shared by the daemon's schedule and
  *  the browser's Run now. */
-export function pickSearchAgents<A extends { id: string }>(available: A[], sources: SearchSources | undefined): A[] {
+export function pickSearchAgents<A extends { id: string }>(available: A[], sources: Pick<AgentSources, 'agents'> | undefined): A[] {
   const s = sources ?? DEFAULT_SEARCH_SOURCES
   if (s.agents.length === 0) return []
   const chosen = available.filter((a) => s.agents.includes(a.id))
   return chosen.length ? chosen : available.slice(0, 1)
 }
 
-/** Does this cloud agent connection search (get_tasks gives it the job search)? */
-export function cloudAgentSearches(sources: SearchSources | undefined, connectionId: string): boolean {
+/** The same pick for any step a few agents can do (email: who reads it). */
+export const pickAgents = pickSearchAgents
+
+/** Does this cloud agent connection do the step (get_tasks gives it the task)? */
+export function cloudAgentSearches(sources: Omit<AgentSources, 'agents'> | undefined, connectionId: string): boolean {
   const s = sources ?? DEFAULT_SEARCH_SOURCES
   return s.cloud_agents !== false && !(s.cloud_skip ?? []).includes(connectionId)
 }
+export const cloudAgentOn = cloudAgentSearches
 
 /** When a schedule next fires after the last run (local time). Never run → now. */
 export function nextRun(schedule: Schedule, lastRunAt: string | null | undefined, now = new Date()): Date {

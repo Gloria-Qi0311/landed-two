@@ -23,7 +23,7 @@
 import { createHash } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { cloudAgentSearches, parseAutomations } from '@landed/schema/automation'
+import { cloudAgentOn, cloudAgentSearches, parseAutomations } from '@landed/schema/automation'
 import { parseBriefing, type Briefing } from '@landed/schema/cloud-agent'
 import { parseEmailFindings, type EmailFinding } from '@landed/schema/email-check'
 import { describeFoundJob, parseFoundJobs, type FoundJob, type SearchBrief } from '@landed/schema/search-brief'
@@ -242,12 +242,15 @@ async function callTool(sql: Sql, conn: Connection, name: string, args: Record<s
     const last = Math.max(conn.email_checked_at ? Date.parse(conn.email_checked_at) : 0, run ? Date.parse(run.last_done_at) : 0)
     const since = new Date(last ? last - EMAIL_OVERLAP_MS : now.getTime() - FIRST_EMAIL_LOOKBACK_DAYS * 86_400_000)
     const automations = parseAutomations(conn.automations)
-    // Find new jobs can leave any cloud agent out (Workflow page → Agent search).
-    const on = { job_search: automations.job_search.enabled && cloudAgentSearches(automations.job_search.sources, conn.id), email_check: automations.email_check.enabled }
+    // Agent search and Check email can each leave any cloud agent out (Workflow page).
+    const on = {
+      job_search: automations.job_search.enabled && cloudAgentSearches(automations.job_search.sources, conn.id),
+      email_check: automations.email_check.enabled && cloudAgentOn(automations.email_check.readers, conn.id),
+    }
     const tasks = buildTasks(briefing, on, since, now)
     const note = !on.job_search && !on.email_check
-      ? automations.job_search.enabled
-        ? "The user's job search doesn't use this agent (Landed's Workflow page → Agent search), so there's nothing to do."
+      ? automations.job_search.enabled || automations.email_check.enabled
+        ? "The user's job search and email check don't use this agent (Landed's Workflow page: Agent search, Check email), so there's nothing to do."
         : "The user hasn't turned on any automation in Landed (Workflow page: Find new jobs, Check email), so there's nothing to do."
       : on.job_search && !row
         ? "Landed hasn't received the user's search direction yet. Ask them to open Landed once: it shares the brief while you're connected."

@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickQuietPortals, pickSearchAgents,
+  AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickAgents, pickQuietPortals, pickSearchAgents,
   type Abilities, type AutomationKind, type AutomationResult, type AutomationRun, type Automations, type SyncContext, type SyncInput, type SyncOutput,
 } from '@landed/schema/automation'
 import { home } from './config.ts'
@@ -194,11 +194,20 @@ async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
     recordSkip(kind, 'No agent ticked to search here; the job lists, company boards and cloud agents still do')
     return
   }
+  // Email is read by the agent ticked under Check email (the first of them
+  // that can here); none ticked: the cloud agents read it, not this computer.
+  const readers = kind === 'email_check' ? st.automations?.email_check.readers : undefined
+  if (readers && readers.agents.length === 0) {
+    recordSkip(kind, 'No agent ticked to read email here; ticked cloud agents still do')
+    return
+  }
   const several = kind === 'job_search' && agentsFor ? pickSearchAgents(agentsFor(kind), st.automations?.job_search.sources) : null
   running.add(kind)
   try {
     if (several && several.length > 0) {
       for (const agent of several) await runWith(kind, agent.id, several.length > 1 ? agent.label : null, opts)
+    } else if (readers && agentsFor) {
+      await runWith(kind, pickAgents(agentsFor(kind), readers)[0]?.id ?? null, null, opts)
     } else {
       await runWith(kind, pickAgent(kind), null, opts)
     }

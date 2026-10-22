@@ -20,7 +20,7 @@ import { Children, useEffect, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AUTO_APPLY_CONCURRENCY, cloudAgentSearches, describeSchedule, INTERVAL_HOURS, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
+  AUTO_APPLY_CONCURRENCY, cloudAgentOn, cloudAgentSearches, DEFAULT_EMAIL_READERS, describeSchedule, INTERVAL_HOURS, pickAgents, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
   type Abilities, type AutomationKind, type AutomationRun, type Automations, type Schedule,
 } from '@landed/schema/automation'
 import { parseBrief, type RemotePreference, type SearchBrief } from '@landed/schema/search-brief'
@@ -256,8 +256,15 @@ function useWorkflow() {
   const choices = searchComputer(runtimes, automations).map((t) => t.agent)
   const searchers = chosenSearchTargets(runtimes, automations).map((t) => t.agent.label)
   const anyAgent = targets.some((t) => computerCan(t, 'job_search'))
-  const emailAgent = runner(designated, 'email_check')
-  const mail = useConnection('mail', targets, !!emailAgent || targets.some((t) => computerCan(t, 'email_check')))
+  // Who reads email: the computer's agents that can (Claude Code once its
+  // mail connector is found; listed before that so it can be ticked) and the
+  // cloud agents, each ticked on its own.
+  const readers = automations.email_check.readers ?? DEFAULT_EMAIL_READERS
+  const mailAgents = designated ? designated.runtime.agents.filter((a) => a.kinds?.includes('email_check') || a.id === 'claude') : []
+  const localReaders = pickAgents(mailAgents, readers)
+  const emailAgent = localReaders.length ? runner(designated, 'email_check') : null
+  // No computer agent ticked: nothing on the computer to wait for.
+  const mail = useConnection('mail', targets, localReaders.length === 0 || !!emailAgent || targets.some((t) => computerCan(t, 'email_check')))
   const portalAgent = runner(designated, 'portal_check')
   const chrome = useConnection('chrome', targets, !!portalAgent || targets.some((t) => computerCan(t, 'portal_check')))
   const auto = {
@@ -273,7 +280,7 @@ function useWorkflow() {
   const save = (next: Automations) => set.mutate(next)
   return {
     automations, loaded, set, save, sync, targets, designated, cloud, search, boards, supply, choices, searchers, anyAgent,
-    emailAgent, mail, portalAgent, chrome, auto,
+    emailAgent, mail, readers, mailAgents, localReaders, portalAgent, chrome, auto,
     anyPaired: (runtimes ?? []).some((r) => !r.revoked_at && r.last_seen_at),
     outdated: (runtimes ?? []).some((r) => r.online && r.agents.length && !r.agents.some((a) => a.kinds?.includes('automation_sync'))),
   }
@@ -313,9 +320,13 @@ function statuses(w: W): Record<StepId, Status> {
         : w.auto.blocked > 0 ? { dot: 'needs', text: `${w.auto.blocked} ${w.auto.blocked === 1 ? 'needs' : 'need'} you` }
           : { dot: 'on', text: `When you approve · up to ${a.auto_apply.max_concurrent}` },
     applied: { dot: 'on', text: 'When the portal confirms' },
-    email: !a.email_check.enabled ? { dot: 'off', text: `Off · ${sched(a.email_check.schedule)}` }
-      : w.mail === 'missing' ? { dot: 'needs', text: 'Needs your email connected' }
-        : { dot: 'on', text: `${w.emailAgent?.label ?? 'Your agent'} · ${sched(a.email_check.schedule)}` },
+    email: (() => {
+      if (!a.email_check.enabled) return { dot: 'off' as const, text: `Off · ${sched(a.email_check.schedule)}` }
+      const cloudReaders = w.cloud.filter((c) => cloudAgentOn(w.readers, c.id)).map((c) => c.display_name)
+      if (w.localReaders.length && w.mail === 'missing') return { dot: 'needs' as const, text: 'Needs your email connected' }
+      const names = [...w.localReaders.map((x) => x.label), ...cloudReaders]
+      return names.length ? { dot: 'on' as const, text: `${names.join(', ')} · ${sched(a.email_check.schedule)}` } : { dot: 'off' as const, text: 'No agent ticked' }
+    })(),
     portals: !a.portal_check.enabled ? { dot: 'off', text: `Off · ${sched(a.portal_check.schedule)}` }
       : w.chrome === 'missing' ? { dot: 'needs', text: 'Needs Chrome connected' }
         : { dot: 'on', text: `${w.portalAgent?.label ?? 'Your agent'} · ${sched(a.portal_check.schedule)}` },
@@ -658,12 +669,16 @@ function EmailPane({ w }: { w: W }) {
       controls={<StepControls w={w} kind="email_check" label="Check email" blocked={w.mail !== 'ok'} />}>
       {w.mail === 'checking' && <Needs waiting>Checking whether your agent can read your email…</Needs>}
       {w.mail === 'confirming' && <Needs waiting>Your email is connected in Claude. Making sure your agent can read it: this takes a moment.</Needs>}
-      {w.mail === 'missing' && (signedOut
+      {w.mail === 'missing' && w.localReaders.length > 0 && (signedOut
         ? <Needs>Claude Code is signed out. Run <code>claude auth login</code> in Terminal, finish signing in, then come back to this page: Landed checks again right away.</Needs>
         : <Needs>Your agent can't read email yet. Run <code>claude auth login</code> in Terminal, connect Gmail in Claude (Settings → Connectors), then come back to this page: Landed checks again right away.</Needs>)}
       <Settings>
-        <Field label="Done by" help={w.cloud.length ? `${w.cloud.map((c) => c.display_name).join(', ')} also read email on their own schedule` : undefined}>
-          {agent ? <span style={{ color: agent.mail ? ok : undefined }}>{agent.label}{agent.mail && ` · ${agent.mail}, read-only`}</span> : <span style={muted}>An agent on your computer that can read your email</span>}
+        <Field label="Done by" help="Each ticked agent reads it: yours on this schedule, cloud agents on their own. Untick them all and nobody checks email.">
+          {w.mailAgents.length || w.cloud.length
+            ? <AgentSourcesPicker agents={w.mailAgents} sources={w.readers} cloud={w.cloud.map((c) => ({ id: c.id, name: c.display_name }))} doing="Reads your email"
+                disabled={w.set.isPending} onChange={(readers) => w.save({ ...w.automations, email_check: { ...a, readers } })} />
+            : <span style={muted}>An agent on your computer that can read your email, or a cloud agent</span>}
+          {agent?.mail && <span style={{ ...muted, color: ok }}>{agent.label} reads {agent.mail}, read-only</span>}
         </Field>
         <Field label="When">
           <SchedulePicker schedule={a.schedule} presets={[...INTERVALS, ...DAILY.slice(0, 2)]} disabled={!w.loaded}

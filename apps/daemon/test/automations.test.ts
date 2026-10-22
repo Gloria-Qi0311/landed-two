@@ -188,6 +188,27 @@ test('Find new jobs searches with each agent chosen on the Workflow page that is
   assert.match(String(none?.summary), /No agent ticked/)
 })
 
+test('Check email is read by the agent ticked here; none ticked leaves it to the cloud agents', async () => {
+  resetAutomationsForTests()
+  const calls: string[] = []
+  setupAutomations({
+    runtimeId: 'rt-a', log: () => {},
+    agentsFor: (kind) => (kind === 'email_check' ? [{ id: 'claude', label: 'Claude Code' }] : []),
+    runTask: async (task, emit) => { calls.push(task.agent); emit({ type: 'done', text: '', findings: [] }) },
+  })
+  const readBy = (agents: string[]) => ({ ...automations, email_check: { ...automations.email_check, readers: { agents, cloud_agents: true, cloud_skip: [] } } })
+  sync({ automations: readBy(['claude']), run_now: ['email_check'] })
+  await settle()
+  assert.deepEqual(calls, ['claude'])
+  calls.length = 0
+  sync({ automations: readBy([]), run_now: ['email_check'] })
+  await settle()
+  assert.deepEqual(calls, [], 'not the first that can')
+  const run = sync({ automations: readBy([]) }).runs.find((r) => r.kind === 'email_check')
+  assert.equal(run?.status, 'ok')
+  assert.match(String(run?.summary), /No agent ticked to read email/)
+})
+
 test('a page waiting for a connector makes every computer look again, and hears what they reach', () => {
   resetAutomationsForTests()
   let rechecks = 0

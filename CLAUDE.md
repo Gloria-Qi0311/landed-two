@@ -228,6 +228,9 @@ messages (PR title and a clean body, no trailer).
   lists and the company boards.
   The chat's brief card saves to it and searches now with the same agents; the
   agent only suggests.
+- Check email is read by the ticked agents the same way: the computer's agent that
+  can (Claude Code with its mail connector) and each cloud agent on its own; none
+  ticked means none.
 
 ## UI
 

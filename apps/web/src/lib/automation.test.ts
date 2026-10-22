@@ -36,7 +36,7 @@ describe('schedules', () => {
 
   test('settings and sync payloads are normalized', () => {
     expect(parseAutomations({ email_check: { enabled: true, schedule: { kind: 'interval', hours: 5 } } }).email_check)
-      .toEqual({ enabled: true, schedule: { kind: 'interval', hours: 4 } }) // 5h isn't offered → default
+      .toEqual({ enabled: true, schedule: { kind: 'interval', hours: 4 }, readers: { agents: ['claude'], cloud_agents: true, cloud_skip: [] } }) // 5h isn't offered → default
     expect(parseAutomations({ job_search: { enabled: true, schedule: { kind: 'interval', hours: 3 } } }).job_search.schedule)
       .toEqual({ kind: 'interval', hours: 3 }) // Agent search every 3 hours
     expect(parseAutomations(null).job_search.enabled).toBe(false)
@@ -171,6 +171,14 @@ describe('Find new jobs → Search with', () => {
     expect(pickSearchAgents(here, { ...DEFAULT_SEARCH_SOURCES, agents: ['codex'] }).map((a) => a.id)).toEqual(['codex'])
     expect(pickSearchAgents(here, { ...DEFAULT_SEARCH_SOURCES, agents: ['gemini'] }).map((a) => a.id)).toEqual(['claude'])
     expect(pickSearchAgents([], DEFAULT_SEARCH_SOURCES)).toEqual([])
+  })
+
+  test('who reads email: Claude Code and every cloud agent by default; ticked on their own', () => {
+    const chatgpt = '11111111-2222-4333-8444-555555555555'
+    expect(parseAutomations({}).email_check.readers).toEqual({ agents: ['claude'], cloud_agents: true, cloud_skip: [] })
+    expect(parseAutomations({ email_check: { readers: { agents: [], cloud_skip: [chatgpt, 'x'] } } }).email_check.readers)
+      .toEqual({ agents: [], cloud_agents: true, cloud_skip: [chatgpt] })
+    expect(parseAutomations({ job_search: { enabled: true } }).job_search.readers).toBeUndefined()
   })
 
   test('every agent unticked is none, not the first that can', () => {

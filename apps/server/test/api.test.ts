@@ -1366,7 +1366,7 @@ describe('automation', () => {
       hack: { enabled: true },
     } } })
     assert.equal(set.status, 200)
-    assert.deepEqual(set.body.automations.email_check, { enabled: true, schedule: { kind: 'interval', hours: 2 } })
+    assert.deepEqual(set.body.automations.email_check, { enabled: true, schedule: { kind: 'interval', hours: 2 }, readers: { agents: ['claude'], cloud_agents: true, cloud_skip: [] } })
     assert.equal(set.body.automations.job_search.schedule.time, '09:00', 'bad time → default')
     assert.deepEqual(set.body.automations.auto_apply, { enabled: false, max_concurrent: 2 })
     assert.equal(set.body.automations.hack, undefined)

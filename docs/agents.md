@@ -341,7 +341,7 @@ first step that needs the user.
 | What to look for | Search criteria | The active brief, editable in place (an edit makes a new active search via `addJobSearch`) |
 | 1 Find jobs | Agent search (the ticked agents and cloud agents, on the schedule) · Job lists and Company boards (Landed, every 6 hours while Landed is open) · Remove duplicates and Rank (Landed AI, built in, each new batch; the agents on the computer are listed as coming soon until #146 / #147) | Stage switch and Run now; agents, schedule, a switch per public source, the followed companies |
 | 2 Apply | Auto apply (the extension; the user's agent checks the form) · Mark as applied (Landed, when the portal confirms) | Stage switch and Run now; at most N at a time |
-| 3 Keep up to date | Check email (the agent that reads email) · Check candidate portals (the agent that can use Chrome) | A switch, schedule and Run now each; email: the auto-apply choice (`users.auto_apply_updates`), re-read 30 days; portals: days without news |
+| 3 Keep up to date | Check email (the ticked readers: the computer's agent that can read email, today Claude Code with its mail connector, and each cloud agent on its own; `email_check.readers`) · Check candidate portals (the agent that can use Chrome: Claude Code with Claude in Chrome, the only one wired for it) | A switch, schedule and Run now each; email: who reads it, the auto-apply choice (`users.auto_apply_updates`), re-read 30 days; portals: days without news |
 
 The settings stay in `users.automations` (`packages/schema/src/automation.ts`),
 which installed Landed for Mac versions and the server already validate; a
@@ -376,6 +376,16 @@ is authorization; the setting never broadens it.
   (`cloudAgentSearches`, `routes/mcp.ts`). `cloud_agents` stays the switch for all
   of them (older Landed versions read only that): unticking the last one turns it
   off, ticking one again turns it on with the others still skipped.
+
+**Check email → Done by** (`users.automations.email_check.readers`, `AgentSources`;
+default Claude Code and every cloud agent): the computer reads email with the
+first ticked agent that can (`pickAgents`; today Claude Code once its mail
+connector is found, listed before that so it can be ticked). None ticked: the
+daemon records a quiet "No agent ticked" run. Cloud agents read with their own
+connectors; an unticked one is in `cloud_skip` and `get_tasks` gives it no email
+check (`cloudAgentOn`). Other computer agents (Codex, ACP agents) get no email or
+portal check until each has its own read-only allowlist (#144, a security
+decision).
 
 They run on a schedule the user sets (`users.automations` via `/me`, migration
 0015; `packages/schema/src/automation.ts`, which also has the schedule math).
