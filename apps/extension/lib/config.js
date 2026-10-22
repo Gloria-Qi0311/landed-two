@@ -14,9 +14,9 @@
 // Loaded by background.js via importScripts and by lib/auth.js via require().
 
 (function (global) {
-  const API_URL = 'https://antaresmac-mini.tail109da9.ts.net';
+  const API_URL = 'https://mcn.tail109da9.ts.net:8443';
   const WEB_ORIGINS = [
-    'https://antaresmac-mini.tail109da9.ts.net',
+    'https://mcn.tail109da9.ts.net:8443',
     'http://localhost:5173', 'http://127.0.0.1:5173',
     'http://localhost:8787', 'http://127.0.0.1:8787',
   ];

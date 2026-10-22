@@ -28,7 +28,7 @@
       "match_about_blank": true
     },
     {
-      "matches": ["https://antaresmac-mini.tail109da9.ts.net/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "matches": ["https://mcn.tail109da9.ts.net/*", "http://localhost/*", "http://127.0.0.1/*"],
       "js": ["lib/web-bridge.js"],
       "run_at": "document_idle"
     }
