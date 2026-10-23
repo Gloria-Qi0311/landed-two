@@ -367,9 +367,11 @@ is authorization; the setting never broadens it.
 - **Agents** on the computer that runs the schedule (Claude Code, Codex, any ACP
   agent there). Each ticked one searches, one after another, with the user's own
   subscription (`pickSearchAgents`; ticked ones that aren't on this computer →
-  the first that can search). Unticking every one means none: the daemon records
-  a quiet "No agent ticked" run and the lists, boards and cloud agents still
-  search. The daemon's scheduled run and Run now both use it, and the results
+  the first that can search). Unticking every one means none: the daemon logs
+  nothing and the schedule moves on (the schedule is only for the computer's
+  agents); the lists, boards and ticked cloud agents still search, cloud agents
+  whenever they run. The page says "Not used" under When and shows who searches
+  ("Claude.ai, ChatGPT on their own"). The daemon's scheduled run and Run now both use it, and the results
   are merged by the processor. Default: Claude Code.
 - **SimplifyJobs lists** and **company job boards**, fetched by the browser while
   Landed is open (`lib/supply.ts`, `refreshSupply`'s `sources`); they cost no
@@ -384,7 +386,7 @@ is authorization; the setting never broadens it.
 default Claude Code and every cloud agent): the computer reads email with the
 first ticked agent that can (`pickAgents`; today Claude Code once its mail
 connector is found, listed before that so it can be ticked). None ticked: the
-daemon records a quiet "No agent ticked" run. Cloud agents read with their own
+daemon logs nothing and the schedule moves on. Cloud agents read with their own
 connectors; an unticked one is in `cloud_skip` and `get_tasks` gives it no email
 check (`cloudAgentOn`). Other computer agents (Codex, ACP agents) get no email or
 portal check until each has its own read-only allowlist (#144, a security

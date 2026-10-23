@@ -172,15 +172,16 @@ function useScheduleState(kind: AutomationKind) {
   return { running, text: `${text}${state?.last_success_at ? ` · last ran ${formatRelative(state.last_success_at)}` : ''}` }
 }
 
-/** A run that had nothing to do with this computer's agents (none ticked):
- *  grey, not green. Older Landed for Mac versions said "No agent ticked". */
+/** A run that had nothing to do because none of the computer's agents is
+ *  ticked: the user's choice, not news. Older Landed for Mac versions logged
+ *  one each time ("Skipped: …", "No agent ticked…"); they're left out. */
 const skipped = (r: AutomationRun) => r.status === 'ok' && /^(Skipped:|No agent ticked)/.test(r.summary ?? '')
 
 function RecentRuns({ kind }: { kind: AutomationKind }) {
   const stored = useAutomationSync((s) => s.stored)
   // Select the stored list as is (a new filtered array each time would re-render forever).
   const all = useAutomationSync((s) => s.output?.runs)
-  const runs = (all ?? []).filter((r: AutomationRun) => r.kind === kind).slice(0, 8)
+  const runs = (all ?? []).filter((r: AutomationRun) => r.kind === kind && !skipped(r)).slice(0, 8)
   return (
     <section style={card}>
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)' }}>Recent runs</div>
@@ -301,6 +302,14 @@ const ALIASES: Record<string, StepId> = { find: 'agents', track: 'email' }
 type Dot = 'on' | 'off' | 'needs'
 type Status = { dot: Dot; text: string }
 
+/** "Claude Code every 3 hours · ChatGPT on its own": the schedule is only
+ *  for the computer's agents; cloud agents run when they run. */
+function whoAndWhen(local: string[], cloud: string[], schedule: string): string {
+  const mine = local.length ? `${local.join(', ')} ${schedule}` : ''
+  const theirs = cloud.length ? `${cloud.join(', ')} on ${cloud.length === 1 ? 'its' : 'their'} own` : ''
+  return [mine, theirs].filter(Boolean).join(' · ')
+}
+
 function statuses(w: W): Record<StepId, Status> {
   const a = w.automations
   const find = a.job_search
@@ -311,8 +320,9 @@ function statuses(w: W): Record<StepId, Status> {
     criteria: w.search ? { dot: 'on', text: w.search.brief.roles.join(' · ') || 'Set' } : { dot: 'needs', text: 'Not set yet' },
     agents: (() => {
       if (!find.enabled) return findOff
-      const names = [...w.searchers, ...w.cloud.filter((c) => cloudAgentSearches(sources, c.id)).map((c) => c.display_name)]
-      if (names.length) return { dot: 'on' as const, text: `${names.join(', ')} · ${sched(find.schedule)}` }
+      const cloud = w.cloud.filter((c) => cloudAgentSearches(sources, c.id)).map((c) => c.display_name)
+      const text = whoAndWhen(w.searchers, cloud, sched(find.schedule))
+      if (text) return { dot: 'on' as const, text }
       return sources.agents.length === 0 ? { dot: 'off' as const, text: 'No agent ticked' } : { dot: 'needs' as const, text: 'No agent online' }
     })(),
     lists: !find.enabled || !sources.job_lists ? findOff : { dot: 'on', text: 'SimplifyJobs · every 6 hours' },
@@ -328,8 +338,8 @@ function statuses(w: W): Record<StepId, Status> {
       if (!a.email_check.enabled) return { dot: 'off' as const, text: `Off · ${sched(a.email_check.schedule)}` }
       const cloudReaders = w.cloud.filter((c) => cloudAgentOn(w.readers, c.id)).map((c) => c.display_name)
       if (w.localReaders.length && w.mail === 'missing') return { dot: 'needs' as const, text: 'Needs your email connected' }
-      const names = [...w.localReaders.map((x) => x.label), ...cloudReaders]
-      return names.length ? { dot: 'on' as const, text: `${names.join(', ')} · ${sched(a.email_check.schedule)}` } : { dot: 'off' as const, text: 'No agent ticked' }
+      const text = whoAndWhen(w.localReaders.map((x) => x.label), cloudReaders, sched(a.email_check.schedule))
+      return text ? { dot: 'on' as const, text } : { dot: 'off' as const, text: 'No agent ticked' }
     })(),
     portals: !a.portal_check.enabled ? { dot: 'off', text: `Off · ${sched(a.portal_check.schedule)}` }
       : w.chrome === 'missing' ? { dot: 'needs', text: 'Needs Chrome connected' }
@@ -506,28 +516,21 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
   const state = useScheduleState('job_search')
   const setSources = (sources: typeof a.sources) => w.save({ ...w.automations, job_search: { ...a, sources } })
   return (
-    <Pane title="Agent search" help="Your agents search the web for postings that fit what you're looking for, including ones no list has yet. They run on your computer with your own subscription, and what they find is merged."
+    <Pane title="Agent search" help="Your agents search the web for postings that fit what you're looking for, including ones no list has yet: the ones on your computer on the schedule below, cloud agents whenever they run. Each uses your own subscription, and what they find is merged."
       controls={<FindControls w={w} />}>
       {!w.search && <Needs>Add the roles to look for first. <button type="button" className="btn-secondary" style={smallBtn} onClick={() => onSelect('criteria')}>What to look for</button></Needs>}
       {!w.anyAgent && w.designated && <Needs>No agent on your computer can search the web yet.</Needs>}
-      {a.enabled && a.sources!.agents.length === 0 && w.choices.length > 0 && (
-        <Needs waiting>
-          No agent on your computer is ticked, so it doesn't search.{' '}
-          <button type="button" className="btn-secondary" style={smallBtn} disabled={w.set.isPending} onClick={() => setSources({ ...a.sources!, agents: [w.choices[0].id] })}>
-            Search with {w.choices[0].label}
-          </button>
-        </Needs>
-      )}
+
       <Settings>
         <Field label="Done by" help="Each ticked agent searches; cloud agents run on their own schedule. Untick them all and only the job lists and company boards look.">
           {w.choices.length || w.cloud.length
             ? <AgentSourcesPicker agents={w.choices} sources={a.sources!} cloud={w.cloud.map((c) => ({ id: c.id, name: c.display_name }))} disabled={w.set.isPending} onChange={setSources} />
             : <span style={muted}>No agent online that can search. Connect your computer on the Agent page.</span>}
         </Field>
-        <Field label="When">
+        <Field label="When" help="For the agents on your computer. Cloud agents search when they run, on their own schedule.">
           <SchedulePicker schedule={a.schedule} presets={[...INTERVALS.filter((p) => ['h3', 'h6', 'h12'].includes(p.key)), ...DAILY]} disabled={!w.loaded}
             onChange={(schedule) => w.save({ ...w.automations, job_search: { ...a, schedule } })} />
-          <span style={muted}>{state.text}</span>
+          <span style={muted}>{w.searchers.length ? state.text : 'Not used: no agent on your computer is ticked'}</span>
         </Field>
       </Settings>
       <RecentRuns kind="job_search" />
@@ -681,14 +684,7 @@ function EmailPane({ w }: { w: W }) {
       controls={<StepControls w={w} kind="email_check" label="Check email" blocked={w.mail !== 'ok'} />}>
       {w.mail === 'checking' && <Needs waiting>Checking whether your agent can read your email…</Needs>}
       {w.mail === 'confirming' && <Needs waiting>Your email is connected in Claude. Making sure your agent can read it: this takes a moment.</Needs>}
-      {a.enabled && w.readers.agents.length === 0 && w.mailAgents.length > 0 && (
-        <Needs waiting>
-          No agent on your computer is ticked, so it doesn't read your email.{' '}
-          <button type="button" className="btn-secondary" style={smallBtn} disabled={w.set.isPending} onClick={() => w.save({ ...w.automations, email_check: { ...a, readers: { ...w.readers, agents: [w.mailAgents[0].id] } } })}>
-            Read with {w.mailAgents[0].label}
-          </button>
-        </Needs>
-      )}
+
       {w.mail === 'missing' && w.localReaders.length > 0 && (signedOut
         ? <Needs>Claude Code is signed out. Run <code>claude auth login</code> in Terminal, finish signing in, then come back to this page: Landed checks again right away.</Needs>
         : <Needs>Your agent can't read email yet. Run <code>claude auth login</code> in Terminal, connect Gmail in Claude (Settings → Connectors), then come back to this page: Landed checks again right away.</Needs>)}
@@ -700,10 +696,10 @@ function EmailPane({ w }: { w: W }) {
             : <span style={muted}>An agent on your computer that can read your email, or a cloud agent</span>}
           {agent?.mail && <span style={{ ...muted, color: ok }}>{agent.label} reads {agent.mail}, read-only</span>}
         </Field>
-        <Field label="When">
+        <Field label="When" help="For the agent on your computer. Cloud agents read it when they run, on their own schedule.">
           <SchedulePicker schedule={a.schedule} presets={[...INTERVALS, ...DAILY.slice(0, 2)]} disabled={!w.loaded}
             onChange={(schedule) => w.save({ ...w.automations, email_check: { ...a, schedule } })} />
-          <span style={muted}>{state.text}</span>
+          <span style={muted}>{w.localReaders.length ? state.text : 'Not used: no agent on your computer is ticked'}</span>
         </Field>
         <Field label="Then"><AutoApplyChoice /></Field>
         <Field label="Missed something?" help="Emails it has seen before are recognized, not applied twice">
