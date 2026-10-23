@@ -11,16 +11,21 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { findCodex } from './codex-connector.ts'
 import { workspace } from './config.ts'
 import { doneFromOutput, jsonFromText, type Spec, type TaskEvent } from './types.ts'
 
 export const CODEX_KINDS = ['chat', 'job_search', 'resume_parse', 'resume_merge', 'resume_tailor']
 
 /** Installed and signed in → its version; otherwise why not (for the log). */
+/** The Codex CLI: on the PATH, or the one inside ChatGPT.app / Codex.app,
+ *  which isn't on the PATH (findCodex, the same lookup as the connector). */
+const codexBin = () => findCodex() ?? 'codex'
+
 export function detectCodex(): { version: string } | { missing: string } | null {
-  const v = spawnSync('codex', ['--version'], { encoding: 'utf8', timeout: 15_000 })
+  const v = spawnSync(codexBin(), ['--version'], { encoding: 'utf8', timeout: 15_000 })
   if (v.status !== 0) return null
-  const login = spawnSync('codex', ['login', 'status'], { encoding: 'utf8', timeout: 15_000 })
+  const login = spawnSync(codexBin(), ['login', 'status'], { encoding: 'utf8', timeout: 15_000 })
   if (login.status !== 0) return { missing: 'Codex is installed but not signed in — run `codex login` once.' }
   return { version: v.stdout.trim().split('\n')[0].replace(/^codex-cli\s+/, '') }
 }
@@ -122,7 +127,7 @@ export function runCodex(spec: Spec, emit: (e: TaskEvent) => void): Promise<void
       schemaFile = join(dir, 'schema.json')
       writeFileSync(schemaFile, JSON.stringify(strictSchema(spec.schema)), { mode: 0o600 })
     }
-    const child = spawn('codex', codexArgs(spec, schemaFile), { cwd: workspace(), stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(codexBin(), codexArgs(spec, schemaFile), { cwd: workspace(), stdio: ['pipe', 'pipe', 'pipe'] })
     const timer = setTimeout(() => {
       child.kill('SIGTERM')
       finish({ type: 'error', message: `The agent took too long (${Math.round(spec.timeoutMs / 60_000)} min) and was stopped.` })

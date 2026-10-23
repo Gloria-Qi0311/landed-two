@@ -516,21 +516,21 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
   const state = useScheduleState('job_search')
   const setSources = (sources: typeof a.sources) => w.save({ ...w.automations, job_search: { ...a, sources } })
   return (
-    <Pane title="Agent search" help="Your agents search the web for postings that fit what you're looking for, including ones no list has yet: the ones on your computer on the schedule below, cloud agents whenever they run. Each uses your own subscription, and what they find is merged."
+    <Pane title="Agent search" help="Your agents search the web for postings that fit what you're looking for, including ones no list has yet: the ones on your computer on the schedule below, connected agents whenever they run. Each uses your own subscription, and what they find is merged."
       controls={<FindControls w={w} />}>
       {!w.search && <Needs>Add the roles to look for first. <button type="button" className="btn-secondary" style={smallBtn} onClick={() => onSelect('criteria')}>What to look for</button></Needs>}
       {!w.anyAgent && w.designated && <Needs>No agent on your computer can search the web yet.</Needs>}
 
       <Settings>
-        <Field label="Done by" help="Each ticked agent searches; cloud agents run on their own schedule. Untick them all and only the job lists and company boards look.">
+        <Field label="Done by" help="Each ticked agent searches. Untick them all and only the job lists and company boards look.">
           {w.choices.length || w.cloud.length
-            ? <AgentSourcesPicker agents={w.choices} sources={a.sources!} cloud={w.cloud.map((c) => ({ id: c.id, name: c.display_name }))} disabled={w.set.isPending} onChange={setSources} />
+            ? <AgentSourcesPicker agents={w.choices} sources={a.sources!} cloud={w.cloud.map((c) => ({ id: c.id, name: c.display_name, lastSeen: c.last_seen_at }))} disabled={w.set.isPending} onChange={setSources} />
             : <span style={muted}>No agent online that can search. Connect your computer on the Agent page.</span>}
         </Field>
-        <Field label="When" help="For the agents on your computer. Cloud agents search when they run, on their own schedule.">
+        <Field label="When" help="For the agents on your computer. Connected agents search when they run, on their own schedule.">
           <SchedulePicker schedule={a.schedule} presets={[...INTERVALS.filter((p) => ['h3', 'h6', 'h12'].includes(p.key)), ...DAILY]} disabled={!w.loaded}
             onChange={(schedule) => w.save({ ...w.automations, job_search: { ...a, schedule } })} />
-          <span style={muted}>{w.searchers.length ? state.text : 'Not used: no agent on your computer is ticked'}</span>
+          <span style={muted}>{w.searchers.length ? state.text : 'Not used: no agent on your computer is ticked. Connected agents search when they run.'}</span>
         </Field>
       </Settings>
       <RecentRuns kind="job_search" />
@@ -689,14 +689,14 @@ function EmailPane({ w }: { w: W }) {
         ? <Needs>Claude Code is signed out. Run <code>claude auth login</code> in Terminal, finish signing in, then come back to this page: Landed checks again right away.</Needs>
         : <Needs>Your agent can't read email yet. Run <code>claude auth login</code> in Terminal, connect Gmail in Claude (Settings → Connectors), then come back to this page: Landed checks again right away.</Needs>)}
       <Settings>
-        <Field label="Done by" help="Each ticked agent reads it: yours on this schedule, cloud agents on their own. Untick them all and nobody checks email.">
+        <Field label="Done by" help="Each ticked agent reads it. Untick them all and nobody checks email.">
           {w.mailAgents.length || w.cloud.length
-            ? <AgentSourcesPicker agents={w.mailAgents} sources={w.readers} cloud={w.cloud.map((c) => ({ id: c.id, name: c.display_name }))} doing="Reads your email"
+            ? <AgentSourcesPicker agents={w.mailAgents} sources={w.readers} cloud={w.cloud.map((c) => ({ id: c.id, name: c.display_name, lastSeen: c.last_seen_at }))} doing="Reads your email"
                 disabled={w.set.isPending} onChange={(readers) => w.save({ ...w.automations, email_check: { ...a, readers } })} />
-            : <span style={muted}>An agent on your computer that can read your email, or a cloud agent</span>}
+            : <span style={muted}>An agent on your computer that can read your email, or a connected agent</span>}
           {agent?.mail && <span style={{ ...muted, color: ok }}>{agent.label} reads {agent.mail}, read-only</span>}
         </Field>
-        <Field label="When" help="For the agent on your computer. Cloud agents read it when they run, on their own schedule.">
+        <Field label="When" help="For the agent on your computer. Connected agents read it when they run, on their own schedule.">
           <SchedulePicker schedule={a.schedule} presets={[...INTERVALS, ...DAILY.slice(0, 2)]} disabled={!w.loaded}
             onChange={(schedule) => w.save({ ...w.automations, email_check: { ...a, schedule } })} />
           <span style={muted}>{w.localReaders.length ? state.text : 'Not used: no agent on your computer is ticked'}</span>

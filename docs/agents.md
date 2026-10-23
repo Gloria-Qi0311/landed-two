@@ -134,7 +134,10 @@ agent's `kinds`. Daemons report what they can run; older ones get
 
 - **Claude Code** (`agents.ts`): the only one with email and portal checks
   (connectors + Claude in Chrome).
-- **Codex** (`codex.ts`, `codex exec --json`): sandboxed by flags (read-only
+- **Codex** (`codex.ts`, `codex exec --json`): found on the PATH or inside
+  ChatGPT.app / Codex.app (`findCodex`, the same lookup as the connector; the app's
+  CLI isn't on the PATH, and missing it left Codex only as a connected agent).
+  Sandboxed by flags (read-only
   sandbox, `--disable shell_tool`, `--ignore-user-config`, approvals never, web
   search only when the task needs it). It validates `--output-schema` **strictly**,
   so schemas go through `strictSchema` (all fields required, optional ones
@@ -376,7 +379,12 @@ is authorization; the setting never broadens it.
 - **SimplifyJobs lists** and **company job boards**, fetched by the browser while
   Landed is open (`lib/supply.ts`, `refreshSupply`'s `sources`); they cost no
   tokens. Run now refreshes them too.
-- **Cloud agents**, one chip each (only connected ones show): an unticked one
+- **Connected agents** (the UI's name for cloud agents: anything connected to
+  Landed's MCP or agent API, including Codex through its connector, which runs
+  on the same computer), one chip each, in their own row under the computer's
+  agents and with when each was last active (`agent_connections.last_seen_at`).
+  They pull the task when they run; Landed can't start them, so the schedule
+  doesn't apply to them. An unticked one
   is in `cloud_skip` and `get_tasks` gives it no job search
   (`cloudAgentSearches`, `routes/mcp.ts`). `cloud_agents` stays the switch for all
   of them (older Landed versions read only that): unticking the last one turns it

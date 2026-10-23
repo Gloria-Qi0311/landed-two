@@ -6,6 +6,7 @@
 // users.automations.job_search.sources (packages/schema/src/automation.ts).
 import { cloudAgentSearches, pickSearchAgents, type AgentSources, type SearchSources } from '@landed/schema/automation'
 import type { RuntimeAgent } from '../hooks/runtimes'
+import { formatRelative } from '../lib/time'
 import { mutedLarge as muted } from './ui'
 
 function Chip({ on, label, title, disabled, onChange }: { on: boolean; label: string; title?: string; disabled?: boolean; onChange: (on: boolean) => void }) {
@@ -20,8 +21,10 @@ function Chip({ on, label, title, disabled, onChange }: { on: boolean; label: st
   )
 }
 
-/** A connected cloud agent (ChatGPT, Claude.ai…): it pulls the search itself. */
-export type CloudAgent = { id: string; name: string }
+/** An agent connected to Landed (ChatGPT, Claude.ai, Codex through its
+ *  connector…): it pulls the task itself when it runs, so Landed can't start
+ *  it. `lastSeen`: when it last talked to Landed. */
+export type CloudAgent = { id: string; name: string; lastSeen?: string | null }
 
 type PickerProps<S extends AgentSources = SearchSources> = {
   /** the agents on the computer that can do it */
@@ -36,8 +39,9 @@ type PickerProps<S extends AgentSources = SearchSources> = {
 }
 
 /** Which agents do it (search, read email): one chip per agent on the
- *  computer and per cloud agent. Unticking every one is allowed. */
-function AgentChips<S extends AgentSources>({ agents, sources, cloud, disabled, onChange, doing = 'Searches the web' }: PickerProps<S>) {
+ *  computer and per connected agent. Unticking every one is allowed.
+ *  `group`: only one kind (the Workflow page shows them as two rows). */
+function AgentChips<S extends AgentSources>({ agents, sources, cloud, disabled, onChange, doing = 'Searches the web', group }: PickerProps<S> & { group?: 'computer' | 'connected' }) {
   const searching = pickSearchAgents(agents, sources)
   const toggleAgent = (id: string, on: boolean) => {
     // Ticked ones that are here, as shown (not the fallback for a computer without them).
@@ -57,13 +61,13 @@ function AgentChips<S extends AgentSources>({ agents, sources, cloud, disabled, 
   }
   return (
     <>
-      {agents.map((a) => (
+      {group !== 'connected' && agents.map((a) => (
         <Chip key={a.id} on={searching.includes(a)} label={a.label} disabled={disabled}
-          title={`${doing} from your computer, with your own subscription`} onChange={(on) => toggleAgent(a.id, on)} />
+          title={`${doing} from your computer, with your own subscription; Landed runs it on the schedule`} onChange={(on) => toggleAgent(a.id, on)} />
       ))}
-      {cloud.map((c) => (
-        <Chip key={c.id} on={cloudOn(c)} label={c.name} disabled={disabled}
-          title={`${c.name} (cloud agent): it does this on its own schedule`} onChange={(on) => toggleCloud(c.id, on)} />
+      {group !== 'computer' && cloud.map((c) => (
+        <Chip key={c.id} on={cloudOn(c)} label={c.lastSeen ? `${c.name} · ${formatRelative(c.lastSeen)}` : c.name} disabled={disabled}
+          title={`${c.name} is connected to Landed: it does this when it runs, on its own schedule${c.lastSeen ? `; last active ${formatRelative(c.lastSeen)}` : '; not active yet'}`} onChange={(on) => toggleCloud(c.id, on)} />
       ))}
     </>
   )
@@ -80,9 +84,22 @@ function agentsLine(agents: RuntimeAgent[], sources: SearchSources, cloud: Cloud
     : `${names[0]} searches, with your own subscription.${publicSources}`
 }
 
-/** Workflow → Find jobs → Agent search: the agents only, as chips. */
+/** Workflow → Agent search / Check email: the agents in two rows, the
+ *  computer's (Landed runs them on the schedule) and the connected ones
+ *  (they do it when they run). */
 export function AgentSourcesPicker<S extends AgentSources>(props: PickerProps<S>) {
-  return <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}><AgentChips {...props} /></div>
+  const row = (label: string, hint: string, group: 'computer' | 'connected') => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <span style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}><b style={{ fontWeight: 600 }}>{label}</b> · {hint}</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}><AgentChips {...props} group={group} /></div>
+    </div>
+  )
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {props.agents.length > 0 && row('On your computer', 'Landed runs them on the schedule below', 'computer')}
+      {props.cloud.length > 0 && row('Connected agents', "they do it when they run; Landed can't start them", 'connected')}
+    </div>
+  )
 }
 
 /** Every source at once (the brief card in the Agent chat). */
