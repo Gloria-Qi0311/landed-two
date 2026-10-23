@@ -16,7 +16,7 @@
 // connected cloud agents also search and read email on their own schedule.
 // Auto apply runs event-first in the open browser; already-open application
 // tabs continue if Landed closes.
-import { Children, useEffect, type ReactNode } from 'react'
+import { Children, useEffect, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -258,6 +258,8 @@ function useWorkflow() {
   const search = useActiveSearch()
   const boards = useFollowedBoards().data ?? []
   const supply = useSupplyRefresh()
+  // What the last Run now under Find jobs did, said on its pages.
+  const [findNote, setFindNote] = useState<string | null>(null)
   const choices = searchComputer(runtimes, automations).map((t) => t.agent)
   const searchers = chosenSearchTargets(runtimes, automations).map((t) => t.agent.label)
   const anyAgent = targets.some((t) => computerCan(t, 'job_search'))
@@ -284,7 +286,7 @@ function useWorkflow() {
   }
   const save = (next: Automations) => set.mutate(next)
   return {
-    automations, loaded, set, save, sync, targets, designated, cloud, search, boards, supply, choices, searchers, anyAgent,
+    automations, loaded, set, save, sync, targets, designated, cloud, search, boards, supply, choices, searchers, anyAgent, findNote, setFindNote,
     emailAgent, mail, readers, mailAgents, localReaders, portalAgent, chrome, auto,
     anyPaired: (runtimes ?? []).some((r) => !r.revoked_at && r.last_seen_at),
     outdated: (runtimes ?? []).some((r) => r.online && r.agents.length && !r.agents.some((a) => a.kinds?.includes('automation_sync'))),
@@ -487,6 +489,22 @@ function StepPane({ id, w, onSelect }: { id: StepId; w: W; onSelect: (id: StepId
   }
 }
 
+/** What the last Run now did, and how the job lists and boards check went. */
+function FindNotes({ w }: { w: W }) {
+  const { running, last, error } = w.supply
+  const check = running ? 'Checking the job lists and company boards…'
+    : error ? "Couldn't check the job lists and company boards"
+      : last ? `Job lists and company boards checked: ${last.added ? `${last.added} new` : 'nothing new'}${last.closed ? ` · ${last.closed} closed` : ''}`
+        : null
+  if (!w.findNote && !check) return null
+  return (
+    <div role="status" style={{ ...mutedLarge, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {w.findNote && <span>{w.findNote}</span>}
+      {check && <span style={{ color: error ? danger : undefined }}>{check}</span>}
+    </div>
+  )
+}
+
 /** Find jobs is one stage: its switch and Run now on each of its steps. */
 function FindControls({ w }: { w: W }) {
   const a = w.automations
@@ -494,7 +512,14 @@ function FindControls({ w }: { w: W }) {
   const cantRun = !w.designated || !w.search || state.running
   return (
     <>
-      <RunNow disabled={cantRun} onClick={() => { requestRunNow('job_search'); w.supply.refresh?.() }} />
+      <RunNow disabled={cantRun} onClick={() => {
+        requestRunNow('job_search')
+        w.supply.refresh?.()
+        // Say what Run now does: with no agent on the computer ticked, only the lists and boards.
+        w.setFindNote(w.searchers.length
+          ? `Searching now with ${w.searchers.join(' and ')}, and checking the job lists and company boards. New postings show up in Leads.`
+          : 'No agent on your computer is ticked, so Run now only checks the job lists and company boards. Connected agents search when they run. New postings show up in Leads.')
+      }} />
       <LabeledSwitch on={a.job_search.enabled} label="Find jobs" disabled={!w.loaded || w.set.isPending}
         onChange={(enabled) => w.save({ ...a, job_search: { ...a.job_search, enabled } })} />
     </>
@@ -518,6 +543,7 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
   return (
     <Pane title="Agent search" help="Your agents search the web for postings that fit what you're looking for, including ones no list has yet: the ones on your computer on the schedule below, connected agents whenever they run. Each uses your own subscription, and what they find is merged."
       controls={<FindControls w={w} />}>
+      <FindNotes w={w} />
       {!w.search && <Needs>Add the roles to look for first. <button type="button" className="btn-secondary" style={smallBtn} onClick={() => onSelect('criteria')}>What to look for</button></Needs>}
       {!w.anyAgent && w.designated && <Needs>No agent on your computer can search the web yet.</Needs>}
 
@@ -544,6 +570,7 @@ function ListsPane({ w }: { w: W }) {
   return (
     <Pane title="Job lists" help="SimplifyJobs publishes new-grad and internship lists as data, with posting dates and which are closed. Landed reads them itself."
       controls={<FindControls w={w} />}>
+      <FindNotes w={w} />
       <Settings>
         <Field label="Use these lists"><span><Switch on={sources.job_lists} label="Job lists" disabled={w.set.isPending} onChange={(job_lists) => w.save({ ...w.automations, job_search: { ...a, sources: { ...sources, job_lists } } })} /></span></Field>
         <Field label="Done by">{LANDED_AI}</Field>
@@ -560,6 +587,7 @@ function BoardsPane({ w }: { w: W }) {
   return (
     <Pane title="Company boards" help="The Greenhouse, Lever and Ashby job boards of companies you follow. Landed reads them itself."
       controls={<FindControls w={w} />}>
+      <FindNotes w={w} />
       <Settings>
         <Field label="Check these boards"><span><Switch on={sources.company_boards} label="Company boards" disabled={w.set.isPending} onChange={(company_boards) => w.save({ ...w.automations, job_search: { ...a, sources: { ...sources, company_boards } } })} /></span></Field>
         <Field label="Done by">{LANDED_AI}</Field>
@@ -579,6 +607,7 @@ function DedupePane({ w }: { w: W }) {
   return (
     <Pane title="Remove duplicates" help="Each new batch of postings is matched against your leads and applications, so every job shows up once."
       controls={<FindControls w={w} />}>
+      <FindNotes w={w} />
       <Settings>
         <Field label="Done by">
           <ExecutorSelect w={w} label="Who removes duplicates" soon="Soon your own agent can judge the close calls (same company, similar title). Until then Landed AI does it." />
@@ -595,6 +624,7 @@ function RankPane({ w }: { w: W }) {
   return (
     <Pane title="Rank" help="Leads are ordered by how worth applying to they are, highest first."
       controls={<FindControls w={w} />}>
+      <FindNotes w={w} />
       <Settings>
         <Field label="Done by">
           <ExecutorSelect w={w} label="Who ranks" soon="Soon your own agent can rank: it reads each posting against your resume and writes its reasons. Until then Landed AI ranks." />
