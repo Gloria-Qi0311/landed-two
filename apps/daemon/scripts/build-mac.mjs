@@ -14,7 +14,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, r
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { rolldown } from 'rolldown'
+import { bundleDaemon } from './bundle.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const repo = join(root, '..', '..')
@@ -82,8 +82,7 @@ rmSync(iconset, { recursive: true, force: true })
 rmSync(iconPng, { force: true })
 
 // 1. Bundle the Node daemon into one file.
-const bundle = await rolldown({ input: join(root, 'src', 'cli.ts'), platform: 'node', logLevel: 'warn' })
-await bundle.write({ file: join(dist, 'landed-daemon.mjs'), format: 'esm' })
+await bundleDaemon(join(dist, 'landed-daemon.mjs'))
 
 // 2. Compile the native menu-bar UI against system frameworks. No Xcode
 // project or third-party desktop runtime is needed.
