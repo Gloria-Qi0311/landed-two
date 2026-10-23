@@ -92,7 +92,7 @@ export function SearchSourcesPicker(props: PickerProps) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         <AgentChips {...props} />
-        <Chip on={sources.job_lists} label="SimplifyJobs lists" disabled={disabled} title="New-grad and internship lists, checked while Landed is open"
+        <Chip on={sources.job_lists} label="Job lists" disabled={disabled} title="New-grad and internship lists, checked while Landed is open"
           onChange={(on) => onChange({ ...sources, job_lists: on })} />
         <Chip on={sources.company_boards} label="Company job boards" disabled={disabled} title="Greenhouse, Lever and Ashby boards of companies you follow"
           onChange={(on) => onChange({ ...sources, company_boards: on })} />

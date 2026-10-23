@@ -3,6 +3,7 @@
 // authorization to open, fill, review and submit. This module is deliberately
 // pure so the authorization boundary, skip rules and extension results stay
 // testable outside React.
+import { isListingPage } from '@landed/supply'
 import { FILL_TRACE_REF } from '@landed/schema/fill-trace'
 import type { DbJobLead, DbResume, DbSuggestion } from './store/types'
 import { byPriority, rankOf } from './fit'
@@ -123,6 +124,11 @@ export function planApplyBatch({
     }
     if (!app.portal_application_url) {
       skipped.push({ app, company, reason: 'missing-link', message: `${company} · ${app.role} has no job link` })
+      continue
+    }
+    // A listing site's page (jobright.ai) isn't the application.
+    if (isListingPage(app.portal_application_url)) {
+      skipped.push({ app, company, reason: 'missing-link', message: `${company} · ${app.role} has only a jobright.ai listing, not the company's application page` })
       continue
     }
     const target: AssistTarget = {

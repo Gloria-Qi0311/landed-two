@@ -63,6 +63,9 @@ messages (PR title and a clean body, no trailer).
   queue fields go through `readLeadQueueFields` on every write path.
 - A public list's postings go through `ingestFoundJobs` with one stable
   observation id per posting, so refreshing never adds a source twice.
+- A listing site's own page (jobright.ai) is never the application: a posting
+  takes its company's board link only for the very same title, else auto apply
+  skips it and says so.
 - Which companies an account follows (for their job boards) is worked out in the
   browser and never sent to the server.
 - A spreadsheet import adds nothing until the user confirms the preview, never

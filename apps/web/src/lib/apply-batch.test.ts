@@ -34,6 +34,13 @@ describe('planApplyBatch', () => {
     expect(plan.items.map((x) => x.app.id)).toEqual(['f', 'e', 'd', 'c', 'b'])
   })
 
+  test('a jobright.ai listing is not the application: skipped, saying so', () => {
+    const apps = [app('a', 'a', { portal_application_url: 'https://jobright.ai/jobs/info/aaaaaaaaaaaaaaaaaaaaaaa1' }), app('b', 'b')]
+    const plan = planApplyBatch({ apps, companyName: names, leads: apps.map((x) => lead(x.id, 0.5)), suggestions: [], resumes: [resume()] })
+    expect(plan.items.map((x) => x.app.id)).toEqual(['b'])
+    expect(plan.skipped).toEqual([expect.objectContaining({ reason: 'missing-link', message: "Acme · Role a has only a jobright.ai listing, not the company's application page" })])
+  })
+
   test('skips a company already at OA/interview/offer and keeps filling the batch', () => {
     const apps = [app('a1', 'a'), app('a2', 'a', { stage: 'interview' }), app('b1', 'b'), app('c1', 'c')]
     const leads = ['a1', 'b1', 'c1'].map((id) => lead(id, 0.5))

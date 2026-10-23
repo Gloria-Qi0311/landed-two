@@ -139,6 +139,47 @@ costs a 304.
   checking after the first would pull every posting for the roles alone) and every
   6 hours. The Leads column's refresh button checks now.
 
+### jobright lists by direction (#138)
+
+jobright.ai keeps a GitHub repo per direction and level, updated daily
+(`packages/supply/src/jobright.ts`, `apps/web/src/lib/jobright.ts`). They carry
+the product, data and business roles the SimplifyJobs lists barely do: on
+2026-10-22, 298 of 310 data-analysis new-grad rows, 130 of 133 product-management
+ones and all 81 business-analyst ones weren't on SimplifyJobs. The research
+behind it is on #138.
+
+- **Which lists**: product management, data analysis and business analysis,
+  new grad and internship (`JOBRIGHT_DIRECTIONS`), the ones the search's roles
+  name (product → product; data, analytics, BI or a product analyst → data;
+  business analyst, strategy or operations analyst → business), at the levels
+  `listsForBrief` gives. Software roles are the SimplifyJobs lists' job.
+- **Reading**: only a README table (company, title, a jobright.ai link, location,
+  work model, "Oct 22" without a year: the latest such day not after tomorrow).
+  A "↳" row is the company above's. One observation id per jobright job
+  (`jobright:<24 hex>`), whichever list it's on. Fetched by the browser like the
+  SimplifyJobs lists (raw GitHub allows any origin), under the same Job lists
+  switch.
+- **What's kept**: posted in the last 30 days, not an excluded company, a word
+  of one of the search's roles in the title (`touchesRole`: "Clinical Data
+  Coordinator" for "Data Analyst", not "Research Fellow"; looser than
+  `roleMatches`, since the list already is the direction and the level), not a
+  senior title for an internship or new-grad search, in one of the search's
+  places; newest first, at most 60 per list.
+- **The application link**: jobright gives its own page, never the application,
+  and its pages don't show the original link without signing in. A new row
+  whose company's Greenhouse, Lever or Ashby board (found by name with
+  `resolveBoards`, at most 25 companies a refresh) has a posting with **the very
+  same title** takes that posting: link, places, dates, description. A
+  name-guessed board can be another company's (Capital One once found Lever's
+  `capital`), and one with the exact title is not. The rest keep the jobright
+  link; auto apply skips them ("has only a jobright.ai listing",
+  `isListingPage`). In the sample on #138, 5 of 30 rows found their posting: most
+  of these companies use Workday, which the browser can't read (#141).
+- **Closed**: a row gone from the README hasn't closed, because the table keeps
+  only a few days. A lead on its company's posting closes when the board no
+  longer lists it. One on the jobright link closes 30 days after it was posted
+  (else first seen), as jobright's own pages say (`validThrough`).
+
 ### Company job boards (#91)
 
 Greenhouse, Lever and Ashby publish each company's open postings without a

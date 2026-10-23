@@ -315,7 +315,7 @@ function statuses(w: W): Record<StepId, Status> {
       if (names.length) return { dot: 'on' as const, text: `${names.join(', ')} · ${sched(find.schedule)}` }
       return sources.agents.length === 0 ? { dot: 'off' as const, text: 'No agent ticked' } : { dot: 'needs' as const, text: 'No agent online' }
     })(),
-    lists: !find.enabled || !sources.job_lists ? findOff : { dot: 'on', text: 'SimplifyJobs · every 6 hours' },
+    lists: !find.enabled || !sources.job_lists ? findOff : { dot: 'on', text: 'SimplifyJobs, jobright · every 6 hours' },
     boards: !find.enabled || !sources.company_boards ? findOff : { dot: 'on', text: `${w.boards.length} ${w.boards.length === 1 ? 'company' : 'companies'} · every 6 hours` },
     dedupe: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
     rank: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
@@ -539,13 +539,13 @@ function ListsPane({ w }: { w: W }) {
   const a = w.automations.job_search
   const sources = a.sources!
   return (
-    <Pane title="Job lists" help="SimplifyJobs publishes new-grad and internship lists as data, with posting dates and which are closed. Landed reads them itself."
+    <Pane title="Job lists" help="SimplifyJobs publishes new-grad and internship lists as data, with posting dates and which are closed. jobright.ai keeps lists by direction (product, data and business analysis), the roles SimplifyJobs barely carries. Landed reads them itself."
       controls={<FindControls w={w} />}>
       <Settings>
         <Field label="Use these lists"><span><Switch on={sources.job_lists} label="Job lists" disabled={w.set.isPending} onChange={(job_lists) => w.save({ ...w.automations, job_search: { ...a, sources: { ...sources, job_lists } } })} /></span></Field>
         <Field label="Done by">{LANDED_AI}</Field>
         <Field label="When"><span>Every 6 hours while Landed is open, and right after you change what to look for</span></Field>
-        <Field label="What's kept"><span>Open postings from the last 30 days with one of your roles in the title, in one of your places. The new-grad list, the internship list or both, from the level you're looking for.</span></Field>
+        <Field label="What's kept"><span>Open postings from the last 30 days with one of your roles in the title, in one of your places. The new-grad list, the internship list or both, from the level you're looking for. jobright's lists for the directions your roles name (a product, data or business analyst role), with a word of one of your roles in the title and no senior titles; a posting there gets its company's own application page when Landed finds the same title on its board, and auto apply skips the ones still on jobright's page.</span></Field>
       </Settings>
     </Pane>
   )

@@ -1,5 +1,6 @@
-// Public job sources → Leads (#90, #91; docs/leads-model.md): the
-// SimplifyJobs lists here, followed companies' job boards in ./boards.ts.
+// Public job sources → Leads (#90, #91, #138; docs/leads-model.md): the
+// SimplifyJobs lists here, jobright's lists by direction in ./jobright.ts,
+// followed companies' job boards in ./boards.ts.
 // The browser fetches the SimplifyJobs lists itself (never through the server), keeps what fits
 // the active search (packages/supply) and ingests it like any agent's finds,
 // so a posting an agent also found is one lead with both sources. Then every
@@ -15,6 +16,7 @@ import {
   type SimplifyList, type SimplifyListing,
 } from '@landed/supply'
 import { followedBoards, refreshBoards, resolveBoards } from './boards'
+import { refreshJobright } from './jobright'
 import { ingestFoundJobs } from './inbox'
 import { screenLeads } from './screen'
 import { scoreLeads } from './fit'
@@ -30,6 +32,8 @@ export type SupplyResult = {
   closed: number
   /** lists that couldn't be fetched or read */
   failed: SimplifyList[]
+  /** jobright's lists by direction read, and those that couldn't be */
+  jobright?: { lists: string[]; failed: string[] }
   at: string
 }
 
@@ -48,9 +52,16 @@ export async function refreshSupply(
 ): Promise<SupplyCheck> {
   // Find new jobs → Search with: either source can be left out.
   const now = opts.now ?? new Date()
-  const lists = opts.sources?.job_lists === false
-    ? { lists: [], found: 0, added: 0, merged: 0, closed: 0, failed: [], at: now.toISOString() }
-    : await refreshSimplify(store, brief, opts)
+  let lists: SupplyResult = { lists: [], found: 0, added: 0, merged: 0, closed: 0, failed: [], at: now.toISOString() }
+  if (opts.sources?.job_lists !== false) {
+    const simplify = await refreshSimplify(store, brief, opts)
+    const jobright = await refreshJobright(store, brief, opts)
+    lists = {
+      ...simplify,
+      found: simplify.found + jobright.found, added: simplify.added + jobright.added, merged: simplify.merged + jobright.merged,
+      closed: simplify.closed + jobright.closed, jobright: { lists: jobright.lists, failed: jobright.failed },
+    }
+  }
   if (opts.sources?.company_boards === false) return { ...lists, boards: 0, boards_failed: [] }
   const [applications, companies, leads, resolved] = await Promise.all([
     store.listApplications(), store.listCompanies(), store.listJobLeads(), resolveBoards(brief.include_companies, opts.fetchFn),
