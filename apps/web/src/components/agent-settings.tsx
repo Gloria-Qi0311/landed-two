@@ -286,7 +286,7 @@ const AGENT_CHOICES: AgentChoice[] = [
   },
   {
     id: 'gemini', label: 'Gemini CLI', mark: 'GM', kind: 'connector', match: /gemini/i,
-    description: 'Terminal app · not Gemini web',
+    description: 'One-click on this Mac · CLI only',
   },
   {
     id: 'meta_muse', label: 'Meta Muse', mark: 'MM', kind: 'token',
@@ -368,12 +368,15 @@ function PrivateOriginNotice() {
   )
 }
 
-const codexConnectLink = (url: string) =>
-  `landed://connect-agent?agent=codex&url=${encodeURIComponent(url)}`
+type OneClickAgent = 'codex' | 'gemini'
+const agentConnectLink = (agent: OneClickAgent, url: string) =>
+  `landed://connect-agent?agent=${agent}&url=${encodeURIComponent(url)}`
 
-function CodexConnect({ url, connected }: { url: string; connected: boolean }) {
+function OneClickConnect({ agent, url, connected }: { agent: OneClickAgent; url: string; connected: boolean }) {
   const [opening, setOpening] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const codex = agent === 'codex'
+  const label = codex ? 'Codex' : 'Gemini CLI'
   useEffect(() => {
     if (connected) {
       setOpening(false)
@@ -383,7 +386,7 @@ function CodexConnect({ url, connected }: { url: string; connected: boolean }) {
   const open = () => {
     setOpening(true)
     setShowHelp(false)
-    window.location.href = codexConnectLink(url)
+    window.location.href = agentConnectLink(agent, url)
     setTimeout(() => setShowHelp(true), 7000)
   }
 
@@ -394,19 +397,21 @@ function CodexConnect({ url, connected }: { url: string; connected: boolean }) {
     }}>
       <div style={{ flex: 1, minWidth: 220 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}>
-          <Icon name="sparkle" size={13} /> Codex on this Mac
+          <Icon name="sparkle" size={13} /> {label} on this Mac
           {connected && <span style={{ fontSize: 10.5, color: 'oklch(0.45 0.13 155)', fontWeight: 500 }}>Connected</span>}
         </div>
         <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5, marginTop: 2 }}>
-          Landed for Mac adds the connector and starts sign-in for you. Approve Landed once in the browser; no terminal or pasted URL.
+          {codex
+            ? 'Landed for Mac adds the connector and starts sign-in for you. Approve Landed once in the browser; no terminal or pasted URL.'
+            : 'Landed for Mac adds the connector and opens Gemini CLI. Its sign-in opens in your browser automatically; no command or pasted URL.'}
         </div>
       </div>
       <button type="button" className={connected ? 'btn-secondary' : 'btn-primary'} onClick={open}>
-        {opening ? 'Opening sign-in…' : connected ? 'Reconnect Codex' : 'Connect Codex'}
+        {opening ? 'Opening sign-in…' : connected ? `Reconnect ${label}` : `Connect ${label}`}
       </button>
       {opening && (
         <div style={{ flexBasis: '100%', fontSize: 11.5, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-          In the Landed dialog, click <b>Connect Codex</b>; then sign in and click <b>Allow</b> in the browser.
+          In the Landed dialog, click <b>Connect {label}</b>; then sign in and click <b>Allow</b> in the browser.
           {showHelp && <> Nothing opened? Open Landed for Mac once so it can update, then try again.</>}
         </div>
       )}
@@ -418,10 +423,10 @@ function ConnectorSetup({ choice, connections }: { choice: AgentChoice; connecti
   const url = `${window.location.origin}/mcp`
   const onMac = /Mac/i.test(navigator.platform || navigator.userAgent)
   const connected = choiceConnected(choice, connections)
-  if (choice.id === 'codex' && onMac) {
+  if ((choice.id === 'codex' || choice.id === 'gemini') && onMac) {
     return (
-      <Card title="Connect Codex">
-        <CodexConnect url={url} connected={connected} />
+      <Card title={`Connect ${choice.label}`}>
+        <OneClickConnect agent={choice.id} url={url} connected={connected} />
       </Card>
     )
   }

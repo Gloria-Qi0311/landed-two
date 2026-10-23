@@ -20,9 +20,12 @@ test('connect links: only landed://connect with an http(s) server and a runtime 
   ]) assert.equal(parseConnectUrl(bad), null, bad)
 })
 
-test('agent connect links: only Codex and a secure Landed MCP endpoint', () => {
+test('agent connect links: only supported agents and a secure Landed MCP endpoint', () => {
   assert.deepEqual(parseAgentConnectUrl(`landed://connect-agent?agent=codex&url=${encodeURIComponent('https://landed.example.com/mcp')}`), {
     agent: 'codex', url: 'https://landed.example.com/mcp',
+  })
+  assert.deepEqual(parseAgentConnectUrl(`landed://connect-agent?agent=gemini&url=${encodeURIComponent('https://landed.example.com/mcp')}`), {
+    agent: 'gemini', url: 'https://landed.example.com/mcp',
   })
   assert.equal(parseAgentConnectUrl(`landed://connect-agent?agent=codex&url=${encodeURIComponent('http://localhost:5173/mcp')}`)?.url, 'http://localhost:5173/mcp')
   for (const bad of [

@@ -5,7 +5,7 @@ Landed uses agents the user already has. They work in three places:
 | Where | Who | How they talk to Landed |
 |---|---|---|
 | The user's computer | Claude Code, Codex, ACP agents (Gemini CLI, Copilot, Cursor, Goose…) | `apps/daemon` runs them for Landed's tasks |
-| The cloud, as a connector | ChatGPT, Claude, Gemini… | MCP at `/mcp` with OAuth |
+| The cloud, as a connector | ChatGPT, Claude… | MCP at `/mcp` with OAuth |
 | The cloud, with a key | Muse, Manus, OpenClaw… | The same tools over HTTP, or raw observations |
 
 ## External agents report observations; Landed decides
@@ -80,11 +80,14 @@ from before tasks (scope `observations:write` only) may submit but not read
 tasks. Public origin: `PUBLIC_URL`, else the request's Host / X-Forwarded-*
 (Vite proxies `/mcp`, `/oauth`, `/.well-known` in dev).
 
-For Codex on macOS, Agent settings offers a one-click install through Landed for
-Mac: `landed://connect-agent?agent=codex&url=…/mcp`. The native app validates the
-HTTPS endpoint, asks in a native dialog, then uses Codex's own `mcp add` and
-`mcp login` commands so Codex remains the owner of its shared config and OAuth
-credentials. Never remove that confirmation: any page can open a custom URL.
+For Codex and Gemini CLI on macOS, Agent settings offers a one-click install
+through Landed for Mac: `landed://connect-agent?agent=codex|gemini&url=…/mcp`.
+The native app validates the HTTPS endpoint and asks in a native dialog. It then
+uses the agent's own `mcp add` command. Codex supplies `mcp login`; Gemini CLI is
+opened in Terminal with OAuth enabled for this server, so its startup opens the
+browser consent automatically. Each agent remains the owner of its shared config
+and OAuth credentials. Gemini's website has no custom MCP connector. Never remove
+the native confirmation: any page can open a custom URL.
 
 ### The briefing
 

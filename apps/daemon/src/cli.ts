@@ -24,6 +24,7 @@ import { parseArgs } from 'node:util'
 import { agentForKind, detectAgents, detectionNotes, mailStatus, runTask, type AgentInfo, type Task } from './agents.ts'
 import { handleSync, setupAutomations, tick } from './automations.ts'
 import { connectCodex, existingLandedUrl, findCodex } from './codex-connector.ts'
+import { connectGemini, existingGeminiLandedUrl, findGemini, openGeminiForAuth } from './gemini-connector.ts'
 import type { SyncInput } from '@landed/schema/automation'
 import { formatFillTrace, normalizeFillTraceRef, parseFillTrace } from '@landed/schema/fill-trace'
 import { clearConfig, home, loadConfig, saveConfig, type Config } from './config.ts'
@@ -215,6 +216,39 @@ async function openUrl(raw: string | undefined) {
       process.exit(1)
     }
     notify('Codex is connected to Landed. New Codex tasks can now use it.')
+    return
+  }
+  if (agentLink?.agent === 'gemini') {
+    const executable = findGemini()
+    if (!executable) {
+      alert("Gemini CLI isn't installed on this Mac yet. Install Gemini CLI, then click Connect Gemini CLI in Landed again.")
+      process.exit(1)
+    }
+    let current: string | null
+    try {
+      current = existingGeminiLandedUrl()
+    } catch (error) {
+      alert(`${error instanceof Error ? error.message : 'Gemini settings could not be read.'}\n\nFix Gemini CLI settings, then try Connect Gemini CLI in Landed again.`)
+      process.exit(1)
+    }
+    const host = new URL(agentLink.url).host
+    const replacing = current && current !== agentLink.url
+    const previousHost = current ? new URL(current).host : null
+    const message = replacing
+      ? `Connect Gemini CLI to Landed at ${host}?\n\nThis replaces Gemini CLI's Landed connector for ${previousHost}, then opens Gemini CLI and your browser so you can approve access.`
+      : `Connect Gemini CLI to Landed at ${host}?\n\nLanded will add the connector, then open Gemini CLI and your browser so you can approve access.`
+    if (!confirm(message, 'Connect Gemini CLI')) process.exit(0)
+    const result = connectGemini(executable, agentLink.url)
+    if (!result.ok) {
+      alert(`${result.error}\n\nTry Connect Gemini CLI in Landed again.`)
+      process.exit(1)
+    }
+    const openError = openGeminiForAuth(executable)
+    if (openError) {
+      alert(`Gemini CLI is configured, but Landed couldn't open Terminal: ${openError}\n\nOpen Gemini CLI yourself to finish signing in.`)
+      process.exit(1)
+    }
+    notify('Gemini CLI is opening. Approve Landed in the browser to finish connecting it.')
     return
   }
 
