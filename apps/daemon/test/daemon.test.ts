@@ -5,6 +5,7 @@ import {
   initHasServer, isReadOnlyTool, mailFromInit, parseClaudeAuthStatus, parseClaudeLine, portalPrompt, readOnlyMailTools, searchPrompt,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
+import { SEARCH_PLAYBOOK, searchQueries } from '@landed/schema/agent-sourcing'
 
 test('parses Claude Code stream-json into task events', () => {
   const lines = [
@@ -58,6 +59,37 @@ test('job search args + prompt: web tools only, no saved session, schema-bound o
   assert.match(prompt, /Needs visa sponsorship: yes/)
   assert.match(prompt, /Companies to exclude: Initech/)
   assert.match(prompt, /Today is 2026-10-11/)
+})
+
+test('the search follows the shared playbook and starts from searches built from the brief (#138)', () => {
+  const args = claudeSearchArgs()
+  const system = args[args.indexOf('--append-system-prompt') + 1]
+  for (const line of SEARCH_PLAYBOOK) assert.ok(system.includes(line), line)
+  assert.match(system, /Never report a posting you haven't opened/)
+  const prompt = searchPrompt({ roles: ['Data Analyst'], seniority: 'new grad', locations: ['Seattle, WA'], needs_sponsorship: null, exclude_companies: [] }, new Date('2026-10-22T12:00:00Z'))
+  assert.match(prompt, /Searches to start from[^\n]*\n- site:myworkdayjobs\.com "Data Analyst" "new grad" Seattle\n/)
+})
+
+test('searchQueries: the first roles on the job boards, Workday first, with the level and the first place that is not remote', () => {
+  const brief = (over: Record<string, unknown>) => ({
+    summary: 'x', roles: ['Product Analyst'], seniority: null, locations: [], remote: 'any', needs_sponsorship: null, salary_min: null,
+    industries: [], include_companies: [], exclude_companies: [], notes: null, ...over,
+  }) as Parameters<typeof searchQueries>[0]
+  assert.deepEqual(searchQueries(brief({ seniority: 'internship', locations: ['Remote', 'New York, NY'] })), [
+    'site:myworkdayjobs.com "Product Analyst" "intern" New York',
+    'site:job-boards.greenhouse.io "Product Analyst" "intern" New York',
+    'site:jobs.lever.co OR site:jobs.ashbyhq.com "Product Analyst" "intern" New York',
+    '"Product Analyst" internship program early careers',
+  ])
+  assert.deepEqual(searchQueries(brief({})), [
+    'site:myworkdayjobs.com "Product Analyst"',
+    'site:job-boards.greenhouse.io "Product Analyst"',
+    'site:jobs.lever.co OR site:jobs.ashbyhq.com "Product Analyst"',
+  ])
+  const many = searchQueries(brief({ roles: ['Data "Analyst"', 'Business Analyst', 'Strategy Analyst'], seniority: 'new grad' }))
+  assert.equal(many.length, 6)
+  assert.ok(many.every((q) => !q.includes('Strategy')), 'two roles at most')
+  assert.equal(many[0], 'site:myworkdayjobs.com "Data Analyst" "new grad"')
 })
 
 test('chat and search switch off every MCP server', () => {

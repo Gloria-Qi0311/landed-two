@@ -21,6 +21,7 @@
     "./application-files": "./src/application-files.ts",
     "./lead-queue": "./src/lead-queue.ts",
     "./fill-trace": "./src/fill-trace.ts",
+    "./agent-sourcing": "./src/agent-sourcing.ts",
     "./open-answers": "./src/open-answers.ts"
   },
   "scripts": {

@@ -27,6 +27,7 @@ import { cloudAgentOn, cloudAgentSearches, parseAutomations } from '@landed/sche
 import { parseBriefing, type Briefing } from '@landed/schema/cloud-agent'
 import { parseEmailFindings, type EmailFinding } from '@landed/schema/email-check'
 import { describeFoundJob, parseFoundJobs, type FoundJob, type SearchBrief } from '@landed/schema/search-brief'
+import { SEARCH_PLAYBOOK, searchQueries } from '@landed/schema/agent-sourcing'
 import type { AppEnv } from '../auth.ts'
 import type { Config } from '../config.ts'
 import type { Sql } from '../db.ts'
@@ -129,14 +130,14 @@ export const TOOLS = [
   },
 ]
 
+// The same playbook as the daemon's job search (packages/schema/src/agent-sourcing.ts;
+// docs/agent-sourcing.md).
 const SEARCH_INSTRUCTIONS = [
-  'Search the web for job postings that are open now and match the search brief below.',
-  '- Only report postings you actually found. Never invent companies, titles or links.',
-  "- Link the company's own careers or ATS page (Greenhouse, Lever, Ashby, Workday, the company site) when you can; an aggregator link is fine when that is all there is.",
-  '- Skip postings that are closed, or clearly older than about two months. Never include excluded companies; look at the companies the brief names first.',
-  "- sponsorship: what the posting says about visa sponsorship, or what is publicly known about the company's sponsoring for this kind of role. Leave it empty rather than guess.",
-  '- deadline: the application deadline if the posting states one (YYYY-MM-DD).',
-  '- Aim for 15–30 good matches; fewer good ones beat many weak ones.',
+  'Search the web for job postings that are open now and match the search brief below. Landed already reads',
+  'the SimplifyJobs and jobright lists and the job boards of companies the user follows: look beyond them.',
+  '',
+  ...SEARCH_PLAYBOOK,
+  '',
   'Then call submit_jobs once with all of them.',
 ].join('\n')
 
@@ -181,7 +182,7 @@ export function buildTasks(briefing: Briefing | null, on: { job_search: boolean;
   if (on.job_search && briefing?.brief) {
     tasks.push({
       id: 'job_search', title: 'Search for jobs', submit_with: 'submit_jobs',
-      instructions: `${SEARCH_INSTRUCTIONS}\n\nToday is ${now.toISOString().slice(0, 10)}.\n\nSearch brief:\n${briefText(briefing.brief)}`,
+      instructions: `${SEARCH_INSTRUCTIONS}\n\nToday is ${now.toISOString().slice(0, 10)}.\n\nSearch brief:\n${briefText(briefing.brief)}\n\nSearches to start from (then follow where they lead):\n${searchQueries(briefing.brief).map((q) => `- ${q}`).join('\n')}`,
       brief: briefing.brief,
     })
   }
