@@ -3,23 +3,24 @@
 // own subscription, on the agent's own schedule.
 //
 // Pull, not push: Landed can't start a cloud agent, so the agent asks for
-// work (`get_tasks`: a job search for the confirmed brief; an email check
-// when the user turned those on) and hands results back (`submit_jobs`,
-// `submit_email_updates`). Results become ordinary observations
+// work (`get_tasks`: approved applications assigned to this connection, a
+// job search, and email checks) and hands results back (`submit_application_result`,
+// `submit_jobs`, `submit_email_updates`). Search/email results become observations
 // (routes/agent.ts): validated by the same parsers as the daemon's, held
 // for sync-off accounts until the browser pulls them, then turned into
 // Leads and application updates by the observation processor — agents
-// report, Landed decides. The only context an agent gets is the briefing
-// the browser shares while a cloud agent is connected (search brief +
-// application list), plus where the last email check stopped.
+// report, Landed decides. An auto-apply task gets a deliberately copied,
+// one-job context snapshot; search/email get only the briefing the browser
+// shares while a cloud agent is connected.
 //
 // Auth: OAuth access tokens (routes/oauth.ts), or the token of a
 // connection made by hand in Agent settings — personal agents like Meta Muse
 // build their connectors from a URL + an API key, not OAuth. Connections
 // from before tasks existed (scope observations:write only) can submit but
-// not read tasks. The same three tools are also plain HTTP
+// not read tasks. The same four tools are also plain HTTP
 // (`agentTaskRoutes`: GET /api/agent/tasks, POST /api/agent/jobs,
-// POST /api/agent/email-updates) for agents that call APIs, not MCP.
+// POST /api/agent/email-updates, POST /api/agent/application-result) for agents
+// that call APIs, not MCP.
 import { createHash } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -32,6 +33,7 @@ import type { Config } from '../config.ts'
 import type { Sql } from '../db.ts'
 import { insertObservation, overRateLimit, validateObservation } from './agent.ts'
 import { publicOrigin, resourceMetadataUrl } from './oauth.ts'
+import { pendingApplyTasks, submitApplyResult } from './agent-apply.ts'
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
 
@@ -56,7 +58,7 @@ export const TOOLS = [
   {
     name: 'get_tasks',
     title: 'Get Landed tasks',
-    description: "Start here. Returns the job-hunt work Landed has for you right now, each with instructions and the tool to submit the result with: a job search for the user's confirmed search brief, and — when the user turned email checks on — a read-only look through their email for updates on their applications. Call it at the start of every run, including scheduled ones.",
+    description: "Start here. Returns the job-hunt work Landed has for you right now, each with instructions and the tool to submit the result with: approved applications assigned to you, a job search, and email checks. Call it at the start of every run, including scheduled ones.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
@@ -126,6 +128,34 @@ export const TOOLS = [
       required: ['updates'],
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'submit_application_result',
+    title: 'Submit an application result',
+    description: "Finish one auto-apply task from get_tasks. Report submitted, blocked or error. If context did not answer a required form question, stop and return it in unanswered so Landed can ask the user and remember the answer for every agent.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: str,
+        status: { type: 'string', enum: ['submitted', 'blocked', 'error'] },
+        blocker: { type: 'string', enum: ['login', 'account', 'captcha', 'answers', 'files', 'review', 'submit'] },
+        message: str,
+        unanswered: {
+          type: 'array', maxItems: 30,
+          items: {
+            type: 'object',
+            properties: {
+              question: str,
+              key: { type: ['string', 'null'], description: 'A Landed answer key if known; otherwise null' },
+              options: { type: 'array', maxItems: 20, items: str },
+            },
+            required: ['question'],
+          },
+        },
+      },
+      required: ['task_id', 'status'],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
 ]
 
@@ -228,7 +258,7 @@ async function store(sql: Sql, conn: Connection, items: { raw: Record<string, un
   return { added, duplicates, rejected }
 }
 
-async function callTool(sql: Sql, conn: Connection, name: string, args: Record<string, unknown>): Promise<ToolResult> {
+async function callTool(sql: Sql, conn: Connection, name: string, args: Record<string, unknown>, origin = ''): Promise<ToolResult> {
   const now = new Date()
   const runId = `mcp-${now.toISOString().slice(0, 10)}`
 
@@ -247,8 +277,9 @@ async function callTool(sql: Sql, conn: Connection, name: string, args: Record<s
       job_search: automations.job_search.enabled && cloudAgentSearches(automations.job_search.sources, conn.id),
       email_check: automations.email_check.enabled && cloudAgentOn(automations.email_check.readers, conn.id),
     }
-    const tasks = buildTasks(briefing, on, since, now)
-    const note = !on.job_search && !on.email_check
+    const applyTasks = await pendingApplyTasks(sql, conn, origin)
+    const tasks = [...applyTasks, ...buildTasks(briefing, on, since, now)]
+    const note = applyTasks.length ? null : !on.job_search && !on.email_check
       ? automations.job_search.enabled || automations.email_check.enabled
         ? "The user's job search and email check don't use this agent (Landed's Workflow page: Agent search, Check email), so there's nothing to do."
         : "The user hasn't turned on any automation in Landed (Workflow page: Find new jobs, Check email), so there's nothing to do."
@@ -305,6 +336,14 @@ async function callTool(sql: Sql, conn: Connection, name: string, args: Record<s
     )
   }
 
+  if (name === 'submit_application_result') {
+    const result = await submitApplyResult(sql, conn, args)
+    return textResult(
+      result.duplicate ? 'Landed already received this application result.' : 'Landed saved the application result. Missing questions will be shown to the user and added to shared context after they answer.',
+      result,
+    )
+  }
+
   return textResult(`Unknown tool: ${name}`, undefined, true)
 }
 
@@ -314,9 +353,9 @@ type RpcRequest = { jsonrpc?: string; id?: string | number | null; method?: stri
 const rpcError = (id: RpcRequest['id'], code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } })
 const rpcResult = (id: RpcRequest['id'], result: unknown) => ({ jsonrpc: '2.0', id, result })
 
-const INSTRUCTIONS = "Landed is the user's job-hunt tracker. Call get_tasks first: it returns the work the user turned on in Landed's Workflow (a job search for their brief, an email check) with instructions, and names the tool to submit each result with (submit_jobs, submit_email_updates). Landed decides what results mean; never invent data."
+const INSTRUCTIONS = "Landed is the user's job-hunt tracker. Call get_tasks first: it returns approved applications assigned to this agent plus scheduled job searches and email checks. Follow each task's instructions and submit with the named tool. Use only Landed context or facts you can verify; never invent data."
 
-async function handle(sql: Sql, conn: Connection, msg: RpcRequest): Promise<object | null> {
+async function handle(sql: Sql, conn: Connection, msg: RpcRequest, origin: string): Promise<object | null> {
   const isRequest = msg && typeof msg === 'object' && 'id' in msg && msg.id !== undefined
   if (!msg || typeof msg !== 'object' || typeof msg.method !== 'string') return isRequest ? rpcError(msg.id, -32600, 'Invalid request') : null
   if (!isRequest) return null // notifications (initialized, cancelled…) need no answer
@@ -345,7 +384,7 @@ async function handle(sql: Sql, conn: Connection, msg: RpcRequest): Promise<obje
       if (!TOOLS.some((t) => t.name === name)) return rpcError(msg.id, -32602, `Unknown tool: ${name}`)
       if (overRateLimit(conn.id)) return rpcResult(msg.id, textResult('Too many calls this hour; try again later.', undefined, true))
       const args = msg.params?.arguments && typeof msg.params.arguments === 'object' ? msg.params.arguments : {}
-      return rpcResult(msg.id, await callTool(sql, conn, name, args))
+      return rpcResult(msg.id, await callTool(sql, conn, name, args, origin))
     }
     default:
       return rpcError(msg.id, -32601, `Method not found: ${msg.method}`)
@@ -380,7 +419,7 @@ export function agentTaskRoutes(sql: Sql) {
       return c.json({ error: 'rate limit: try again later' }, 429)
     }
     await sql`update agent_connections set last_seen_at = now() where id = ${found.id}`
-    const result = await callTool(sql, found, name, args)
+    const result = await callTool(sql, found, name, args, new URL(c.req.url).origin)
     if (result.isError) return c.json({ error: result.content[0]?.text ?? 'error' }, name === 'get_tasks' ? 403 : 400)
     return c.json({ ...result.structuredContent, message: result.content[0]?.text })
   }
@@ -395,6 +434,7 @@ export function agentTaskRoutes(sql: Sql) {
   app.get('/tasks', (c) => run(c, 'get_tasks', {}))
   app.post('/jobs', async (c) => run(c, 'submit_jobs', await body(c)))
   app.post('/email-updates', async (c) => run(c, 'submit_email_updates', await body(c)))
+  app.post('/application-result', async (c) => run(c, 'submit_application_result', await body(c)))
   return app
 }
 
@@ -420,7 +460,8 @@ export function mcpRoutes(sql: Sql, config: Pick<Config, 'publicUrl'>) {
     await sql`update agent_connections set last_seen_at = now() where id = ${conn.id}`
     const batch = Array.isArray(body)
     const messages = (batch ? body : [body]) as RpcRequest[]
-    const answers = (await Promise.all(messages.map((m) => handle(sql, conn, m)))).filter((a) => a !== null)
+    const origin = publicOrigin(c, config)
+    const answers = (await Promise.all(messages.map((m) => handle(sql, conn, m, origin)))).filter((a) => a !== null)
     if (answers.length === 0) return c.body(null, 202)
     return c.json(batch ? answers : answers[0])
   })

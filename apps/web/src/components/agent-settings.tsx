@@ -74,7 +74,7 @@ export function AgentSettings() {
           <SetupPanel created={created} onDone={() => { setCreated(null); setSelected(null) }} />
         ) : selected ? (
           AGENT_CHOICES.find((choice) => choice.id === selected)?.kind === 'token'
-            ? <ConnectForm key={selected} initialProvider={selected === 'meta_muse' ? 'meta_muse' : 'other'} onCreated={setCreated} />
+            ? <ConnectForm key={selected} initialProvider={selected === 'meta_muse' || selected === 'today' ? selected : 'other'} onCreated={setCreated} />
             : <ConnectorSetup choice={AGENT_CHOICES.find((choice) => choice.id === selected)!} connections={active} />
         ) : null}
 
@@ -137,7 +137,7 @@ function ConnectForm({ initialProvider, onCreated }: {
 
   return (
     <Card title="Create a private connection key">
-      <Muted>For Meta Muse, Manus, OpenClaw and agents that connect with an API key. Create it here, then paste the one-time setup message into that agent.</Muted>
+      <Muted>For Meta Muse, Today, Manus, OpenClaw and agents that connect with an API key. Create it here, then paste the one-time setup message into that agent.</Muted>
       <form onSubmit={submit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 12 }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500, flex: 1, minWidth: 200 }}>
           Name (optional)
@@ -169,9 +169,9 @@ function SetupPanel({ created, onDone }: { created: { connection: AgentConnectio
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Muted>
           Paste these instructions into your agent. They include its key, which is shown <strong style={{ color: 'var(--fg)' }}>only this once</strong> —
-          if you lose it, revoke this connection and create a new one. The agent gets the same tasks as a connector: a job search for
-          your confirmed direction, and an email check if you turned those on and it can read your mail.
-          {!useAuth.getState().user?.cloud_sync && " While it's connected, this browser shares your search direction and application list (company, role, stage) with Landed's server so the agent can read them; revoking it deletes them."}
+          if you lose it, revoke this connection and create a new one. The agent gets the same tasks as a connector: approved applications
+          assigned to it, job searches, and email checks you turned on.
+          {!useAuth.getState().user?.cloud_sync && " While it's connected, this browser shares your search direction and application list (company, role, stage) with Landed's server. If you choose it for Auto apply, each approved job also carries its selected resume and saved answers until the result is stored; revoking the connection deletes them."}
         </Muted>
         {isPrivateOrigin() && (
           <div style={{
@@ -257,7 +257,7 @@ function CopyField({ value, mono = true, rows }: { value: string; mono?: boolean
   )
 }
 
-type AgentChoiceId = 'codex' | 'chatgpt' | 'claude' | 'gemini' | 'meta_muse' | 'other'
+type AgentChoiceId = 'codex' | 'chatgpt' | 'claude' | 'gemini' | 'meta_muse' | 'today' | 'other'
 type AgentChoice = {
   id: AgentChoiceId
   label: string
@@ -290,6 +290,10 @@ const AGENT_CHOICES: AgentChoice[] = [
   },
   {
     id: 'meta_muse', label: 'Meta Muse', mark: 'MM', kind: 'token',
+    description: 'Connect with a private key',
+  },
+  {
+    id: 'today', label: 'Today', mark: 'TD', kind: 'token',
     description: 'Connect with a private key',
   },
   {

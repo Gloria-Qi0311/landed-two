@@ -5,6 +5,7 @@
 
 export const AGENT_PROVIDERS = [
   { id: 'meta_muse', label: 'Meta Muse' },
+  { id: 'today', label: 'Today' },
   { id: 'claude', label: 'Claude' },
   { id: 'codex', label: 'Codex' },
   { id: 'other', label: 'Other agent' },
@@ -29,7 +30,7 @@ Your key for Landed (keep it secret; send it on every request):
   Authorization: Bearer ${token}
 
 == How to connect (pick one) ==
-A. As a connector: if you can add an MCP server or a custom connector, add "Landed" with URL ${origin}/mcp (Streamable HTTP) and the Authorization header above. It has three tools: get_tasks, submit_jobs, submit_email_updates.
+A. As a connector: if you can add an MCP server or a custom connector, add "Landed" with URL ${origin}/mcp (Streamable HTTP) and the Authorization header above. It has four tools: get_tasks, submit_jobs, submit_email_updates, submit_application_result.
 B. Plain HTTPS (Content-Type: application/json):
   1. GET ${origin}/api/agent/tasks → {"tasks": [...]}. Each task has "instructions" and "submit_with".
   2. Do each task exactly as its instructions say.
@@ -39,6 +40,9 @@ B. Plain HTTPS (Content-Type: application/json):
      - email_check → POST ${origin}/api/agent/email-updates
        {"checked_until": "<ISO time you read up to>", "updates": [{"company", "role"?, "status": "applied" | "recruiter_response" | "assessment" | "interview" | "rejected" | "offer" | "other", "confidence" (0 to 1), "job_url"?, "interview_at"? (ISO time with offset), "interview_format"? ("onsite" | "remote"), "evidence": {"message_id"?, "thread_id"?, "sender_domain"?, "subject", "received_at"?, "summary"?}}]}
        Only after you actually read my email (then an empty list is fine). If you can't read my email, skip this task.
+     - auto_apply:* → use the job, shared Landed context and resume link in the task, then POST ${origin}/api/agent/application-result
+       {"task_id": "<task_id>", "status": "submitted" | "blocked" | "error", "blocker"?: "login" | "account" | "captcha" | "answers" | "files" | "review" | "submit", "message"?: "...", "unanswered"?: [{"question", "key"?: string | null, "options"?: string[]}]}
+       Never guess a missing answer. Return every required unanswered question; Landed asks me once, saves my answer into shared context, and every agent can use it next time.
      Sending the same results again is safe: Landed recognizes them.
 
 == Every day ==

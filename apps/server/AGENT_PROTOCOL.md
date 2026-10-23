@@ -2,7 +2,7 @@
 
 External agents (Meta Muse, Claude, Codex, …) find jobs and read status emails. They report each fact to Landed as an **observation**, and Landed decides what it means: deduplication, matching to applications, status changes. An agent never edits the pipeline directly.
 
-**Agents that take MCP connectors (ChatGPT, Claude, Gemini, Claude Code, Codex, Cursor…) should use Landed's MCP server instead** — `https://<landed>/mcp`, connected with OAuth from the agent's own connector settings (`src/routes/mcp.ts`, `src/routes/oauth.ts`). It wraps this protocol: `get_tasks` returns the work Landed has (a job search for the user's confirmed brief; an email check when the user turned those on) with instructions, and `submit_jobs` / `submit_email_updates` turn results into `job_discovered` / `application_status` observations, held and processed exactly as below. Connections made that way are listed with the others (provider `mcp`).
+**Agents that take MCP connectors (ChatGPT, Claude, Gemini, Claude Code, Codex, Cursor…) should use Landed's MCP server instead** — `https://<landed>/mcp`, connected with OAuth from the agent's own connector settings (`src/routes/mcp.ts`, `src/routes/oauth.ts`). It wraps this protocol: `get_tasks` returns approved applications assigned to that agent plus enabled job-search and email-check work. `submit_application_result` returns one application's outcome and missing questions; `submit_jobs` / `submit_email_updates` turn results into `job_discovered` / `application_status` observations. Connections made that way are listed with the others (provider `mcp`).
 
 Personal agents that build connectors from a URL + an API key rather than OAuth (Meta Muse, Manus, OpenClaw…) connect on the **Agent → Settings** page. Landed creates a token there and shows it once, together with copy-paste setup instructions. The token works three ways:
 
@@ -11,6 +11,7 @@ Personal agents that build connectors from a URL + an API key rather than OAuth 
   - `GET /api/agent/tasks` → `{ tasks: [{ id, title, instructions, submit_with, … }], note? }` (403 for connections made before tasks existed: scope `observations:write` only)
   - `POST /api/agent/jobs` `{ summary?, jobs: [{ company, title, job_url, location?, posted?, deadline?, salary?, sponsorship?, why? }] }` → `{ received, added, duplicates, rejected }`
   - `POST /api/agent/email-updates` `{ checked_until?, updates: [{ company, role?, status, confidence, job_url?, interview_at?, interview_format?, evidence: { message_id?, thread_id?, sender_domain?, subject, received_at?, summary? } }] }` — only after actually reading mail; it moves where the next email check starts. Bodies up to 512 KB.
+  - `POST /api/agent/application-result` `{ task_id, status: "submitted" | "blocked" | "error", blocker?, message?, unanswered?: [{ question, key?, options? }] }` — always finish an `auto_apply:*` task this way. Never guess a missing answer: return it in `unanswered`, and Landed asks the user and adds their answer to shared context before retrying.
 - **Observations** (below) for anything outside a task. The web app generates those instructions in `apps/web/src/lib/agent-prompt.ts`; keep that file in step with this document and with `src/routes/agent.ts`.
 
 ## Request

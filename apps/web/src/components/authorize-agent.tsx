@@ -58,10 +58,11 @@ export function AuthorizeAgentPage() {
               <li>read the search direction you confirmed with Landed's agent, search for jobs, and add what it finds to your <b>Leads</b></li>
               <li>if you turned email checks on, report what your job-application emails say (only if it can read your mail itself, e.g. its Gmail connector)</li>
               <li>see the company, role and stage of your applications, so it recognizes them in email</li>
+              <li>if you later choose it under <b>Auto apply → Done by</b>, receive each job you approve with its selected resume and saved answers, submit that application, and return questions it could not answer</li>
             </ul>
             <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-              It can't change or delete anything: Landed decides what its reports mean, as with every agent.
-              {!user.cloud_sync && " Your data stays on this device; while a cloud agent is connected, this browser shares only your search direction and application list (company, role, stage) with Landed's server so the agent can read them."}
+              It can't change or delete your Landed data. It may submit only an application you approved and assigned to it; Landed decides what every other report means.
+              {!user.cloud_sync && " Your data stays on this device. Landed's server keeps only the task context a cloud agent needs; a one-job Auto apply copy is erased after the result is stored."}
               {' '}Disconnect it any time in Agent → Settings; that deletes what was shared.
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>

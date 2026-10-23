@@ -1,6 +1,7 @@
 // Cloud agents (ChatGPT, Claude.ai, Gemini, Manus…) use Landed as a remote
 // MCP server: they ask it for work (`get_tasks`) and hand results back
-// (`submit_jobs`, `submit_email_updates`), on their own schedule. The work
+// (`submit_jobs`, `submit_email_updates`, `submit_application_result`), on
+// their own schedule. Search/email work
 // needs a little context — the search brief and the applications — which
 // the browser shares while a cloud agent is connected (the "briefing").
 // Shared by the server (stores it, builds tasks) and the web app (sends it,
@@ -35,7 +36,7 @@ export function parseBriefing(raw: unknown): Briefing {
 }
 
 /** MCP tool names (the server defines them; the web app's prompts name them). */
-export const CLOUD_TOOLS = { tasks: 'get_tasks', jobs: 'submit_jobs', email: 'submit_email_updates' } as const
+export const CLOUD_TOOLS = { tasks: 'get_tasks', jobs: 'submit_jobs', email: 'submit_email_updates', application: 'submit_application_result' } as const
 
 /** What the user pastes into their cloud agent's scheduled task. */
 export function scheduledPrompt(): string {

@@ -39,7 +39,9 @@ export type SearchSources = AgentSources & { job_lists: boolean; company_boards:
  *  it has had no news for this many days. `sources` (job_search only).
  *  `readers` (email_check only): who reads the email. */
 export type AutomationConfig = { enabled: boolean; schedule: Schedule; quiet_days?: number; sources?: SearchSources; readers?: AgentSources }
-export type AutoApplyConfig = { enabled: boolean; max_concurrent: number }
+/** Who drives an approved application. `extension` is Landed's browser
+ * extension; a UUID names one connected personal agent (Muse, Today, …). */
+export type AutoApplyConfig = { enabled: boolean; max_concurrent: number; executor: 'extension' | string }
 export type Automations = Record<AutomationKind, AutomationConfig> & { auto_apply: AutoApplyConfig }
 
 export const INTERVAL_HOURS = [1, 2, 3, 4, 6, 8, 12]
@@ -54,7 +56,7 @@ export const MAX_PORTALS_PER_RUN = 5
 export const DEFAULT_SEARCH_SOURCES: SearchSources = { agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true, cloud_skip: [] }
 /** Claude Code with its mail connector, and every cloud agent (they read email with their own connectors). */
 export const DEFAULT_EMAIL_READERS: AgentSources = { agents: ['claude'], cloud_agents: true, cloud_skip: [] }
-const CONNECTION_ID = /^[0-9a-f-]{36}$/i
+const CONNECTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MAX_CLOUD_SKIP = 20
 export const MAX_SEARCH_AGENTS = 6
 
@@ -64,7 +66,7 @@ export const DEFAULT_AUTOMATIONS: Automations = {
   portal_check: { enabled: false, schedule: { kind: 'daily', time: '10:00', days: [1] }, quiet_days: 14 },
   // Preserve #99's shipped behavior: approved leads execute automatically
   // unless the user turns this off on Automation.
-  auto_apply: { enabled: true, max_concurrent: 5 },
+  auto_apply: { enabled: true, max_concurrent: 5, executor: 'extension' },
 }
 
 function parseSchedule(raw: unknown, fallback: Schedule): Schedule {
@@ -96,6 +98,9 @@ export function parseAutomations(raw: unknown): Automations {
     max_concurrent: AUTO_APPLY_CONCURRENCY.includes(auto?.max_concurrent as number)
       ? auto!.max_concurrent as number
       : DEFAULT_AUTOMATIONS.auto_apply.max_concurrent,
+    executor: auto?.executor === 'extension' || (typeof auto?.executor === 'string' && CONNECTION_ID.test(auto.executor))
+      ? auto.executor
+      : DEFAULT_AUTOMATIONS.auto_apply.executor,
   }
   return out
 }

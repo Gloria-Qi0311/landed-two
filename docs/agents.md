@@ -54,10 +54,11 @@ per-connection token (`apps/server/src/routes/agent.ts`, protocol in
 
 Cloud agents connect as an MCP connector (`/mcp`, `apps/server/src/routes/mcp.ts`;
 stateless Streamable HTTP, JSON responses). Landed can't start a cloud agent, so
-it's **pull**: `get_tasks` (job search for the confirmed brief; email check when
-`users.email_watch`), then `submit_jobs` / `submit_email_updates`, which become
-ordinary observations through `insertObservation` (same validators, same relay,
-same processor). Tool names and the scheduled-task prompt live in
+it's **pull**: `get_tasks` (approved applications assigned to that connection,
+job search for the confirmed brief, and email checks), then `submit_application_result`,
+`submit_jobs` or `submit_email_updates`. Search/email results become ordinary
+observations through `insertObservation`; application results return to the
+browser's local-first application/answer stores. Tool names and the scheduled-task prompt live in
 `packages/schema/src/cloud-agent.ts`.
 
 **Auth is OAuth 2.1** (`routes/oauth.ts`):
@@ -75,7 +76,8 @@ Each approval is an `agent_connections` row (provider `mcp`, scopes
 that connect with a key instead of OAuth get a token from Agent settings with the
 same scopes. It works for `/mcp`, for the same tools as plain HTTP
 (`agentTaskRoutes`: `GET /api/agent/tasks`, `POST /api/agent/jobs`,
-`POST /api/agent/email-updates`) and for `/api/agent/observations`. Connections
+`POST /api/agent/email-updates`, `POST /api/agent/application-result`) and for
+`/api/agent/observations`. Connections
 from before tasks (scope `observations:write` only) may submit but not read
 tasks. Public origin: `PUBLIC_URL`, else the request's Host / X-Forwarded-*
 (Vite proxies `/mcp`, `/oauth`, `/.well-known` in dev).
@@ -91,14 +93,16 @@ the native confirmation: any page can open a custom URL.
 
 ### The briefing
 
-The briefing is **the one deliberate exception** to "no user data on the server
+The briefing is **one deliberate exception** to "no user data on the server
 for sync-off accounts". Cloud agents run in the cloud, so while the account has a
 connection with `tasks:read` (connector or key), the browser shares
 `{brief, applications: [{company, role, stage}]}` (`useCloudBriefing`,
 `PUT /api/agent-briefing`, only when it changed; 409 without such a connection).
 The server deletes it when the last such connection is revoked
 (`dropBriefingIfUnused`). The consent page says so. Don't widen it (no notes,
-contacts, resumes, emails), and don't add other server-side copies.
+contacts, resumes, emails). The other exception is a user-approved
+personal-agent application task: it is scoped to one connection and one job,
+and its copied context/file are erased on ack (details below).
 
 ## Local agents: `apps/daemon`
 
@@ -429,6 +433,16 @@ hours (`hooks/supply.ts`, `lib/supply.ts`; see
   the settings so a previous one stops.
 - Cloud agents' `get_tasks` follows the same switches (email check, job search).
   Portal checks need the user's Chrome, so never in the cloud.
+- **Personal-agent auto apply** is per connection (`automations.auto_apply.executor`).
+  Approve authorizes one job. The browser copies that job, the chosen resume,
+  saved application answers and prior edited open answers into
+  `agent_apply_tasks`, even for a local-first account. Only the selected
+  connection can read it. `submit_application_result` returns submitted,
+  blocked or error plus structured `unanswered` questions. Those questions go
+  into the existing Application answers queue; after the user answers all of
+  them, the task's context is refreshed and the same authorized job is offered
+  again. Ack then erases the copied context and resume bytes. The unguessable
+  resume download expires after seven days and is invalid immediately on ack.
 - **Email checks** need a mail connector the user already gave their agent, and
   the daemon allows **only its read tools**: the first word must be a read verb
   and no word a write verb, since "thread" contains "read". Discovered write tools

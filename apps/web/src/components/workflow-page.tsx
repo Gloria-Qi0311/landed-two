@@ -330,7 +330,7 @@ function statuses(w: W): Record<StepId, Status> {
     dedupe: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
     rank: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
     apply: !a.auto_apply.enabled ? { dot: 'off', text: 'Off' }
-      : !w.auto.ready ? { dot: 'needs', text: 'Needs the extension here' }
+      : !w.auto.ready ? { dot: 'needs', text: a.auto_apply.executor === 'extension' ? 'Needs the extension here' : 'Needs the selected agent connected' }
         : w.auto.blocked > 0 ? { dot: 'needs', text: `${w.auto.blocked} ${w.auto.blocked === 1 ? 'needs' : 'need'} you` }
           : { dot: 'on', text: `When you approve · up to ${a.auto_apply.max_concurrent}` },
     applied: { dot: 'on', text: 'When the portal confirms' },
@@ -613,6 +613,7 @@ function ApplyPane({ w }: { w: W }) {
   const a = w.automations.auto_apply
   const save = (next: Partial<typeof a>) => w.save({ ...w.automations, auto_apply: { ...a, ...next } })
   const { auto } = w
+  const selectedAgent = a.executor === 'extension' ? null : w.cloud.find((c) => c.id === a.executor) ?? null
   const status = auto.active ? `Applying to ${auto.active} now`
     : auto.queued ? `${auto.queued} approved ${auto.queued === 1 ? 'job is' : 'jobs are'} ready`
       : auto.awaiting ? `${auto.awaiting} waiting for the portal's confirmation`
@@ -623,7 +624,9 @@ function ApplyPane({ w }: { w: W }) {
         <RunNow disabled={auto.busy} busy={auto.busy} onClick={requestAutoApplyRun} />
         <LabeledSwitch on={a.enabled} label="Auto apply" disabled={!w.loaded || w.set.isPending} onChange={(enabled) => save({ enabled })} />
       </>}>
-      {!auto.ready && <Needs>Install or reload the Landed browser extension in this browser before approved jobs can start.</Needs>}
+      {!auto.ready && <Needs>{a.executor === 'extension'
+        ? 'Install or reload the Landed browser extension in this browser before approved jobs can start.'
+        : 'The selected personal agent is no longer connected. Reconnect it or choose another executor.'}</Needs>}
       {auto.blocked > 0 && (
         <Needs>
           {auto.blocked} approved {auto.blocked === 1 ? 'application needs' : 'applications need'} you.{' '}
@@ -631,8 +634,18 @@ function ApplyPane({ w }: { w: W }) {
         </Needs>
       )}
       <Settings>
-        <Field label="Done by" help="It runs in this browser; once a tab is open, it keeps going if you leave or close Landed">
-          <span>The Landed extension <span style={muted}>· your agent checks the form</span></span>
+        <Field label="Done by" help={a.executor === 'extension'
+          ? 'The extension uses this signed-in browser; once a tab is open, it keeps going if you leave Landed.'
+          : 'The selected personal agent receives one approved job, its resume and your shared Landed context.'}>
+          <select aria-label="Auto apply executor" value={a.executor} disabled={!w.loaded || w.set.isPending} style={{ fontSize: 12.5, alignSelf: 'flex-start' }}
+            onChange={(event) => save({ executor: event.target.value })}>
+            <option value="extension">Landed extension</option>
+            {w.cloud.map((connection) => <option key={connection.id} value={connection.id}>{connection.display_name}</option>)}
+            {!selectedAgent && a.executor !== 'extension' && <option value={a.executor}>Disconnected agent</option>}
+          </select>
+          <span style={muted}>{a.executor === 'extension'
+            ? 'Fills in this browser; your local agent reviews the form.'
+            : `${selectedAgent?.display_name ?? 'This agent'} uses your resume and saved answers. Missing questions come back to Needs your input and become shared answers after you reply.`}</span>
         </Field>
         <Field label="When"><span>When you approve a job in Leads, highest priority first</span></Field>
         <Field label="At most">

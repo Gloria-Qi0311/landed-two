@@ -23,6 +23,7 @@ import { fileRoutes } from './routes/files.ts'
 import { traceRoutes } from './routes/traces.ts'
 import { downloadRoutes } from './routes/downloads.ts'
 import { agentTaskRoutes, mcpRoutes } from './routes/mcp.ts'
+import { agentApplyAccountRoutes, agentApplyDownloadRoutes } from './routes/agent-apply.ts'
 import { oauthAccountRoutes, oauthRoutes } from './routes/oauth.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
@@ -68,7 +69,7 @@ export function createApp(
     const limit = c.req.path === '/api/sync/upload' || c.req.path === '/api/cloud/enable'
       ? uploadBody
       : c.req.path === '/api/runtime-jobs' ? taskBody
-      : c.req.path.startsWith('/api/application-files/') ? fileBody
+      : c.req.path.startsWith('/api/application-files/') || c.req.path === '/api/agent-apply-tasks' ? fileBody
       : c.req.path === '/api/agent/jobs' || c.req.path === '/api/agent/email-updates' ? agentBatchBody
       : c.req.path.startsWith('/api/agent/') ? agentBody : smallBody
     return limit(c, next)
@@ -98,6 +99,7 @@ export function createApp(
   // browser/extension session token.
   app.route('/api/agent', agentIngestRoutes(sql))
   app.route('/api/agent', agentTaskRoutes(sql))
+  app.route('/api', agentApplyDownloadRoutes(sql))
   // The user's own computers (Landed daemon) authenticate with a runtime
   // token, never a session.
   app.route('/api/runtime', runtimeDaemonRoutes(sql, runtimes))
@@ -108,6 +110,7 @@ export function createApp(
   api.use('*', requireUser(sql))
   api.route('/', accountRoutes(sql))
   api.route('/', agentAccountRoutes(sql))
+  api.route('/', agentApplyAccountRoutes(sql))
   api.route('/', runtimeAccountRoutes(sql, runtimes))
   api.route('/', oauthAccountRoutes(sql, config))
   const cloud = new Hono<AppEnv>()

@@ -40,9 +40,12 @@ describe('schedules', () => {
     expect(parseAutomations({ job_search: { enabled: true, schedule: { kind: 'interval', hours: 3 } } }).job_search.schedule)
       .toEqual({ kind: 'interval', hours: 3 }) // Agent search every 3 hours
     expect(parseAutomations(null).job_search.enabled).toBe(false)
-    expect(parseAutomations(null).auto_apply).toEqual({ enabled: true, max_concurrent: 5 })
+    expect(parseAutomations(null).auto_apply).toEqual({ enabled: true, max_concurrent: 5, executor: 'extension' })
     expect(parseAutomations({ auto_apply: { enabled: false, max_concurrent: 2 } }).auto_apply)
-      .toEqual({ enabled: false, max_concurrent: 2 })
+      .toEqual({ enabled: false, max_concurrent: 2, executor: 'extension' })
+    expect(parseAutomations({ auto_apply: { executor: '11111111-2222-4333-8444-555555555555' } }).auto_apply.executor)
+      .toBe('11111111-2222-4333-8444-555555555555')
+    expect(parseAutomations({ auto_apply: { executor: 'not-an-agent' } }).auto_apply.executor).toBe('extension')
     expect(parseAutomations({ auto_apply: { enabled: true, max_concurrent: 99 } }).auto_apply.max_concurrent).toBe(5)
     expect(parseSyncInput({ runtime_id: 'nope' })).toBeNull()
     const input = parseSyncInput({ runtime_id: '11111111-2222-4333-8444-555555555555', run_now: ['email_check', 'rm -rf'], ack: ['x'], context: { applications: [{ company: 'A', role: 'PM', stage: 'phone' }] } })!

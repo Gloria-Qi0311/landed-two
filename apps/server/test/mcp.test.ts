@@ -2,7 +2,7 @@
 // server, end to end against a real Postgres. Wipes and re-migrates the
 // database at TEST_DATABASE_URL (default: local landed_test).
 import assert from 'node:assert/strict'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { after, before, describe, test } from 'node:test'
 import { createApp } from '../src/app.ts'
 import type { Config } from '../src/config.ts'
@@ -203,7 +203,7 @@ describe('MCP', () => {
     const note = await call('POST', '/mcp', { token: access, body: { jsonrpc: '2.0', method: 'notifications/initialized' } })
     assert.equal(note.status, 202)
     const tools = await rpc(access, 'tools/list')
-    assert.deepEqual(tools.body.result.tools.map((t: { name: string }) => t.name), ['get_tasks', 'submit_jobs', 'submit_email_updates'])
+    assert.deepEqual(tools.body.result.tools.map((t: { name: string }) => t.name), ['get_tasks', 'submit_jobs', 'submit_email_updates', 'submit_application_result'])
     assert.equal((await rpc(access, 'nope/method')).body.error.code, -32601)
 
     // No automation on yet; then on, but nothing shared yet.
@@ -288,6 +288,85 @@ describe('MCP', () => {
     const status = inbox.body.find((o: any) => o.observation_type === 'application_status')
     assert.equal(status.payload_json.payload.evidence.source, 'email')
     assert.equal(status.payload_json.payload.interview_at, '2026-11-02T17:00:00.000Z')
+  })
+
+  test('a selected personal agent gets one approved application, shared context and missing questions return to Landed', async () => {
+    const session = await signup('personal-apply@example.com')
+    const { access } = await connectAgent(session)
+    const connection = (await call('GET', '/api/agent-connections', { token: session })).body.find((c: any) => !c.revoked_at)
+    const taskId = randomUUID()
+    const applicationId = randomUUID()
+    const resumeId = randomUUID()
+    const queued = await call('POST', '/api/agent-apply-tasks', {
+      token: session,
+      body: {
+        id: taskId,
+        connection_id: connection.id,
+        application_id: applicationId,
+        lead_id: randomUUID(),
+        submit_authorized: true,
+        job: { company: 'Acme', role: 'Product Manager', url: 'https://jobs.example/acme/pm', description: 'Build payments.' },
+        context: {
+          selected_resume: { version: 2, basic: { name: 'A Person' }, skills: ['SQL'] },
+          application_answers: { work_authorized: 'yes', needs_sponsorship: 'no' },
+        },
+        resume: { id: randomUUID(), resume_id: resumeId, name: 'pm.pdf', data: Buffer.from('%PDF-test').toString('base64') },
+      },
+    })
+    assert.equal(queued.status, 201, JSON.stringify(queued.body))
+
+    const other = await call('POST', '/api/agent-connections', {
+      token: session, body: { provider: 'today', display_name: 'Today' },
+    })
+    assert.deepEqual((await tool(other.body.token, 'get_tasks')).structuredContent.tasks, [], 'a different connected agent cannot read the task')
+
+    let tasks = await tool(access, 'get_tasks')
+    const apply = tasks.structuredContent.tasks[0]
+    assert.equal(apply.id, `auto_apply:${taskId}`)
+    assert.equal(apply.submit_with, 'submit_application_result')
+    assert.equal(apply.submit_authorized, true)
+    assert.equal(apply.context.application_answers.work_authorized, 'yes')
+    assert.match(apply.resume.download_url, new RegExp(`/api/agent/apply-files/`))
+    const download = await app.request(new URL(apply.resume.download_url).pathname)
+    assert.equal(download.status, 200)
+    assert.equal(await download.text(), '%PDF-test')
+
+    const result = await tool(access, 'submit_application_result', {
+      task_id: taskId,
+      status: 'submitted',
+      unanswered: [{ question: 'What is your shirt size?', key: null, options: ['S', 'M', 'L'] }],
+    })
+    assert.equal(result.structuredContent.status, 'blocked', 'unanswered required fields prevent submission')
+    assert.equal(result.structuredContent.result.blocker, 'answers')
+    tasks = await tool(access, 'get_tasks')
+    assert.deepEqual(tasks.structuredContent.tasks, [])
+
+    const waiting = await call('GET', '/api/agent-apply-tasks', { token: session })
+    assert.equal(waiting.body[0].application_id, applicationId)
+    assert.equal(waiting.body[0].result.unanswered[0].question, 'What is your shirt size?')
+    const retried = await call('POST', `/api/agent-apply-tasks/${taskId}/retry`, {
+      token: session,
+      body: { application_answers: { custom: [{ question: 'What is your shirt size?', answer: 'M' }] } },
+    })
+    assert.equal(retried.body.status, 'pending')
+    tasks = await tool(access, 'get_tasks')
+    assert.equal(tasks.structuredContent.tasks[0].context.application_answers.custom[0].answer, 'M')
+    const submitted = await tool(access, 'submit_application_result', { task_id: taskId, status: 'submitted' })
+    assert.equal(submitted.structuredContent.status, 'submitted')
+    assert.equal((await call('POST', `/api/agent-apply-tasks/${taskId}/ack`, { token: session })).status, 200)
+    assert.deepEqual((await call('GET', '/api/agent-apply-tasks', { token: session })).body, [])
+    assert.equal((await app.request(new URL(apply.resume.download_url).pathname)).status, 404)
+
+    const reapproved = await call('POST', '/api/agent-apply-tasks', {
+      token: session,
+      body: {
+        id: randomUUID(), connection_id: connection.id, application_id: applicationId,
+        submit_authorized: true,
+        job: { company: 'Acme', role: 'Product Manager', url: 'https://jobs.example/acme/pm', description: '' },
+        context: { application_answers: {} },
+      },
+    })
+    assert.equal(reapproved.status, 201, 'an acknowledged application can be explicitly approved again')
   })
 
   test('refresh rotates both tokens; disconnecting ends access and deletes the briefing', async () => {

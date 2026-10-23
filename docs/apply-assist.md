@@ -620,7 +620,8 @@ the application doesn't bring it back). Events older than 30 days are ignored.
 
 **Approved-lead execution** (#99) starts automatically after Approve and keeps a
 manual Retry approved control. Workflow's Auto apply stage owns its on/off switch, 1–5 concurrent
-limit, Run now and queue/blocker status (`automations.auto_apply`). The global
+limit, executor (the Landed extension or one connected personal agent), Run now
+and queue/blocker status (`automations.auto_apply`). The global
 `useAutoApplyRunner` stays mounted on every Landed route. It uses the same
 `priority` order as the cards and opens only as many linked `saved` applications
 as the configured concurrency leaves free, one tab at a time in that order;
@@ -632,6 +633,16 @@ blocked job never consumes the rest of the batch:
 - an active application at the company has a `recruiter_response` note;
 - the application is already filling / waiting for review, lacks a posting link,
   or has no usable resume.
+
+With a personal-agent executor (Muse, Today, or another task-capable
+connection), the browser enqueues the approved job instead of opening a local
+tab. Its one-job snapshot contains the selected resume, saved Application
+answers and prior edited open answers. Only that connection sees it. The agent
+returns `unanswered` questions with `submit_application_result`; they enter the
+same Application answers queue as questions found by the extension. After the
+user answers every returned question, Landed refreshes the shared answers in the
+task and offers it again. Acknowledging a terminal result erases the copied
+context and resume file from the relay.
 
 Before touching fields, `blockers.js` checks for a visible password/account form
 or CAPTCHA. A CAPTCHA counts only when it's on screen for the person: shown, with
