@@ -261,7 +261,8 @@ function useWorkflow() {
   // What the last Run now under Find jobs did, said on its pages.
   const [findNote, setFindNote] = useState<string | null>(null)
   const choices = searchComputer(runtimes, automations).map((t) => t.agent)
-  const searchers = chosenSearchTargets(runtimes, automations).map((t) => t.agent.label)
+  const chosenSearchers = chosenSearchTargets(runtimes, automations).map((t) => t.agent)
+  const searchers = chosenSearchers.map((agent) => agent.label)
   const anyAgent = targets.some((t) => computerCan(t, 'job_search'))
   // Who reads email: the computer's agents that can (Claude Code once its
   // mail connector is found; listed before that so it can be ticked) and the
@@ -286,7 +287,7 @@ function useWorkflow() {
   }
   const save = (next: Automations) => set.mutate(next)
   return {
-    automations, loaded, set, save, sync, targets, designated, cloud, search, boards, supply, choices, searchers, anyAgent, findNote, setFindNote,
+    automations, loaded, set, save, sync, targets, designated, cloud, search, boards, supply, choices, chosenSearchers, searchers, anyAgent, findNote, setFindNote,
     emailAgent, mail, readers, mailAgents, localReaders, portalAgent, chrome, auto,
     anyPaired: (runtimes ?? []).some((r) => !r.revoked_at && r.last_seen_at),
     outdated: (runtimes ?? []).some((r) => r.online && r.agents.length && !r.agents.some((a) => a.kinds?.includes('automation_sync'))),
@@ -509,16 +510,22 @@ function FindNotes({ w }: { w: W }) {
 function FindControls({ w }: { w: W }) {
   const a = w.automations
   const state = useScheduleState('job_search')
-  const cantRun = !w.designated || !w.search || state.running
+  const once = w.chosenSearchers.length ? w.chosenSearchers : w.choices.slice(0, 1)
+  const canRunAgent = !!w.designated && once.length > 0
+  const canRunPublicSources = !!w.supply.refresh
+  const cantRun = !w.search || state.running || w.supply.running || (!canRunAgent && !canRunPublicSources)
   return (
     <>
-      <RunNow disabled={cantRun} onClick={() => {
-        requestRunNow('job_search')
+      <RunNow disabled={cantRun} busy={state.running || w.supply.running} onClick={() => {
+        if (canRunAgent) requestRunNow('job_search', { agents: once.map((agent) => agent.id) })
         w.supply.refresh?.()
-        // Say what Run now does: with no agent on the computer ticked, only the lists and boards.
-        w.setFindNote(w.searchers.length
-          ? `Searching now with ${w.searchers.join(' and ')}, and checking the job lists and company boards. New postings show up in Leads.`
-          : 'No agent on your computer is ticked, so Run now only checks the job lists and company boards. Connected agents search when they run. New postings show up in Leads.')
+        const agentText = canRunAgent
+          ? w.chosenSearchers.length
+            ? `Searching now with ${once.map((agent) => agent.label).join(' and ')}.`
+            : `Run now is using ${once[0].label} once; your scheduled agent choices stay unchanged.`
+          : 'No computer agent is available for this run.'
+        const publicText = canRunPublicSources ? ' Checking the job lists and company boards too.' : ''
+        w.setFindNote(`${agentText}${publicText} Connected agents still run on their own.`)
       }} />
       <LabeledSwitch on={a.job_search.enabled} label="Find jobs" disabled={!w.loaded || w.set.isPending}
         onChange={(enabled) => w.save({ ...a, job_search: { ...a.job_search, enabled } })} />
@@ -654,6 +661,7 @@ function ApplyPane({ w }: { w: W }) {
         <RunNow disabled={auto.busy} busy={auto.busy} onClick={requestAutoApplyRun} />
         <LabeledSwitch on={a.enabled} label="Auto apply" disabled={!w.loaded || w.set.isPending} onChange={(enabled) => save({ enabled })} />
       </>}>
+      {auto.note && <div role="status" style={mutedLarge}>{auto.note}</div>}
       {!auto.ready && <Needs>{a.executor === 'extension'
         ? 'Install or reload the Landed browser extension in this browser before approved jobs can start.'
         : 'The selected personal agent is no longer connected. Reconnect it or choose another executor.'}</Needs>}
@@ -687,7 +695,6 @@ function ApplyPane({ w }: { w: W }) {
         <Field label="Right now"><span>{status}{auto.lastStarted && <span style={muted}> · last started {formatRelative(auto.lastStarted)}</span>}</span></Field>
         <Field label="Stops for you"><span>Sign-in, account creation, a CAPTCHA, missing answers or files, review flags or an unclear final button stop only that job, and the application says why.</span></Field>
       </Settings>
-      {auto.note && <div role="status" style={muted}>{auto.note}</div>}
     </Pane>
   )
 }
@@ -705,12 +712,16 @@ function AppliedPane() {
 }
 
 /** A scheduled status step's own switch and Run now. */
-function StepControls({ w, kind, label, blocked }: { w: W; kind: 'email_check' | 'portal_check'; label: string; blocked: boolean }) {
+function StepControls({ w, kind, label, blocked, agents }: {
+  w: W; kind: 'email_check' | 'portal_check'; label: string; blocked: boolean; agents?: string[]
+}) {
   const a = w.automations[kind]
   const state = useScheduleState(kind)
+  const noExecutor = agents !== undefined && agents.length === 0
   return (
     <>
-      <RunNow disabled={!w.designated || blocked || state.running} onClick={() => requestRunNow(kind)} />
+      <RunNow disabled={!w.designated || blocked || noExecutor || state.running} busy={state.running}
+        onClick={() => requestRunNow(kind, agents ? { agents } : {})} />
       <LabeledSwitch on={a.enabled} label={label} disabled={!w.loaded || w.set.isPending} onChange={(enabled) => w.save({ ...w.automations, [kind]: { ...a, enabled } })} />
     </>
   )
@@ -720,11 +731,20 @@ function EmailPane({ w }: { w: W }) {
   const a = w.automations.email_check
   const state = useScheduleState('email_check')
   const agent = w.emailAgent
+  const runAgents = (w.localReaders.length ? w.localReaders : w.mailAgents.slice(0, 1)).map((item) => item.id)
+  const runAgent = (w.localReaders.length ? w.localReaders : w.mailAgents.slice(0, 1))[0] ?? null
   const signedOut = w.targets.some((t) => t.runtime.agents.some((x) => x.id === 'claude' && x.auth === 'signed_out'))
-  const cantRescan = !w.designated || !agent || state.running
+  const cantRescan = !w.designated || runAgents.length === 0 || state.running
   return (
     <Pane title="Check email" help="Reads the email you received since the last check (confirmations, tests, interviews and their times, rejections, offers) and updates your applications. Read-only: it never sends, labels or deletes anything."
-      controls={<StepControls w={w} kind="email_check" label="Check email" blocked={w.mail !== 'ok'} />}>
+      controls={<StepControls w={w} kind="email_check" label="Check email" blocked={w.mail !== 'ok'} agents={runAgents} />}>
+      {state.running && <Needs waiting>Checking email now{runAgent ? ` with ${runAgent.label}` : ''}…</Needs>}
+      {!state.running && w.localReaders.length === 0 && runAgent && (
+        <Needs waiting>Run now uses {runAgent.label} once. Your scheduled choices stay unchanged; connected agents still run on their own.</Needs>
+      )}
+      {!state.running && runAgents.length === 0 && w.cloud.some((c) => cloudAgentOn(w.readers, c.id)) && (
+        <Needs>Run now needs an email-capable agent on your computer. Connected agents cannot be started from Landed.</Needs>
+      )}
       {w.mail === 'checking' && <Needs waiting>Checking whether your agent can read your email…</Needs>}
       {w.mail === 'confirming' && <Needs waiting>Your email is connected in Claude. Making sure your agent can read it: this takes a moment.</Needs>}
 
@@ -746,7 +766,7 @@ function EmailPane({ w }: { w: W }) {
         </Field>
         <Field label="Then"><AutoApplyChoice /></Field>
         <Field label="Missed something?" help="Emails it has seen before are recognized, not applied twice">
-          <button type="button" className="btn-secondary" disabled={cantRescan} onClick={() => requestRunNow('email_check', { rescanDays: 30 })}
+          <button type="button" className="btn-secondary" disabled={cantRescan} onClick={() => requestRunNow('email_check', { rescanDays: 30, agents: runAgents })}
             style={{ ...smallBtn, alignSelf: 'flex-start', opacity: cantRescan ? 0.6 : 1 }}>
             Re-read the last 30 days
           </button>
@@ -797,6 +817,7 @@ function PortalsPane({ w }: { w: W }) {
   return (
     <Pane title="Check candidate portals" help="Opens the portals of applications that went quiet in your Chrome and reads their status. Read-only: it never clicks, types or signs in."
       controls={<StepControls w={w} kind="portal_check" label="Check portals" blocked={w.chrome !== 'ok'} />}>
+      {state.running && <Needs waiting>Checking candidate portals now{agent ? ` with ${agent.label}` : ''}…</Needs>}
       {w.chrome === 'checking' && <Needs waiting>Checking whether your agent can use Chrome…</Needs>}
       {w.chrome === 'missing' && <Needs>Your agent can't use Chrome yet. Connect the Claude in Chrome extension to Claude Code, then come back to this page: Landed checks again right away.</Needs>}
       <Settings>

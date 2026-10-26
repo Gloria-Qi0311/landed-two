@@ -48,8 +48,13 @@ describe('schedules', () => {
     expect(parseAutomations({ auto_apply: { executor: 'not-an-agent' } }).auto_apply.executor).toBe('extension')
     expect(parseAutomations({ auto_apply: { enabled: true, max_concurrent: 99 } }).auto_apply.max_concurrent).toBe(5)
     expect(parseSyncInput({ runtime_id: 'nope' })).toBeNull()
-    const input = parseSyncInput({ runtime_id: '11111111-2222-4333-8444-555555555555', run_now: ['email_check', 'rm -rf'], ack: ['x'], context: { applications: [{ company: 'A', role: 'PM', stage: 'phone' }] } })!
+    const input = parseSyncInput({
+      runtime_id: '11111111-2222-4333-8444-555555555555', run_now: ['email_check', 'rm -rf'],
+      run_now_agents: { email_check: ['claude', 'claude', 'Bad id!', 7], job_search: ['codex'] },
+      ack: ['x'], context: { applications: [{ company: 'A', role: 'PM', stage: 'phone' }] },
+    })!
     expect(input.run_now).toEqual(['email_check'])
+    expect(input.run_now_agents).toEqual({ email_check: ['claude'], job_search: ['codex'] })
     expect(input.ack).toEqual([])
     expect(input.context.applications).toEqual([])
     expect(parseSyncOutput({ results: [{ id: 'bad', kind: 'email_check' }], runs: [{ kind: 'job_search', status: 'weird' }] }))

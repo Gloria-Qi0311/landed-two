@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url'
 process.env.LANDED_HOME = mkdtempSync(join(tmpdir(), 'landed-any-'))
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 process.env.PATH = `${fixtures}:${process.env.PATH}`
+// Codex.app exports its bundled CLI path into desktop-launched processes.
+// Pin the test double explicitly so that environment cannot bypass PATH and
+// turn this unit test into a real, billable Codex search.
+process.env.CODEX_CLI_PATH = join(fixtures, 'codex')
 
 const { MASTER_SCHEMA, RESUME_SCHEMA, SEARCH_RESULT_SCHEMA, TAILOR_SCHEMA, specFor } = await import('../src/agents.ts')
 const { codexArgs, dropNulls, parseCodexLine, runCodex, strictSchema } = await import('../src/codex.ts')

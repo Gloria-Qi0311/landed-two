@@ -121,7 +121,11 @@ export function handleSync(input: SyncInput): SyncOutput {
   // A page is waiting for a connector: every computer looks again, not just the one running the schedule.
   if (input.recheck) recheckFn?.()
   if (input.runtime_id === myRuntimeId) {
-    for (const kind of input.run_now) void runAutomation(kind, kind === 'email_check' && input.email_rescan_days ? { rescanDays: input.email_rescan_days } : {})
+    for (const kind of input.run_now) void runAutomation(kind, {
+      manual: true,
+      agents: input.run_now_agents?.[kind],
+      ...(kind === 'email_check' && input.email_rescan_days ? { rescanDays: input.email_rescan_days } : {}),
+    })
   }
   return output()
 }
@@ -146,7 +150,7 @@ type Planned =
   /** nothing to do this time (not a failure) */
   | { skip: string }
 
-type RunOptions = { rescanDays?: number }
+type RunOptions = { rescanDays?: number; manual?: boolean; agents?: string[] }
 
 function inputFor(kind: AutomationKind, ctx: SyncContext, st: State, opts: RunOptions = {}): Planned {
   if (kind === 'email_check') {
@@ -191,24 +195,26 @@ async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
   // No agent on this computer ticked: the user chose the lists, boards and
   // cloud agents. Nothing to do here, and nothing to report: the schedule
   // just moves on.
-  if (kind === 'job_search' && st.automations?.job_search.sources?.agents.length === 0) {
-    nothingHere(kind)
+  if (kind === 'job_search' && opts.agents === undefined && st.automations?.job_search.sources?.agents.length === 0) {
+    nothingHere(kind, opts.manual)
     return
   }
   // Email is read by the agent ticked under Check email (the first of them
   // that can here); none ticked: the cloud agents read it, not this computer.
   const readers = kind === 'email_check' ? st.automations?.email_check.readers : undefined
-  if (readers && readers.agents.length === 0) {
-    nothingHere(kind)
+  if (readers && opts.agents === undefined && readers.agents.length === 0) {
+    nothingHere(kind, opts.manual)
     return
   }
-  const several = kind === 'job_search' && agentsFor ? pickSearchAgents(agentsFor(kind), st.automations?.job_search.sources) : null
+  const searchSources = opts.agents === undefined ? st.automations?.job_search.sources : { ...st.automations?.job_search.sources, agents: opts.agents }
+  const emailReaders = opts.agents === undefined ? readers : { ...readers, agents: opts.agents }
+  const several = kind === 'job_search' && agentsFor ? pickSearchAgents(agentsFor(kind), searchSources) : null
   running.add(kind)
   try {
     if (several && several.length > 0) {
       for (const agent of several) await runWith(kind, agent.id, several.length > 1 ? agent.label : null, opts)
-    } else if (readers && agentsFor) {
-      await runWith(kind, pickAgents(agentsFor(kind), readers)[0]?.id ?? null, null, opts)
+    } else if (emailReaders && agentsFor) {
+      await runWith(kind, pickAgents(agentsFor(kind), emailReaders)[0]?.id ?? null, null, opts)
     } else {
       await runWith(kind, pickAgent(kind), null, opts)
     }
@@ -219,8 +225,19 @@ async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
 
 /** Nothing for this computer to do (none of its agents ticked): no run in
  *  the log, the schedule just moves on. */
-function nothingHere(kind: AutomationKind) {
+function nothingHere(kind: AutomationKind, manual = false) {
   const st = s()
+  if (manual) {
+    const at = new Date().toISOString()
+    const noun = kind === 'email_check' ? 'read email' : 'search for jobs'
+    const run: AutomationRun = {
+      id: randomUUID(), kind, started_at: at, finished_at: at, status: 'error', summary: null,
+      error: `Run now couldn't start: no agent on this computer was available to ${noun}.`,
+    }
+    st.runs = [run, ...st.runs].slice(0, MAX_RUNS)
+    save()
+    return
+  }
   st.last_success[kind] = new Date().toISOString()
   delete st.last_failure[kind]
   save()

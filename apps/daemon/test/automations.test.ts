@@ -178,15 +178,23 @@ test('Find new jobs searches with each agent chosen on the Workflow page that is
   await settle()
   assert.deepEqual(calls, ['claude'])
 
-  // Every agent unticked: none searches here, nothing goes in the log, and the schedule moves on.
+  // Every agent unticked: a schedule does nothing here. An explicit Run now
+  // without a one-time executor reports the problem instead of disappearing.
   calls.length = 0
   const logged = sync({ automations: search([]), context: withBrief }).runs.length
   sync({ automations: search([]), context: withBrief, run_now: ['job_search'] })
   await settle()
   assert.deepEqual(calls, [], 'not the first that can')
   const none = sync({ automations: search([]), context: withBrief })
-  assert.equal(none.runs.length, logged, 'no run logged')
-  assert.ok(Date.now() - Date.parse(String(none.state.job_search?.last_success_at)) < 5_000, 'the schedule moved on')
+  assert.equal(none.runs.length, logged + 1)
+  assert.equal(none.runs[0].status, 'error')
+  assert.match(String(none.runs[0].error), /Run now couldn't start/)
+
+  // The button can grant a computer agent a one-time run without changing
+  // the empty recurring schedule selection.
+  sync({ automations: search([]), context: withBrief, run_now: ['job_search'], run_now_agents: { job_search: ['codex'] } })
+  await settle()
+  assert.deepEqual(calls, ['codex'])
 })
 
 test('Check email is read by the agent ticked here; none ticked leaves it to the cloud agents', async () => {
@@ -206,7 +214,13 @@ test('Check email is read by the agent ticked here; none ticked leaves it to the
   sync({ automations: readBy([]), run_now: ['email_check'] })
   await settle()
   assert.deepEqual(calls, [], 'not the first that can')
-  assert.equal(sync({ automations: readBy([]) }).runs.length, logged, 'no run logged')
+  const missing = sync({ automations: readBy([]) })
+  assert.equal(missing.runs.length, logged + 1)
+  assert.match(String(missing.runs[0].error), /Run now couldn't start/)
+
+  sync({ automations: readBy([]), run_now: ['email_check'], run_now_agents: { email_check: ['claude'] } })
+  await settle()
+  assert.deepEqual(calls, ['claude'], 'a one-time explicit reader works without changing the schedule')
 })
 
 test('a page waiting for a connector makes every computer look again, and hears what they reach', () => {

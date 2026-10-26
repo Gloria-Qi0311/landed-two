@@ -210,6 +210,10 @@ export type SyncInput = {
   context: SyncContext
   /** run these now, schedule or not */
   run_now: AutomationKind[]
+  /** One-time executor override for Run now. This does not change who runs
+   * the recurring schedule; it lets an explicit click use an available
+   * computer agent even when only connected agents are ticked. */
+  run_now_agents: Partial<Record<AutomationKind, string[]>>
   /** results the browser has stored — the daemon can drop them */
   ack: string[]
   /** with run_now email_check: read this many days back instead of from the last check */
@@ -261,6 +265,7 @@ export type SyncOutput = {
 }
 
 const UUID = /^[0-9a-f-]{36}$/i
+const AGENT_ID = /^[a-z0-9][a-z0-9:._-]{0,39}$/
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
 const iso = (v: unknown) => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : null)
 const isKind = (v: unknown): v is AutomationKind => (AUTOMATION_KINDS as readonly unknown[]).includes(v)
@@ -270,6 +275,8 @@ export function parseSyncInput(raw: unknown): SyncInput | null {
   const r = raw as Record<string, unknown>
   if (typeof r.runtime_id !== 'string' || !UUID.test(r.runtime_id)) return null
   const c = (r.context && typeof r.context === 'object' ? r.context : {}) as Record<string, unknown>
+  const requestedAgents = (r.run_now_agents && typeof r.run_now_agents === 'object' && !Array.isArray(r.run_now_agents)
+    ? r.run_now_agents : {}) as Record<string, unknown>
   const STAGES = ['saved', 'applied', 'oa', 'interview', 'offer', 'rejected', 'ghosted']
   const applications = (Array.isArray(c.applications) ? c.applications : []).slice(0, 300)
     .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
@@ -292,6 +299,12 @@ export function parseSyncInput(raw: unknown): SyncInput | null {
         .filter((a) => UUID.test(a.id) && a.company && a.role && STAGES.includes(a.stage) && /^https?:\/\/[^\s/?#]+\.[^\s]*$/i.test(a.url) && a.last_signal_at),
     },
     run_now: (Array.isArray(r.run_now) ? r.run_now : []).filter(isKind),
+    run_now_agents: Object.fromEntries(AUTOMATION_KINDS.flatMap((kind) => {
+      const ids = Array.isArray(requestedAgents[kind])
+        ? [...new Set(requestedAgents[kind].filter((id): id is string => typeof id === 'string' && AGENT_ID.test(id)))].slice(0, MAX_SEARCH_AGENTS)
+        : []
+      return ids.length ? [[kind, ids]] : []
+    })),
     ack: (Array.isArray(r.ack) ? r.ack : []).filter((x): x is string => typeof x === 'string' && UUID.test(x)).slice(0, 200),
     email_rescan_days: RESCAN_DAYS.includes(r.email_rescan_days as number) ? r.email_rescan_days as number : null,
     recheck: r.recheck === true,
