@@ -305,6 +305,40 @@ duplicates is set to "Landed rules, then your agent" (`users.automations.job_sea
   the last batch.
 - `dedupe` is a lead queue field (`readLeadQueueFields`, migration 0027, Dexie v17).
 
+## Rank with your agent (#147)
+
+The rules' fit score (`scoreFit`, above) is always computed. When Workflow → Rank
+is set to "Landed rules and your agent" (`users.automations.job_search.rank_by`,
+`'landed'` by default), new leads also go to the user's own agent:
+
+- **What it gets** (`lib/rank.ts`, `hooks/rank.ts`): the same context the chat
+  agent gets (`chatContext`: the resume gist, the answers that shape a search, the
+  search; never contact details, address, date of birth or EEO answers). With it
+  go the batch's postings: title, company, place and the first 2,500 characters of
+  the description. It goes through the extension (bridge `rank-leads`) and Landed
+  for Mac (native `rank_leads`: the user's Claude Code with no tools, else Ollama).
+- **Which leads**: new, open, not filtered out, not hidden as a duplicate, and not
+  yet scored for the active search. Newest first, at most 8 and about 4,000 tokens
+  of postings a batch.
+- **What comes back**: a 0–1 score with 1–3 reasons per lead, kept as
+  `rank = {score, reasons, by, at, search_id}` (a lead queue field, migration
+  0028, Dexie v18). A score without reasons is dropped. A lead the agent gave no
+  score keeps the rules' and isn't asked again in that session.
+- **How they combine** (`rankedFit` in packages/supply): while Rank is on the
+  agent and the score was made for the active search, the fit the queue orders by
+  is `0.4 × rules + 0.6 × agent`. Priority is then fit × urgency, as above.
+  Otherwise the order uses the rules' fit alone, so turning the agent off or
+  changing the search puts the rules' order back. A new search ranks again, newest
+  first. The card shows the combined %, the agent's first reason, and under
+  Details the agent's reasons and the rules'. The apply queue orders the same way.
+- **New jobs wait for their score**: with the agent on and reachable, a lead first
+  seen less than 5 minutes ago without a score for this search stays out of the
+  column. The column says "Ranking N new jobs with your agent…". After 5 minutes,
+  or if the agent can't be asked, it shows with the rules' score. Nothing is
+  blocked.
+- **Logged**: each batch is an `ai_runs` row (task `rank_leads`) with the
+  postings, the scores and the tokens. Workflow shows the last batch.
+
 ## Approved-lead execution (#99)
 
 Approve starts linked `saved` applications automatically in the same `priority`

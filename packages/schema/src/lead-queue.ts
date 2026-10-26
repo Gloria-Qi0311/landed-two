@@ -11,6 +11,8 @@
 //   fit        {score, reasons} match against the master resume, score 0–1
 //   dedupe     {same_as, checked, by, at, reason}  a duplicate the rules
 //              couldn't decide, as the user's own agent judged it (#146)
+//   rank       {score, reasons, by, at, search_id}  the user's own agent's
+//              score for the search it was made for (#147)
 //
 // Every field is optional (null). Priority is computed when shown, never
 // stored (packages/supply → priority).
@@ -22,6 +24,9 @@ export type LeadFit = { score: number; reasons: string[] }
  *  was already compared with, whatever the answer, so a pair is asked once.
  *  `by`: who judged ("Claude Code"); `reason`: why, for "same". */
 export type LeadDedupe = { same_as: string | null; checked: string[]; by: string; at: string; reason: string | null }
+/** The user's own agent's 0–1 score, with 1–3 reasons, for the search it
+ *  was made for (`search_id`): it only counts while that search is active. */
+export type LeadRank = { score: number; reasons: string[]; by: string; at: string; search_id: string | null }
 
 export type LeadQueueFields = {
   posted_at: string | null
@@ -29,9 +34,10 @@ export type LeadQueueFields = {
   screen: LeadScreen | null
   fit: LeadFit | null
   dedupe: LeadDedupe | null
+  rank: LeadRank | null
 }
 
-export const LEAD_QUEUE_FIELDS = ['posted_at', 'closed_at', 'screen', 'fit', 'dedupe'] as const
+export const LEAD_QUEUE_FIELDS = ['posted_at', 'closed_at', 'screen', 'fit', 'dedupe', 'rank'] as const
 
 export const MAX_REASONS = 10
 /** Years a posting or closing date may have: a source that sends seconds
@@ -125,7 +131,22 @@ export function parseDedupe(raw: unknown): LeadDedupe | null {
   return { same_as: same, checked, by, at, reason }
 }
 
-const PARSERS = { posted_at: parsePostedAt, closed_at: parseClosedAt, screen: parseScreen, fit: parseFit, dedupe: parseDedupe } as const
+/** An agent score has reasons: at most this many. */
+export const MAX_RANK_REASONS = 3
+
+/** `{score: 0–1, reasons: 1–3, by, at, search_id}` → itself, cleaned; else null. */
+export function parseRank(raw: unknown): LeadRank | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const r = raw as Record<string, unknown>
+  const reasons = parseReasons(r.reasons ?? [])
+  const by = typeof r.by === 'string' ? r.by.replace(/\s+/g, ' ').trim().slice(0, 80) : ''
+  const at = parseClosedAt(r.at)
+  const search = r.search_id === null || r.search_id === undefined ? null : typeof r.search_id === 'string' && LEAD_ID.test(r.search_id) ? r.search_id : undefined
+  if (typeof r.score !== 'number' || !Number.isFinite(r.score) || r.score < 0 || r.score > 1 || !reasons?.length || !by || !at || search === undefined) return null
+  return { score: r.score, reasons: reasons.slice(0, MAX_RANK_REASONS), by, at, search_id: search }
+}
+
+const PARSERS = { posted_at: parsePostedAt, closed_at: parseClosedAt, screen: parseScreen, fit: parseFit, dedupe: parseDedupe, rank: parseRank } as const
 
 export type LeadQueueError = { field: typeof LEAD_QUEUE_FIELDS[number]; message: string }
 
@@ -135,6 +156,7 @@ const MESSAGES: Record<typeof LEAD_QUEUE_FIELDS[number], string> = {
   screen: 'screen must be {pass: boolean, reasons: string[]}',
   fit: 'fit must be {score: 0–1, reasons: string[]}',
   dedupe: 'dedupe must be {same_as, checked: string[], by, at, reason}',
+  rank: 'rank must be {score: 0–1, reasons: 1–3 strings, by, at, search_id}',
 }
 
 /** The queue fields present in `input` (undefined = not given), validated:
@@ -165,5 +187,6 @@ export function leadQueueDefaults(input: Record<string, unknown>): LeadQueueFiel
     screen: parseScreen(input.screen),
     fit: parseFit(input.fit),
     dedupe: parseDedupe(input.dedupe),
+    rank: parseRank(input.rank),
   }
 }

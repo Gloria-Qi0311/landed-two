@@ -26,7 +26,7 @@ function memoryQueue(events) {
   }
 }
 
-function makeHandler(events = [], openAndFill, takeAssistResults, pickResume, classifyStatuses, sameJob) {
+function makeHandler(events = [], openAndFill, takeAssistResults, pickResume, classifyStatuses, sameJob, rankLeads) {
   const q = memoryQueue(events)
   const saved = {}
   const onQueueChanged = jest.fn()
@@ -46,6 +46,7 @@ function makeHandler(events = [], openAndFill, takeAssistResults, pickResume, cl
     pickResume,
     classifyStatuses,
     sameJob,
+    rankLeads,
   })
   return { handle, q, saved, onQueueChanged, onAnswersSynced }
 }
@@ -235,6 +236,31 @@ describe('bridge handler', () => {
     expect(await handle({ type: 'same-job', payload }, FROM_WEB)).toEqual({ ok: false, error: 'Landed for Mac is not installed' })
     // a browser that can't ask
     expect(await makeHandler().handle({ type: 'same-job', payload }, FROM_WEB)).toMatchObject({ ok: false, error: 'this browser cannot ask your agent' })
+  })
+
+  test('rank-leads sends the host the context and postings, capped, and returns scores that have reasons', async () => {
+    const rankLeads = jest.fn(async () => ({
+      ok: true, model: 'Claude Code',
+      scores: [{ id: 'l1', score: 1.3, reasons: ['Asks for SQL.', '', 7, 'New grad.'] }, { id: 'l2', score: 0.4, reasons: [] }, { id: 'l9', score: 1, reasons: ['x'] }],
+      usage: { input_tokens: 4000, output_tokens: 300 },
+    }))
+    const { handle } = makeHandler([], undefined, undefined, undefined, undefined, undefined, rankLeads)
+    const payload = {
+      context: 'From their master resume:\n- Skills: SQL',
+      leads: [
+        { id: 'l1', title: 'Data Analyst', company: 'Lumen Labs', location: 'Seattle, WA', description: 'x'.repeat(4000), email: 'alex@example.com' },
+        { id: 'l2', title: 'Data Engineer' },
+        { id: 'l3', title: '' },
+      ],
+    }
+    const res = await handle({ type: 'rank-leads', payload }, FROM_WEB)
+    expect(res).toEqual({ ok: true, data: { scores: [{ id: 'l1', score: 1, reasons: ['Asks for SQL.', 'New grad.'] }], usage: { input_tokens: 4000, output_tokens: 300 }, model: 'Claude Code' } })
+    const sent = rankLeads.mock.calls[0][0]
+    expect(sent).toMatchObject({ type: 'rank_leads', context: 'From their master resume:\n- Skills: SQL' })
+    expect(sent.leads.map((l) => l.id)).toEqual(['l1', 'l2'])
+    expect(sent.leads[0]).toEqual({ id: 'l1', title: 'Data Analyst', company: 'Lumen Labs', location: 'Seattle, WA', description: 'x'.repeat(2500) })
+    expect(await handle({ type: 'rank-leads', payload: { leads: [] } }, FROM_WEB)).toMatchObject({ ok: false })
+    expect(await makeHandler().handle({ type: 'rank-leads', payload }, FROM_WEB)).toMatchObject({ ok: false, error: 'this browser cannot ask your agent' })
   })
 
   test('assist-open passes only a safe link, a resume and Landed ids; submit needs an approved lead link', async () => {

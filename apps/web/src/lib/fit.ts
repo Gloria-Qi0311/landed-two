@@ -2,9 +2,10 @@
 // candidate lead is scored with packages/supply's scoreFit against the active
 // search and the resume — in the browser, since it reads the resume — and the
 // Leads column sorts by priority (fit × urgency). Saved applications sort by
-// the lead they came from, or by their deadline alone.
+// the lead they came from, or by their deadline alone. With Rank set to the
+// user's agent (#147, lib/rank.ts), the fit ordered by blends in its score.
 import type { Resume } from '@landed/schema'
-import { priority, scoreFit, UNRANKED } from '@landed/supply'
+import { priority, rankedFit, scoreFit, UNRANKED } from '@landed/supply'
 import { screeningResume } from './screen'
 import type { DataStore, DbJobLead } from './store/types'
 
@@ -28,16 +29,29 @@ export async function scoreLeads(store: DataStore, now: Date = new Date()): Prom
 
 type Ranked = { priority: number; deadline: string | null }
 
+/** Whether the user's agent's scores count (Rank set to it), and for which search. */
+export type RankCounts = { on: boolean; searchId: string | null }
+export const RULES_ONLY: RankCounts = { on: false, searchId: null }
+
+/** The fit a lead is ordered and shown by: the rules', blended with the
+ *  agent's while it counts (packages/supply → rankedFit). */
+export const queueFit = (lead: Pick<DbJobLead, 'fit' | 'rank'>, counts: RankCounts = RULES_ONLY) => rankedFit(lead.fit, lead.rank ?? null, counts)
+
+/** The agent's score is part of this lead's fit. */
+export const agentRanked = (lead: Pick<DbJobLead, 'rank'>, counts: RankCounts) =>
+  counts.on && !!counts.searchId && lead.rank?.search_id === counts.searchId
+
 /** Priority of a Leads card: a lead's own, a saved application's from the
  *  lead it came from (else its deadline alone, as an unscored lead). */
 export function rankOf(
   item: { lead: DbJobLead; app?: undefined } | { app: { id: string; deadline: string | null }; lead?: undefined },
   leadFor: (appId: string) => DbJobLead | undefined,
   now: Date,
+  counts: RankCounts = RULES_ONLY,
 ): Ranked {
-  if (item.lead) return { priority: priority(item.lead, now), deadline: item.lead.deadline }
+  if (item.lead) return { priority: priority({ ...item.lead, fit: queueFit(item.lead, counts) }, now), deadline: item.lead.deadline }
   const from = leadFor(item.app.id)
-  const base = { deadline: item.app.deadline, posted_at: from?.posted_at ?? null, closed_at: null, screen: null, fit: from?.fit ?? null }
+  const base = { deadline: item.app.deadline, posted_at: from?.posted_at ?? null, closed_at: null, screen: null, fit: from ? queueFit(from, counts) : null }
   return { priority: priority(base, now), deadline: item.app.deadline }
 }
 

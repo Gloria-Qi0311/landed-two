@@ -577,6 +577,12 @@ describe('data isolation + CRUD', () => {
       body: { task: 'same_job', provider: 'claude', prompt_text: '[{"id":"p1"}]', response_text: '[]', parsed_json: { asked: 1, input_tokens: 2400, output_tokens: 120 }, parse_format: 'json' },
     })
     assert.equal(same.status, 201, JSON.stringify(same.body))
+    // a batch of leads ranked by the user's agent (#147)
+    const ranked = await call('POST', '/api/ai-runs', {
+      token: alice,
+      body: { task: 'rank_leads', provider: 'claude', prompt_text: '[{"id":"l1"}]', response_text: '[]', parsed_json: { asked: 1, scored: 1, input_tokens: 5000, output_tokens: 400 }, parse_format: 'json' },
+    })
+    assert.equal(ranked.status, 201, JSON.stringify(ranked.body))
   })
 
   test('ai keys are write-only and encrypted at rest', async () => {
@@ -929,6 +935,15 @@ describe('observation processing storage (Cloud)', () => {
     const split = await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: { dedupe: { ...judged.body.dedupe, same_as: null } } })
     assert.equal(split.body.dedupe.same_as, null)
     assert.deepEqual(split.body.dedupe.checked, [other], 'Split keeps the pair answered')
+
+    // the agent's score (#147, 0028): reasons required
+    const search = crypto.randomUUID()
+    const ranked = await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: {
+      rank: { score: 0.82, reasons: ['Asks for SQL, which they use.'], by: 'Claude Code', at: '2026-10-26T12:00:00Z', search_id: search },
+    } })
+    assert.equal(ranked.status, 200, JSON.stringify(ranked.body))
+    assert.deepEqual(ranked.body.rank, { score: 0.82, reasons: ['Asks for SQL, which they use.'], by: 'Claude Code', at: '2026-10-26T12:00:00.000Z', search_id: search })
+    assert.equal((await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: { rank: { score: 0.8, reasons: [], by: 'Claude Code', at: '2026-10-26T12:00:00Z' } } })).status, 400)
   })
 
   test('suggestions: upsert, resolve, one per dedupe key', async () => {

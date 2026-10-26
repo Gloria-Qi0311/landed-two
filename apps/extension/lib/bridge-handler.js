@@ -35,6 +35,10 @@
 //                 are one opening: only the postings' public details (title,
 //                 company, place, link, the start of the description) go to
 //                 the user's own agent through Landed for Mac
+//   rank-leads    a 0–1 score and reasons for new leads: what the chat agent
+//                 is told about the user (no contact details, address, date
+//                 of birth or EEO) and the postings go to the user's own
+//                 agent through Landed for Mac
 //   hello         presence + version check
 //
 // Requests arrive from lib/web-bridge.js (a content script injected only on
@@ -163,6 +167,22 @@
     return pairs.length ? { type: 'same_job', pairs } : null
   }
 
+  /** A rank-leads request as the host takes it: the context and postings, capped. */
+  function sanitizeRank(raw) {
+    if (!raw || typeof raw !== 'object') return null
+    const text = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '')
+    const context = typeof raw.context === 'string' ? raw.context.trim().slice(0, 4000) : ''
+    const seen = new Set()
+    const leads = (Array.isArray(raw.leads) ? raw.leads : []).flatMap((l) => {
+      const id = l && text(l.id, 64)
+      const title = l && text(l.title, 200)
+      if (!id || !title || seen.has(id)) return []
+      seen.add(id)
+      return [{ id, title, company: text(l.company, 120), location: text(l.location, 200), description: text(l.description, 2500) }]
+    }).slice(0, 8)
+    return leads.length ? { type: 'rank_leads', context, leads } : null
+  }
+
   /** The job and example answers an assist-open carries: plain text, capped. */
   function sanitizeJob(raw) {
     if (!raw || typeof raw !== 'object') return null
@@ -191,7 +211,7 @@
   }
 
   function createBridgeHandler(deps) {
-    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced, pickResume, classifyStatuses, sameJob } = deps
+    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced, pickResume, classifyStatuses, sameJob, rankLeads } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
 
     return async function handle(msg, sender) {
@@ -400,6 +420,23 @@
           const n = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : 0)
           const usage = { input_tokens: n(res.usage && res.usage.input_tokens), output_tokens: n(res.usage && res.usage.output_tokens) }
           return { ok: true, data: { verdicts, usage, model: typeof res.model === 'string' ? res.model : null } }
+        }
+
+        case 'rank-leads': {
+          const request = sanitizeRank(msg.payload)
+          if (!request) return { ok: false, error: 'no leads to rank' }
+          if (!rankLeads) return { ok: false, error: 'this browser cannot ask your agent' }
+          const res = await rankLeads(request)
+          if (!res || !res.ok) return { ok: false, error: (res && res.error) || 'your agent did not answer' }
+          const ids = new Set(request.leads.map((l) => l.id))
+          const scores = (Array.isArray(res.scores) ? res.scores : []).flatMap((v) => {
+            if (!v || !ids.has(v.id) || typeof v.score !== 'number' || !Number.isFinite(v.score)) return []
+            const reasons = (Array.isArray(v.reasons) ? v.reasons : []).filter((r) => typeof r === 'string' && r.trim()).map((r) => r.slice(0, 200)).slice(0, 3)
+            return reasons.length ? [{ id: v.id, score: Math.max(0, Math.min(1, v.score)), reasons }] : []
+          })
+          const n = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : 0)
+          const usage = { input_tokens: n(res.usage && res.usage.input_tokens), output_tokens: n(res.usage && res.usage.output_tokens) }
+          return { ok: true, data: { scores, usage, model: typeof res.model === 'string' ? res.model : null } }
         }
 
         default:

@@ -515,6 +515,26 @@ describe('upgrades', () => {
     expect(lead).toMatchObject({ id: 'l1', title: 'Product Analyst', dedupe: null })
   })
 
+  test('v18: leads from before the agent ranked them have no agent score', async () => {
+    const name = `landed-upgrade-${++n}`
+    const old = new Dexie(name)
+    old.version(17).stores({
+      companies: 'id, name', applications: 'id, company_id, last_activity_at', resumes: 'id, created_at',
+      portal_connections: 'id, [company_id+provider]', portal_events: 'id, created_at', ai_runs: 'id', meta: 'key',
+      agent_observations: 'id, created_at, &[connection_id+idempotency_key], processing_status',
+      job_leads: 'id, &fingerprint, status, last_seen_at', status_suggestions: 'id, &dedupe_key, state, created_at',
+      job_searches: 'id, status, created_at', agent_conversations: 'id, updated_at', application_answers: 'id', application_files: 'id, &kind',
+      resume_files: 'id, &resume_id',
+    })
+    await old.table('job_leads').add({
+      id: 'l1', fingerprint: 'url:jobs.example.com/1', company_name: 'Lumen Labs', title: 'Product Analyst', status: 'new', sources: [],
+      last_seen_at: '2026-10-25T12:00:00Z', first_seen_at: '2026-10-25T12:00:00Z', posted_at: null, closed_at: null, screen: null, fit: null, dedupe: null,
+    })
+    old.close()
+    const [lead] = await createLocalStore(name).listJobLeads()
+    expect(lead).toMatchObject({ id: 'l1', dedupe: null, rank: null })
+  })
+
   test('v10: a round added by hand after v9 is numbered with the others, by time', async () => {
     const name = `landed-upgrade-${++n}`
     const old = new Dexie(name)

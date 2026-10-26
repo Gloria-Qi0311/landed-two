@@ -5,15 +5,29 @@
 //            never below a lead with no date at all (0.2: a far deadline is
 //            still more known than none); a posting with no deadline counts
 //            as less urgent, fading with age
-//   fit      the lead's fit score, 0.5 while unscored
+//   fit      the lead's fit score, 0.5 while unscored. With Rank set to the
+//            user's agent and its score made for the active search (#147):
+//            0.4 × the rules' score + 0.6 × the agent's (rankedFit)
 //   priority fit × (0.5 + 0.5 × urgency), so fit decides and urgency at most
 //            doubles it. Closed, screened-out and past-deadline leads get
 //            UNRANKED and sort last.
-import type { LeadQueueFields } from '@landed/schema/lead-queue'
+import type { LeadFit, LeadQueueFields, LeadRank } from '@landed/schema/lead-queue'
 
 export type PriorityInput = Pick<LeadQueueFields, 'posted_at' | 'closed_at' | 'screen' | 'fit'> & {
   /** apply-by date, "YYYY-MM-DD" */
   deadline: string | null
+}
+
+/** How much the user's agent's score counts, next to the rules' (#147). */
+export const AGENT_RANK_WEIGHT = 0.6
+
+/** The fit the queue orders by: the rules' score, blended with the agent's
+ *  when it counts (Rank set to the agent, made for the active search). The
+ *  rules' score is always there; without it, the agent's alone. */
+export function rankedFit(fit: LeadFit | null, rank: LeadRank | null, counts: { on: boolean; searchId: string | null }): LeadFit | null {
+  if (!rank || !counts.on || !counts.searchId || rank.search_id !== counts.searchId) return fit
+  const score = fit ? (1 - AGENT_RANK_WEIGHT) * fit.score + AGENT_RANK_WEIGHT * rank.score : rank.score
+  return { score: Math.round(score * 1000) / 1000, reasons: [...rank.reasons, ...(fit?.reasons ?? [])] }
 }
 
 /** Below every ranked lead (priority is 0–1). */

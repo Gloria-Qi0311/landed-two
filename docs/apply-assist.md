@@ -183,6 +183,10 @@ the field's own root, and the outline styles are injected there too.
   description), never anything about the user. It answers same, different or
   unsure per pair, with the tokens used
   ([leads-model.md](leads-model.md#remove-duplicates-with-your-agent-146)).
+- **`rank_leads`** sends what the chat agent is told about the user (no contact
+  details, address, date of birth or EEO answers) and a batch of new postings.
+  Each gets a 0–1 score with 1–3 reasons; one without reasons gets none
+  ([leads-model.md](leads-model.md#rank-with-your-agent-147)).
 - Page labels are untrusted prompt text.
 
 Browser extensions are the only code that touches the DOM. `lib/fill/submit.js`

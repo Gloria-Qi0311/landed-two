@@ -5,7 +5,7 @@
 // testable outside React.
 import { FILL_TRACE_REF } from '@landed/schema/fill-trace'
 import type { DbJobLead, DbResume, DbSuggestion } from './store/types'
-import { byPriority, rankOf } from './fit'
+import { byPriority, rankOf, type RankCounts } from './fit'
 import { pickResumeFor, type AssistTarget, type ResumePick } from './apply-assist'
 
 export const APPLY_BATCH_LIMIT = 5
@@ -69,6 +69,7 @@ export function planApplyBatch({
   hasFile,
   now = new Date(),
   limit = APPLY_BATCH_LIMIT,
+  rankCounts,
 }: {
   apps: BatchApp[]
   companyName: (companyId: string) => string
@@ -79,11 +80,13 @@ export function planApplyBatch({
   hasFile?: (resumeId: string) => boolean
   now?: Date
   limit?: number
+  /** the user's agent's scores count in the order (#147) */
+  rankCounts?: RankCounts
 }): { items: BatchItem[]; skipped: BatchSkip[] } {
   const leadByApp = new Map(leads.filter((l) => l.application_id).map((l) => [l.application_id!, l]))
   const saved = apps
     .filter((a) => a.stage === 'saved')
-    .map((app) => ({ app, rank: rankOf({ app: { id: app.id, deadline: app.deadline } }, (id) => leadByApp.get(id), now) }))
+    .map((app) => ({ app, rank: rankOf({ app: { id: app.id, deadline: app.deadline } }, (id) => leadByApp.get(id), now, rankCounts) }))
     .sort((a, b) => byPriority(a.rank, b.rank))
 
   const appById = new Map(apps.map((a) => [a.id, a]))

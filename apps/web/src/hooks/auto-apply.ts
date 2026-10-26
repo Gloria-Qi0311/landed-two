@@ -28,6 +28,7 @@ import { openAnswerExamples } from '../lib/open-answers'
 import { useApplicationAnswers, useResumeFiles } from './answers'
 import { useAutomations } from './automation'
 import { useAgentConnections } from './agents'
+import { useRankSettings } from './rank'
 
 type AgentApplyResult = {
   status: 'submitted' | 'blocked' | 'error'
@@ -192,6 +193,8 @@ export function useAutoApplyRunner() {
   const blocked = apps.filter((app) => authorized.has(app.id) && app.stage === 'saved' && app.nextStep.startsWith(APPLY_BLOCKED)).length
   const awaiting = apps.filter((app) => authorized.has(app.id) && app.stage === 'saved' && app.nextStep.startsWith(APPLY_SUBMITTED)).length
   const max = automations.auto_apply.max_concurrent
+  const { on: rankOn, searchId: rankSearch } = useRankSettings()
+  const rankCounts = useMemo(() => ({ on: rankOn, searchId: rankSearch }), [rankOn, rankSearch])
   const plan = useMemo(() => planApplyBatch({
     apps,
     companyName: (id) => names.get(id) ?? 'Unknown company',
@@ -200,7 +203,8 @@ export function useAutoApplyRunner() {
     resumes,
     hasFile,
     limit: Math.max(0, max - active),
-  }), [active, apps, hasFile, leads, max, names, resumes, suggestions])
+    rankCounts,
+  }), [active, apps, hasFile, leads, max, names, resumes, suggestions, rankCounts])
   const autoKey = plan.items.map((item) => item.app.id).join('|')
 
   // Personal-agent results rejoin the same local-first answer/application
