@@ -29,7 +29,7 @@ const REMOTES = ['Remote', 'Hybrid', 'On-site']
 const PROVIDERS = ['greenhouse', 'lever', 'workday', 'ashby', 'bamboohr', 'boss', 'smartrecruiters', 'other']
 const STATUSES = ['active', 'syncing', 'expired', 'disconnected']
 const EVENT_TYPES = ['status-change', 'new-event', 'expired', 'sync', 'rejection']
-const AI_TASKS = ['resume_match', 'jd_breakdown', 'resume_tailor']
+const AI_TASKS = ['resume_match', 'jd_breakdown', 'resume_tailor', 'same_job']
 const AI_PROVIDERS = ['chatgpt', 'claude', 'gemini', 'other']
 const PARSE_FORMATS = ['json', 'markdown', 'heuristic', 'failed']
 
@@ -186,6 +186,10 @@ class LandedDB extends Dexie {
     // v16: each public source's last check of a search, for its own schedule.
     this.version(16).stores({}).upgrade(async (tx) => {
       await tx.table('job_searches').toCollection().modify((s: DbJobSearch) => { if (s.source_runs === undefined) s.source_runs = null })
+    })
+    // v17: a duplicate the rules couldn't decide, as the user's agent judged it.
+    this.version(17).stores({}).upgrade(async (tx) => {
+      await tx.table('job_leads').toCollection().modify((l: DbJobLead) => { if (l.dedupe === undefined) l.dedupe = null })
     })
   }
 }

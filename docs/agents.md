@@ -349,15 +349,17 @@ first step that needs the user.
 | Group | Steps (done by) | Settings |
 |---|---|---|
 | What to look for | Search criteria | The active brief, editable in place (an edit makes a new active search via `addJobSearch`) |
-| 1 Find jobs | Agent search (the ticked agents and cloud agents, on the schedule) · Job lists and Company boards (Landed, each on its own schedule while Landed is open, with its last check's result) · Remove duplicates and Rank (Landed AI, built in, each new batch; the agents on the computer are listed as coming soon until #146 / #147) | Stage switch and Run now; agents, schedule, a switch per public source, the followed companies |
+| 1 Find jobs | Agent search (the ticked agents and cloud agents, on the schedule) · Job lists and Company boards (Landed, each on its own schedule while Landed is open, with its last check's result) · Remove duplicates (Landed rules, or the rules then the user's agent for close calls, #146) and Rank (Landed AI, built in, each new batch; the agents on the computer are listed as coming soon until #147) | Stage switch and Run now; agents, schedule, a switch per public source, the followed companies |
 | 2 Apply | Auto apply (the extension; the user's agent checks the form) · Mark as applied (Landed, when the portal confirms) | Stage switch and Run now; at most N at a time |
 | 3 Keep up to date | Check email (the ticked readers: the computer's agent that can read email, today Claude Code with its mail connector, and each cloud agent on its own; `email_check.readers`) · Check candidate portals (the agent that can use Chrome: Claude Code with Claude in Chrome, the only one wired for it) | A switch, schedule and Run now each; email: who reads it, the auto-apply choice (`users.auto_apply_updates`), re-read 30 days; portals: days without news |
 
 The settings stay in `users.automations` (`packages/schema/src/automation.ts`),
 which installed Landed for Mac versions and the server already validate; a
 step gains its executor choice or schedule as its own field when it gets one
-(#141–#147), and older daemons ignore fields they don't know. Remove duplicates,
-Rank and Mark as applied have nothing to set yet: their rows say who does them.
+(#141–#147), and older daemons ignore fields they don't know. Remove duplicates
+has `job_search.dedupe_by` (`landed` or `agent`; the browser asks, not the
+daemon). Rank and Mark as applied have nothing to set yet: their rows say who
+does them.
 
 **Auto apply** is not a daemon schedule. Its account-level
 `users.automations.auto_apply` setting is on by default and carries `enabled`

@@ -2,7 +2,7 @@
 // there); they are tested here, next to the package that writes them.
 import { describe, expect, test } from 'vitest'
 import {
-  leadQueueDefaults, MAX_REASON_LENGTH, MAX_REASONS, parseClosedAt, parseFit, parsePostedAt, parseScreen, readLeadQueueFields,
+  leadQueueDefaults, MAX_DEDUPE_CHECKED, MAX_REASON_LENGTH, MAX_REASONS, parseClosedAt, parseDedupe, parseFit, parsePostedAt, parseScreen, readLeadQueueFields,
 } from '@landed/schema/lead-queue'
 
 describe('parsePostedAt', () => {
@@ -56,6 +56,24 @@ describe('parseScreen / parseFit', () => {
   })
 })
 
+describe('parseDedupe (#146)', () => {
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+  test("the agent's verdict, cleaned: ids only, newest compared kept, a reason only when it says one", () => {
+    expect(parseDedupe({ same_as: id(1), checked: [id(1), id(1), 'not an id!', 7], by: '  Claude\nCode ', at: '2026-10-26T12:00:00Z', reason: '  One opening,\n posted twice. ' }))
+      .toEqual({ same_as: id(1), checked: [id(1)], by: 'Claude Code', at: '2026-10-26T12:00:00.000Z', reason: 'One opening, posted twice.' })
+    expect(parseDedupe({ same_as: null, checked: [], by: 'Claude Code', at: '2026-10-26T12:00:00Z', reason: '' }))
+      .toEqual({ same_as: null, checked: [], by: 'Claude Code', at: '2026-10-26T12:00:00.000Z', reason: null })
+    const many = Array.from({ length: 70 }, (_, i) => id(i))
+    expect(parseDedupe({ same_as: null, checked: many, by: 'Ollama', at: '2026-10-26T12:00:00Z' })!.checked).toEqual(many.slice(-MAX_DEDUPE_CHECKED))
+  })
+  test('wrong shapes are rejected, not guessed', () => {
+    const ok = { same_as: null, checked: [], by: 'Claude Code', at: '2026-10-26T12:00:00Z' }
+    for (const raw of [null, [], 'same', { ...ok, checked: 'x' }, { ...ok, by: ' ' }, { ...ok, at: 'today' }, { ...ok, same_as: 'not an id!' }, { ...ok, same_as: 5 }]) {
+      expect(parseDedupe(raw)).toBeNull()
+    }
+  })
+})
+
 describe('readLeadQueueFields (every write path)', () => {
   test('only the fields given; null and "" clear', () => {
     expect(readLeadQueueFields({ status: 'new' })).toEqual({ ok: true, fields: {} })
@@ -72,6 +90,6 @@ describe('readLeadQueueFields (every write path)', () => {
 })
 
 test('leadQueueDefaults: an old backup row gets every field, unreadable ones null', () => {
-  expect(leadQueueDefaults({ id: 'x', title: 'Engineer' })).toEqual({ posted_at: null, closed_at: null, screen: null, fit: null })
-  expect(leadQueueDefaults({ posted_at: '2026-10-01', fit: { score: 9 } })).toEqual({ posted_at: '2026-10-01', closed_at: null, screen: null, fit: null })
+  expect(leadQueueDefaults({ id: 'x', title: 'Engineer' })).toEqual({ posted_at: null, closed_at: null, screen: null, fit: null, dedupe: null })
+  expect(leadQueueDefaults({ posted_at: '2026-10-01', fit: { score: 9 } })).toEqual({ posted_at: '2026-10-01', closed_at: null, screen: null, fit: null, dedupe: null })
 })

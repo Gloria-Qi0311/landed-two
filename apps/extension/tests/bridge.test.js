@@ -26,7 +26,7 @@ function memoryQueue(events) {
   }
 }
 
-function makeHandler(events = [], openAndFill, takeAssistResults, pickResume, classifyStatuses) {
+function makeHandler(events = [], openAndFill, takeAssistResults, pickResume, classifyStatuses, sameJob) {
   const q = memoryQueue(events)
   const saved = {}
   const onQueueChanged = jest.fn()
@@ -45,6 +45,7 @@ function makeHandler(events = [], openAndFill, takeAssistResults, pickResume, cl
     onAnswersSynced,
     pickResume,
     classifyStatuses,
+    sameJob,
   })
   return { handle, q, saved, onQueueChanged, onAnswersSynced }
 }
@@ -202,6 +203,38 @@ describe('bridge handler', () => {
     // No Landed for Mac / no agent: an error, and Landed keeps its own pick.
     pickResume.mockResolvedValueOnce({ ok: false, error: 'Landed for Mac is not installed' })
     expect(await handle({ type: 'pick-resume', payload }, FROM_WEB)).toEqual({ ok: false, error: 'Landed for Mac is not installed' })
+  })
+
+  test('same-job sends the host only public posting details, and returns one known verdict per pair with its tokens', async () => {
+    const sameJob = jest.fn(async () => ({
+      ok: true, model: 'Claude Code',
+      verdicts: [{ id: 'p1', verdict: 'same', reason: 'One opening.' }, { id: 'p2', verdict: 'maybe' }, { id: 'p9', verdict: 'same' }],
+      usage: { input_tokens: 3000, output_tokens: 150.4 },
+    }))
+    const { handle } = makeHandler([], undefined, undefined, undefined, undefined, sameJob)
+    const payload = {
+      pairs: [
+        {
+          id: 'p1',
+          a: { title: 'Data Analyst, New Grad', company: 'Northwind Robotics', location: 'Seattle, WA', url: 'https://northwind.example.com/jobs/7', description: 'x'.repeat(4000), email: 'alex@example.com' },
+          b: { title: 'New Grad Data Analyst', company: 'Northwind Robotics', url: 'javascript:alert(1)' },
+        },
+        { id: 'p2', a: { title: 'Data Analyst' }, b: { title: 'Data Analyst I' } },
+        { id: 'p3', a: { title: '' }, b: { title: 'Data Analyst' } },
+      ],
+    }
+    const res = await handle({ type: 'same-job', payload }, FROM_WEB)
+    expect(res).toEqual({ ok: true, data: { verdicts: [{ id: 'p1', verdict: 'same', reason: 'One opening.' }], usage: { input_tokens: 3000, output_tokens: 150 }, model: 'Claude Code' } })
+    const sent = sameJob.mock.calls[0][0]
+    expect(sent.type).toBe('same_job')
+    expect(sent.pairs.map((p) => p.id)).toEqual(['p1', 'p2'])
+    expect(sent.pairs[0].a).toEqual({ title: 'Data Analyst, New Grad', company: 'Northwind Robotics', location: 'Seattle, WA', url: 'https://northwind.example.com/jobs/7', description: 'x'.repeat(1500) })
+    expect(sent.pairs[0].b.url).toBe('')
+    expect(await handle({ type: 'same-job', payload: { pairs: [] } }, FROM_WEB)).toMatchObject({ ok: false })
+    sameJob.mockResolvedValueOnce({ ok: false, error: 'Landed for Mac is not installed' })
+    expect(await handle({ type: 'same-job', payload }, FROM_WEB)).toEqual({ ok: false, error: 'Landed for Mac is not installed' })
+    // a browser that can't ask
+    expect(await makeHandler().handle({ type: 'same-job', payload }, FROM_WEB)).toMatchObject({ ok: false, error: 'this browser cannot ask your agent' })
   })
 
   test('assist-open passes only a safe link, a resume and Landed ids; submit needs an approved lead link', async () => {

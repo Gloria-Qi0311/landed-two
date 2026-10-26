@@ -1,4 +1,4 @@
-import type { LeadFit, LeadScreen } from '@landed/schema/lead-queue'
+import type { LeadDedupe, LeadFit, LeadScreen } from '@landed/schema/lead-queue'
 import type { InterviewRound } from '@landed/schema/pipeline'
 
 // Shapes the processor reads and writes. Mirrors the job_leads /
@@ -60,6 +60,8 @@ export type JobLead = {
   screen: LeadScreen | null
   /** match against the master resume, score 0–1 */
   fit: LeadFit | null
+  /** a duplicate the rules couldn't decide, as the user's own agent judged it */
+  dedupe: LeadDedupe | null
 }
 
 export type SuggestionKind = 'stage_change' | 'new_application' | 'ambiguous' | 'note'

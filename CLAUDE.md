@@ -111,7 +111,12 @@ messages (PR title and a clean body, no trailer).
   that shape a search, the search), never contact details, address, date of birth or
   EEO answers.
 - Agents propose; the user acts. Reported applications, answers read from a form
-  and duplicate merges happen only when the user clicks.
+  and duplicate application merges happen only when the user clicks.
+- Duplicate leads the rules can't call go to the user's own agent (`same_job`)
+  only when Remove duplicates is set to it: it sees the two postings' public
+  details, never the user's. "Same" hides one lead under the other (never
+  deleted; Split undoes it). Unsure or different keeps both, and a pair is asked
+  once.
 - Resume tailoring never invents facts.
 - A resume uploads without a computer: the browser reads only name, email, phone
   and links, keeps the file, and the agent reads the rest once one is connected

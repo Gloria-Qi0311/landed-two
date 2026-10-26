@@ -1130,6 +1130,9 @@ const handleBridge = self.LandedBridge.createBridgeHandler({
   // What an imported spreadsheet's statuses mean (bridge-handler.js sends
   // only the status words; the host asks the user's own agent).
   classifyStatuses: (request) => askNative(request),
+  // Whether leads the duplicate rules couldn't decide are one opening
+  // (bridge-handler.js sends only the postings' public details).
+  sameJob: (request) => askNative(request),
 })
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

@@ -40,6 +40,53 @@ function sameJob(lead: JobLead, keys: { ats: string | null; url: string | null; 
  *  posting's "Software Engineer Intern". */
 const SAME_JOB_TITLE = 0.8
 
+// ── leads the rules can't call (#146) ─────────────────────────────────────
+
+/** Titles at least this close, at one company, may be one job the rules
+ *  can't call: "Data Analyst, New Grad" and "New Grad Data Analyst – 2027". */
+const ASK_TITLE = 0.5
+/** At most this many pairs a batch: one call to the user's agent. */
+export const MAX_DEDUPE_PAIRS = 10
+
+/** `keep` stays if they're one job; `other` would be hidden under it. */
+export type LeadPair = { keep: JobLead; other: JobLead; similarity: number }
+
+const askable = (l: JobLead) => l.status === 'new' && !l.closed_at && !l.dedupe?.same_as && l.screen?.pass !== false
+const compared = (a: JobLead, b: JobLead) => !!(a.dedupe?.checked.includes(b.id) || b.dedupe?.checked.includes(a.id))
+/** The one that stays: the one with a job-board posting, else a link, else the first found. */
+function keeperFirst(a: JobLead, b: JobLead): [JobLead, JobLead] {
+  const rank = (l: JobLead) => (l.ats_key ? 2 : l.job_url ? 1 : 0)
+  if (rank(a) !== rank(b)) return rank(a) > rank(b) ? [a, b] : [b, a]
+  return a.first_seen_at <= b.first_seen_at ? [a, b] : [b, a]
+}
+
+/** Pairs of open leads the rules leave undecided, for the user's own agent:
+ *  one company, titles close but not the same, or the same title in places
+ *  the rules can't line up. Two job-board postings with different ids stay
+ *  different (the rules' call), and a pair already compared isn't asked
+ *  again. Most alike first, at most `max`. */
+export function uncertainPairs(leads: JobLead[], max = MAX_DEDUPE_PAIRS): LeadPair[] {
+  const byCompany = new Map<string, JobLead[]>()
+  for (const l of leads) {
+    if (!askable(l)) continue
+    byCompany.set(l.company_key, [...(byCompany.get(l.company_key) ?? []), l])
+  }
+  const pairs: LeadPair[] = []
+  for (const group of byCompany.values()) {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        const [a, b] = [group[i], group[j]]
+        if ((a.ats_key && b.ats_key) || (a.canonical_url && a.canonical_url === b.canonical_url) || compared(a, b)) continue
+        const similarity = a.title_key === b.title_key ? 1 : titleSimilarity(a.title, b.title)
+        if (similarity < ASK_TITLE) continue
+        const [keep, other] = keeperFirst(a, b)
+        pairs.push({ keep, other, similarity })
+      }
+    }
+  }
+  return pairs.sort((x, y) => y.similarity - x.similarity).slice(0, max)
+}
+
 /** The application a found posting is already in: the same job-board posting
  *  or link; else, at the same employer, the same title or a nearly identical
  *  one (not when both are job-board postings with different ids). Also used
@@ -113,6 +160,7 @@ function processJob(o: Observation, ctx: Context, opts: ProcessOptions): Outcome
     closed_at: null,
     screen: null,
     fit: null,
+    dedupe: null,
   }
   return {
     status: 'processed',

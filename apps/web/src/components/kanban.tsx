@@ -33,7 +33,7 @@ import type { SupplyCheck } from '../lib/supply';
 import { byPriority, rankOf } from '../lib/fit';
 import type { Approval } from '../lib/inbox';
 import { companyKey } from '@landed/observation-processor';
-import { ago, agoShort, FitLine, FoldedLeads, FoldedRow, insideCard, LeadDetails, sourceOn } from './leads';
+import { ago, agoShort, FitLine, FoldedLeads, FoldedRow, insideCard, LeadDetails, SameJobLine, sourceOn } from './leads';
 
 // ────────────────────────────────────────────────────────────────────────
 // Pure card markup (shared between sortable card + DragOverlay preview).
@@ -279,6 +279,7 @@ function LeadCardContent({ lead, onDismiss, onOpen, onSetDeadline, grouped, sele
       )}
       {onSetDeadline && <DeadlineChip compact deadline={lead.deadline} onSave={(d) => onSetDeadline(lead.id, d)} />}
       <FitLine lead={lead} />
+      <SameJobLine lead={lead} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--fg-muted)' }}>
         <Icon name="wand" size={10} />
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

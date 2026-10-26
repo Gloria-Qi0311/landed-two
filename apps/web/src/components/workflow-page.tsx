@@ -38,7 +38,8 @@ import { searchComputer, chosenSearchTargets, useActiveSearch, useEditBrief } fr
 import { useFollowedBoards, useSupplyRefresh } from '../hooks/supply'
 import { useAgentConnections } from '../hooks/agents'
 import { useRuntimes } from '../hooks/runtimes'
-import { requestAutoApplyRun, useAutoApplyControl } from '../hooks/auto-apply'
+import { requestAutoApplyRun, useAutoApplyControl, useExtension } from '../hooks/auto-apply'
+import { useDedupeState } from '../hooks/dedupe'
 import { card, danger, muted, mutedLarge } from './ui'
 
 const ok = 'oklch(0.45 0.13 155)'
@@ -329,7 +330,7 @@ function statuses(w: W): Record<StepId, Status> {
     })(),
     lists: !find.enabled || !sources.job_lists ? findOff : { dot: 'on', text: `SimplifyJobs · ${sched(sources.schedules.job_lists)}` },
     boards: !find.enabled || !sources.company_boards ? findOff : { dot: 'on', text: `${w.boards.length} ${w.boards.length === 1 ? 'company' : 'companies'} · ${sched(sources.schedules.company_boards)}` },
-    dedupe: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
+    dedupe: !find.enabled ? findOff : { dot: 'on', text: find.dedupe_by === 'agent' ? 'Landed rules + your agent · each batch' : 'Landed rules · each batch' },
     rank: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
     apply: !a.auto_apply.enabled ? { dot: 'off', text: 'Off' }
       : !w.auto.ready ? { dot: 'needs', text: a.auto_apply.executor === 'extension' ? 'Needs the extension here' : 'Needs the selected agent connected' }
@@ -459,8 +460,8 @@ const LANDED_AI = <span>Landed AI <span style={muted}>· built in, no tokens</sp
 
 /** Who does a step that an agent will also be able to do: Landed AI for now.
  *  The agents on the user's computer are listed but not selectable until
- *  that step's agent layer ships (#146 duplicates, #147 ranking); it then
- *  stores the choice in its own field of users.automations. */
+ *  that step's agent layer ships (#147 ranking); it then stores the choice
+ *  in its own field of users.automations, like Remove duplicates' dedupe_by. */
 function ExecutorSelect({ w, label, soon }: { w: W; label: string; soon: string }) {
   const agents = [...new Map(w.targets.flatMap((t) => t.runtime.agents).map((a) => [a.id, a])).values()]
   return (
@@ -635,17 +636,38 @@ function BoardsPane({ w }: { w: W }) {
   )
 }
 
+/** How asking the user's agent about close calls is going (hooks/dedupe.ts). */
+function dedupeStatus(on: boolean, extension: boolean, s: ReturnType<typeof useDedupeState.getState>): string {
+  if (!on) return 'Close calls (the same company, a similar title) stay apart: one extra lead beats a real job hidden.'
+  if (!extension) return 'Needs the Landed extension in this browser: it asks your agent through Landed for Mac.'
+  if (s.running) return 'Asking your agent about close calls…'
+  if (s.error) return `Couldn't ask your agent: ${s.error}. Landed tries again in 15 minutes.`
+  if (!s.last) return 'No close calls asked about yet.'
+  const l = s.last
+  return `Last asked ${formatRelative(l.at)}: ${l.asked} ${l.asked === 1 ? 'pair' : 'pairs'}, ${l.same} the same job · ${(l.input_tokens + l.output_tokens).toLocaleString()} tokens`
+}
+
 function DedupePane({ w }: { w: W }) {
+  const a = w.automations.job_search
+  const byAgent = a.dedupe_by === 'agent'
+  const extension = !!useExtension().data
+  const state = useDedupeState()
   return (
     <Pane title="Remove duplicates" help="Each new batch of postings is matched against your leads and applications, so every job shows up once."
       controls={<FindControls w={w} />}>
       <FindNotes w={w} />
       <Settings>
-        <Field label="Done by">
-          <ExecutorSelect w={w} label="Who removes duplicates" soon="Soon your own agent can judge the close calls (same company, similar title). Until then Landed AI does it." />
+        <Field label="Done by" help="Landed's rules always decide first. Your agent only gets the pairs they can't call, and only the two postings' public details, never anything about you.">
+          <select aria-label="Who removes duplicates" value={byAgent ? 'agent' : 'landed'} disabled={!w.loaded || w.set.isPending} style={{ fontSize: 12.5, alignSelf: 'flex-start' }}
+            onChange={(e) => w.save({ ...w.automations, job_search: { ...a, dedupe_by: e.target.value === 'agent' ? 'agent' : 'landed' } })}>
+            <option value="landed">Landed rules (default)</option>
+            <option value="agent">Landed rules, then your agent for close calls</option>
+          </select>
+          <span style={muted}>{dedupeStatus(byAgent, extension, state)}</span>
         </Field>
         <Field label="When"><span>Each new batch</span></Field>
         <Field label="Same job when"><span>It's the same posting or link, or the same company with the same or a nearly identical title. One lead keeps every source that found it.</span></Field>
+        {byAgent && <Field label="Your agent says"><span>The same job: the one with less to go on is hidden under the other, whose card says so, with Split. Different or unsure: both stay. Each pair is asked once, at most 10 a batch.</span></Field>}
         <Field label="Already applied"><span>A job you've applied to doesn't come back as a lead.</span></Field>
       </Settings>
     </Pane>

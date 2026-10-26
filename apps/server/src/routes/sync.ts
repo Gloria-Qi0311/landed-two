@@ -90,7 +90,7 @@ function defaults(now: string): Row {
 
 const JSON_COLUMNS = new Set([
   'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
-  'brief', 'last_run_result', 'source_runs', 'interviews', 'master_json', 'target_json', 'turns', 'answers', 'screen', 'fit', 'resume_choice', 'open_answers',
+  'brief', 'last_run_result', 'source_runs', 'interviews', 'master_json', 'target_json', 'turns', 'answers', 'screen', 'fit', 'dedupe', 'resume_choice', 'open_answers',
 ])
 
 function chunks<T>(rows: T[]): T[][] {
