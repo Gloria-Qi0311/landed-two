@@ -731,26 +731,32 @@ function EmailPane({ w }: { w: W }) {
   const a = w.automations.email_check
   const state = useScheduleState('email_check')
   const agent = w.emailAgent
-  const runAgents = (w.localReaders.length ? w.localReaders : w.mailAgents.slice(0, 1)).map((item) => item.id)
-  const runAgent = (w.localReaders.length ? w.localReaders : w.mailAgents.slice(0, 1))[0] ?? null
+  const availableMailAgents = w.mailAgents.filter((item) => item.kinds?.includes('email_check'))
+  const scheduledMailAgents = w.localReaders.filter((item) => item.kinds?.includes('email_check'))
+  const runAgentChoices = scheduledMailAgents.length ? scheduledMailAgents : availableMailAgents.slice(0, 1)
+  const runAgents = runAgentChoices.map((item) => item.id)
+  const runAgent = runAgentChoices[0] ?? null
   const signedOut = w.targets.some((t) => t.runtime.agents.some((x) => x.id === 'claude' && x.auth === 'signed_out'))
   const cantRescan = !w.designated || runAgents.length === 0 || state.running
   return (
     <Pane title="Check email" help="Reads the email you received since the last check (confirmations, tests, interviews and their times, rejections, offers) and updates your applications. Read-only: it never sends, labels or deletes anything."
       controls={<StepControls w={w} kind="email_check" label="Check email" blocked={w.mail !== 'ok'} agents={runAgents} />}>
       {state.running && <Needs waiting>Checking email now{runAgent ? ` with ${runAgent.label}` : ''}…</Needs>}
-      {!state.running && w.localReaders.length === 0 && runAgent && (
+      {!state.running && scheduledMailAgents.length === 0 && runAgent && (
         <Needs waiting>Run now uses {runAgent.label} once. Your scheduled choices stay unchanged; connected agents still run on their own.</Needs>
       )}
-      {!state.running && runAgents.length === 0 && w.cloud.some((c) => cloudAgentOn(w.readers, c.id)) && (
+      {!state.running && runAgents.length === 0 && signedOut && (
+        <Needs>Run now can't read email because Claude Code is signed out. Run <code>claude auth login</code> in Terminal, finish signing in, then come back here.</Needs>
+      )}
+      {!state.running && runAgents.length === 0 && !signedOut && w.mailAgents.some((item) => item.id === 'claude') && (
+        <Needs>Run now needs Claude Code's Gmail connector. Connect Gmail in Claude (Settings → Connectors), then come back here.</Needs>
+      )}
+      {!state.running && runAgents.length === 0 && !w.mailAgents.some((item) => item.id === 'claude') && w.cloud.some((c) => cloudAgentOn(w.readers, c.id)) && (
         <Needs>Run now needs an email-capable agent on your computer. Connected agents cannot be started from Landed.</Needs>
       )}
       {w.mail === 'checking' && <Needs waiting>Checking whether your agent can read your email…</Needs>}
       {w.mail === 'confirming' && <Needs waiting>Your email is connected in Claude. Making sure your agent can read it: this takes a moment.</Needs>}
 
-      {w.mail === 'missing' && w.localReaders.length > 0 && (signedOut
-        ? <Needs>Claude Code is signed out. Run <code>claude auth login</code> in Terminal, finish signing in, then come back to this page: Landed checks again right away.</Needs>
-        : <Needs>Your agent can't read email yet. Run <code>claude auth login</code> in Terminal, connect Gmail in Claude (Settings → Connectors), then come back to this page: Landed checks again right away.</Needs>)}
       <Settings>
         <Field label="Done by" help="Each ticked agent reads it. Untick them all and nobody checks email.">
           {w.mailAgents.length || w.cloud.length
@@ -802,6 +808,7 @@ function PortalsPane({ w }: { w: W }) {
   const a = w.automations.portal_check
   const state = useScheduleState('portal_check')
   const agent = w.portalAgent
+  const signedOut = w.targets.some((t) => t.runtime.agents.some((x) => x.id === 'claude' && x.auth === 'signed_out'))
   const quiet = a.quiet_days ?? 14
   // Which applications qualify right now (the computer also skips ones it
   // looked at recently).
@@ -819,7 +826,9 @@ function PortalsPane({ w }: { w: W }) {
       controls={<StepControls w={w} kind="portal_check" label="Check portals" blocked={w.chrome !== 'ok'} />}>
       {state.running && <Needs waiting>Checking candidate portals now{agent ? ` with ${agent.label}` : ''}…</Needs>}
       {w.chrome === 'checking' && <Needs waiting>Checking whether your agent can use Chrome…</Needs>}
-      {w.chrome === 'missing' && <Needs>Your agent can't use Chrome yet. Connect the Claude in Chrome extension to Claude Code, then come back to this page: Landed checks again right away.</Needs>}
+      {w.chrome === 'missing' && (signedOut
+        ? <Needs>Claude Code is signed out. Run <code>claude auth login</code> in Terminal, finish signing in, then come back here.</Needs>
+        : <Needs>Your agent can't use Chrome yet. Connect the Claude in Chrome extension to Claude Code, then come back to this page: Landed checks again right away.</Needs>)}
       <Settings>
         <Field label="Done by" help="Tip: use a Chrome profile that's only signed in to job sites">
           {agent ? <span style={{ color: agent.browser ? ok : undefined }}>{agent.label}{agent.browser && ` · ${agent.browser}, read-only`}</span> : <span style={muted}>An agent on your computer that can use Chrome</span>}
