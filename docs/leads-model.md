@@ -134,10 +134,21 @@ costs a 304.
   `closed_at` once the list marks the posting closed or drops it. A list that
   couldn't be fetched closes nothing. Leads are only closed, never reopened.
   Closed leads leave the Leads column; the data stays.
-- **When**: part of Find new jobs, together with the company boards below. While Landed is open and that automation is on,
-  30 seconds after the search last changed (each criteria edit is a new search;
-  checking after the first would pull every posting for the roles alone) and every
-  6 hours. The Leads column's refresh button checks now.
+- **When** (#145): part of Find new jobs. The job lists and the company boards
+  below each have their own schedule (`sources.schedules` in
+  `users.automations.job_search`; every 3, 6 or 12 hours, or at a time of day,
+  default every day at 9:00), changed on Workflow → Job lists / Company boards.
+  While Landed is open and that automation is on, the app looks every minute at
+  which source is due (`dueSources`, `hooks/supply.ts`). A source counts from its
+  last check **of the active search** (`job_searches.source_runs`, migration
+  0026, Dexie v16: when, what fit, how many were new, already there or closed,
+  how many lists or boards it read and couldn't), so a new search is checked
+  right away: 30 seconds after the search last changed (each criteria edit is a
+  new search; checking after the first would pull every posting for the roles
+  alone). A check that reached none of its lists or boards isn't kept, so it's
+  tried again after 15 minutes. Workflow shows each source's next check and
+  "last checked …: N new in Leads". The Leads column's refresh button and Run now
+  check both now.
 
 ### Company job boards (#91)
 

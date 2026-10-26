@@ -30,10 +30,22 @@ export type Schedule =
  *  `cloud_skip`. */
 export type AgentSources = { agents: string[]; cloud_agents: boolean; cloud_skip: string[] }
 
+/** The public sources the browser reads itself (apps/web/src/lib/supply.ts):
+ *  job lists (SimplifyJobs…) and followed companies' boards (Greenhouse,
+ *  Lever, Ashby). Each is on its own schedule (#145). */
+export const PUBLIC_SOURCES = ['job_lists', 'company_boards'] as const
+export type PublicSource = typeof PUBLIC_SOURCES[number]
+
 /** Where Find new jobs looks (job_search only): the agents (each runs the
- *  search and the results are merged), plus the public sources the browser
- *  reads itself (apps/web/src/lib/supply.ts). */
-export type SearchSources = AgentSources & { job_lists: boolean; company_boards: boolean }
+ *  search and the results are merged), on the job_search schedule, plus the
+ *  public sources, each on and on its own schedule (`schedules`). */
+export type SearchSources = AgentSources & Record<PublicSource, boolean> & { schedules: Record<PublicSource, Schedule> }
+
+/** One public source's last check of a search (job_searches.source_runs):
+ *  when, the postings that fit, how many were new in Leads, already there or
+ *  closed since, and how many lists or boards it read and couldn't. */
+export type SourceRun = { at: string; found: number; added: number; merged: number; closed: number; checked: number; failed: number }
+export type SourceRuns = Partial<Record<PublicSource, SourceRun>>
 
 /** `quiet_days` (portal_check only): look at an application's portal once
  *  it has had no news for this many days. `sources` (job_search only).
@@ -52,8 +64,13 @@ export const AUTO_APPLY_CONCURRENCY = [1, 2, 3, 4, 5]
 /** At most this many portals per run: each one is a few minutes of browsing. */
 export const MAX_PORTALS_PER_RUN = 5
 
+/** The lists and boards are maintained by others: once a day is enough. */
+export const DEFAULT_SOURCE_SCHEDULE: Schedule = { kind: 'daily', time: '09:00', days: ALL_DAYS }
 /** Claude Code, plus the public sources, which cost no tokens. */
-export const DEFAULT_SEARCH_SOURCES: SearchSources = { agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true, cloud_skip: [] }
+export const DEFAULT_SEARCH_SOURCES: SearchSources = {
+  agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true, cloud_skip: [],
+  schedules: { job_lists: DEFAULT_SOURCE_SCHEDULE, company_boards: DEFAULT_SOURCE_SCHEDULE },
+}
 /** Claude Code with its mail connector, and every cloud agent (they read email with their own connectors). */
 export const DEFAULT_EMAIL_READERS: AgentSources = { agents: ['claude'], cloud_agents: true, cloud_skip: [] }
 const CONNECTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -122,8 +139,44 @@ export function parseAgentSources(raw: unknown, defaults: AgentSources): AgentSo
 export function parseSearchSources(raw: unknown): SearchSources {
   const who = parseAgentSources(raw, DEFAULT_SEARCH_SOURCES)
   const r = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
-  const flag = (k: 'job_lists' | 'company_boards') => (typeof r[k] === 'boolean' ? r[k] as boolean : DEFAULT_SEARCH_SOURCES[k])
-  return { agents: who.agents, job_lists: flag('job_lists'), company_boards: flag('company_boards'), cloud_agents: who.cloud_agents, cloud_skip: who.cloud_skip }
+  const flag = (k: PublicSource) => (typeof r[k] === 'boolean' ? r[k] as boolean : DEFAULT_SEARCH_SOURCES[k])
+  const s = (r.schedules && typeof r.schedules === 'object' ? r.schedules : {}) as Record<string, unknown>
+  const schedule = (k: PublicSource) => parseSchedule(s[k], DEFAULT_SEARCH_SOURCES.schedules[k])
+  return {
+    agents: who.agents, job_lists: flag('job_lists'), company_boards: flag('company_boards'), cloud_agents: who.cloud_agents, cloud_skip: who.cloud_skip,
+    schedules: { job_lists: schedule('job_lists'), company_boards: schedule('company_boards') },
+  }
+}
+
+const runCount = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.min(Math.floor(v), 100_000) : 0)
+
+/** Stored or sent source runs → valid ones (an entry without a date is dropped). */
+export function parseSourceRuns(raw: unknown): SourceRuns {
+  const out: SourceRuns = {}
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out
+  for (const k of PUBLIC_SOURCES) {
+    const x = (raw as Record<string, unknown>)[k] as Record<string, unknown> | undefined
+    if (!x || typeof x !== 'object' || typeof x.at !== 'string' || Number.isNaN(Date.parse(x.at))) continue
+    out[k] = {
+      at: new Date(x.at).toISOString(), found: runCount(x.found), added: runCount(x.added), merged: runCount(x.merged),
+      closed: runCount(x.closed), checked: runCount(x.checked), failed: runCount(x.failed),
+    }
+  }
+  return out
+}
+
+/** When a public source next checks a search: on its schedule after its last
+ *  check, and right away for a search it hasn't checked (each change to what
+ *  to look for is a new search). */
+export function nextSourceRun(sources: SearchSources, runs: SourceRuns | null | undefined, source: PublicSource, now = new Date()): Date {
+  const last = runs?.[source]
+  return last ? nextRun(sources.schedules[source], last.at, now) : now
+}
+
+/** The public sources that are on and due for this search now. */
+export function dueSources(sources: SearchSources, runs: SourceRuns | null | undefined, now = new Date()): Record<PublicSource, boolean> {
+  const due = (k: PublicSource) => sources[k] && nextSourceRun(sources, runs, k, now).getTime() <= now.getTime()
+  return { job_lists: due('job_lists'), company_boards: due('company_boards') }
 }
 
 /** The agents here a search runs with: the chosen ones that are here. None

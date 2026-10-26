@@ -1,9 +1,11 @@
 // Public job lists and followed companies' boards → Leads (lib/supply.ts,
 // lib/boards.ts). Part of "Find new jobs": while that automation is on and
-// there's an active search, the open app checks them on start and every few
-// hours. The Leads column can check now.
-import { useCallback, useEffect } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+// there's an active search, the open app checks each source on its own
+// schedule (Workflow → Job lists / Company boards), and a new search right
+// away. The Leads column and Run now check both now.
+import { useCallback, useEffect, useRef } from 'react'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { dueSources } from '@landed/schema/automation'
 import { followedBoards, resolveBoards, type FollowedBoard } from '../lib/boards'
 import { putBack, screenLeads } from '../lib/screen'
 import { scoreLeads } from '../lib/fit'
@@ -16,8 +18,17 @@ import { useSupply } from '../lib/supply'
 import { useAutomations } from './automation'
 import { useActiveSearch, useJobSearches } from './search'
 
-const REFRESH_MS = 6 * 60 * 60_000
+/** How often the open app looks at what's due. */
+const TICK_MS = 60_000
+/** Each criteria edit makes a new search: wait until the edits settle. */
 const SETTLE_MS = 30_000
+/** A check that couldn't reach a source isn't kept, so it's tried again: not sooner than this. */
+const RETRY_MS = 15 * 60_000
+
+function afterCheck(qc: QueryClient, leadsChanged: boolean) {
+  qc.invalidateQueries({ queryKey: ['job_searches'] })
+  if (leadsChanged) for (const key of ['job_leads', 'followed_boards']) qc.invalidateQueries({ queryKey: [key] })
+}
 
 /** Check the lists now (null when there's no active search to fit). */
 export function useSupplyRefresh() {
@@ -26,38 +37,47 @@ export function useSupplyRefresh() {
   const search = useActiveSearch()
   const { running, last, error, refresh } = useSupply()
   const sources = useAutomations().automations.job_search.sources
-  const brief = search?.brief ?? null
   const lists = sources?.job_lists !== false
   const boards = sources?.company_boards !== false
   const run = useCallback(() => {
-    if (!ready || !brief) return
-    void refresh(store, brief, () => {
-      for (const key of ['job_leads', 'followed_boards']) qc.invalidateQueries({ queryKey: [key] })
-    }, { job_lists: lists, company_boards: boards })
-  }, [ready, brief, refresh, store, qc, lists, boards])
-  return { refresh: brief && ready && (lists || boards) ? run : null, running, last, error }
+    if (!ready || !search) return
+    void refresh(store, search, (changed) => afterCheck(qc, changed), { job_lists: lists, company_boards: boards })
+  }, [ready, search, refresh, store, qc, lists, boards])
+  return { refresh: search && ready && (lists || boards) ? run : null, running, last, error }
 }
 
-/** Mounted once (App): the automatic refresh, with "Find new jobs" on. */
+/** Mounted once (App): the automatic checks, with "Find new jobs" on. */
 export function useAutoSupply() {
+  const qc = useQueryClient()
+  const { store, ready } = useStore()
   const { automations, loaded } = useAutomations()
   const search = useActiveSearch()
-  const { refresh } = useSupplyRefresh()
-  const on = loaded && automations.job_search.enabled && !!refresh
+  const refresh = useSupply((s) => s.refresh)
+  const on = loaded && ready && automations.job_search.enabled && !!search
   const searchId = search?.id ?? null
+  // The tick reads the latest settings and runs, not the ones it started with.
+  const latest = useRef({ search, sources: automations.job_search.sources })
+  latest.current = { search, sources: automations.job_search.sources }
 
-  // Again when the search changes: a new brief fits other postings. Each
-  // criteria edit makes a new search, so wait until the edits settle —
-  // checking after the first one (roles only, anywhere) would pull every
-  // posting for those roles.
+  // A new search (a new brief fits other postings) has no runs yet, so both
+  // sources are due once its edits settle — checking after the first edit
+  // (roles only, anywhere) would pull every posting for those roles.
   useEffect(() => {
-    if (!on || !refresh) return
+    if (!on) return
+    let tried = 0
     let timer = setTimeout(function tick() {
-      refresh()
-      timer = setTimeout(tick, REFRESH_MS)
+      const { search: s, sources } = latest.current
+      if (s && sources && Date.now() - tried >= RETRY_MS) {
+        const due = dueSources(sources, s.source_runs)
+        if (due.job_lists || due.company_boards) {
+          tried = Date.now()
+          void refresh(store, s, (changed) => afterCheck(qc, changed), due)
+        }
+      }
+      timer = setTimeout(tick, TICK_MS)
     }, SETTLE_MS)
     return () => clearTimeout(timer)
-  }, [on, searchId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [on, searchId, store]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** The company boards a check looks at (Workflow → Find new jobs). */

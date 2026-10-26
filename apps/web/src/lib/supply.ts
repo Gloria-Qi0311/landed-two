@@ -7,8 +7,11 @@
 // the posting closed (closed leads leave the Leads column; the data stays).
 //
 // Lives in a store, not a component: the automatic refresh (useAutoSupply)
-// and the Leads column's button share one run.
+// and the Leads column's button share one run. Each source's result is kept
+// on the search (job_searches.source_runs): its schedule counts from it, and
+// Workflow shows what it found.
 import { create } from 'zustand'
+import type { PublicSource, SourceRun, SourceRuns } from '@landed/schema/automation'
 import type { SearchBrief } from '@landed/schema/search-brief'
 import {
   listsForBrief, parseSimplifyListings, selectForBrief, simplifyObservationId, simplifySourceOf, SIMPLIFY_LISTS, toFoundJob,
@@ -39,7 +42,12 @@ export type SupplyCheck = SupplyResult & {
   boards: number
   /** "greenhouse:acme" for boards that couldn't be fetched */
   boards_failed: string[]
+  /** what each source that ran found, to keep on the search */
+  runs: SourceRuns
 }
+
+const sourceRun = (r: { found: number; added: number; merged: number; closed: number }, at: string, checked: number, failed: number): SourceRun =>
+  ({ at, found: r.found, added: r.added, merged: r.merged, closed: r.closed, checked, failed })
 
 export async function refreshSupply(
   store: DataStore,
@@ -51,18 +59,21 @@ export async function refreshSupply(
   const lists = opts.sources?.job_lists === false
     ? { lists: [], found: 0, added: 0, merged: 0, closed: 0, failed: [], at: now.toISOString() }
     : await refreshSimplify(store, brief, opts)
-  if (opts.sources?.company_boards === false) return { ...lists, boards: 0, boards_failed: [] }
+  const runs: SourceRuns = {}
+  if (opts.sources?.job_lists !== false) runs.job_lists = sourceRun(lists, now.toISOString(), lists.lists.length, lists.failed.length)
+  if (opts.sources?.company_boards === false) return { ...lists, boards: 0, boards_failed: [], runs }
   const [applications, companies, leads, resolved] = await Promise.all([
     store.listApplications(), store.listCompanies(), store.listJobLeads(), resolveBoards(brief.include_companies, opts.fetchFn),
   ])
   const boards = followedBoards({ applications, companies, leads, brief, resolved })
   const b = await refreshBoards(store, brief, boards, opts)
+  runs.company_boards = sourceRun(b, now.toISOString(), b.boards, b.failed.length)
   await screenLeads(store)
   await scoreLeads(store, opts.now)
   return {
     ...lists,
     found: lists.found + b.found, added: lists.added + b.added, merged: lists.merged + b.merged, closed: lists.closed + b.closed,
-    boards: b.boards, boards_failed: b.failed,
+    boards: b.boards, boards_failed: b.failed, runs,
   }
 }
 
@@ -125,20 +136,26 @@ type State = {
   running: boolean
   last: SupplyCheck | null
   error: string | null
-  refresh: (store: DataStore, brief: SearchBrief, onData: () => void, sources?: { job_lists: boolean; company_boards: boolean }) => Promise<void>
+  /** Check `sources` for the search; `onData(leadsChanged)` once it's kept. */
+  refresh: (store: DataStore, search: { id: string; brief: SearchBrief }, onData: (leadsChanged: boolean) => void, sources: Record<PublicSource, boolean>) => Promise<void>
 }
 
 export const useSupply = create<State>((set, get) => ({
   running: false,
   last: null,
   error: null,
-  async refresh(store, brief, onData, sources) {
-    if (get().running) return
+  async refresh(store, search, onData, sources) {
+    if (get().running || (!sources.job_lists && !sources.company_boards)) return
     set({ running: true, error: null })
     try {
-      const last = await refreshSupply(store, brief, { sources })
+      const last = await refreshSupply(store, search.brief, { sources })
       set({ last })
-      if (last.added + last.merged + last.closed > 0) onData()
+      // A source that couldn't be reached at all isn't kept, so it's tried
+      // again. An archived search (the criteria changed meanwhile) keeps it
+      // too: harmless.
+      const kept = Object.fromEntries(Object.entries(last.runs).filter(([, r]) => r.checked === 0 || r.failed < r.checked))
+      if (Object.keys(kept).length) await store.updateJobSearch(search.id, { source_runs: kept })
+      onData(last.added + last.merged + last.closed > 0)
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) })
     } finally {

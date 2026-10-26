@@ -1,11 +1,11 @@
 // SimplifyJobs lists → Leads, through the real local store and processor.
 import 'fake-indexeddb/auto'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { SearchBrief } from '@landed/schema/search-brief'
 import { SIMPLIFY_LISTS } from '@landed/supply'
 import { ingestFoundJobs } from './inbox'
 import { createLocalStore } from './store/local'
-import { refreshSimplify, refreshSupply } from './supply'
+import { refreshSimplify, refreshSupply, useSupply } from './supply'
 
 let n = 0
 const fresh = () => createLocalStore(`landed-supply-${++n}`)
@@ -116,5 +116,44 @@ describe('Find new jobs → Search with', () => {
     const on = await refreshSupply(store, brief, { fetchFn, now, sources: { job_lists: true, company_boards: false } })
     expect(calls).toEqual([SIMPLIFY_LISTS.new_grad.url])
     expect(on.added).toBe(1)
+    // each source that ran says what it found, for its own schedule
+    expect(off.runs).toEqual({})
+    expect(on.runs).toEqual({ job_lists: { at: now.toISOString(), found: 1, added: 1, merged: 0, closed: 0, checked: 1, failed: 0 } })
+  })
+})
+
+describe('each source on its own schedule (#145)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    useSupply.setState({ running: false, last: null, error: null })
+  })
+
+  test("a check keeps each source's run on the search; one that reached nothing isn't kept", async () => {
+    const store = fresh()
+    const search = await store.addJobSearch(brief)
+    const fetching = lists([listing({})])
+    vi.stubGlobal('fetch', fetching.fetchFn)
+    const onData = vi.fn()
+    await useSupply.getState().refresh(store, search, onData, { job_lists: true, company_boards: false })
+    expect(onData).toHaveBeenCalledWith(true)
+    const [kept] = await store.listJobSearches()
+    expect(kept.source_runs).toMatchObject({ job_lists: { found: 1, added: 1, checked: 1, failed: 0 } })
+    expect(kept.source_runs?.company_boards).toBeUndefined()
+
+    // the lists can't be reached: the earlier run stays, so the schedule tries again
+    vi.stubGlobal('fetch', lists([], true).fetchFn)
+    await useSupply.getState().refresh(store, search, onData, { job_lists: true, company_boards: false })
+    expect(useSupply.getState().last?.failed).toEqual(['new_grad'])
+    expect((await store.listJobSearches())[0].source_runs).toEqual(kept.source_runs)
+  })
+
+  test('nothing due, nothing fetched', async () => {
+    const store = fresh()
+    const search = await store.addJobSearch(brief)
+    const fetching = lists([listing({})])
+    vi.stubGlobal('fetch', fetching.fetchFn)
+    await useSupply.getState().refresh(store, search, vi.fn(), { job_lists: false, company_boards: false })
+    expect(fetching.calls).toEqual([])
+    expect((await store.listJobSearches())[0].source_runs).toBeNull()
   })
 })

@@ -1,8 +1,10 @@
 // Job searches: the direction the user confirmed in the Agent chat (a
-// brief) and how its last run went. Mounted behind requireCloud — sync-off
+// brief) and how its last run went: the agents' (last_run_*), and each
+// public source's (source_runs). Mounted behind requireCloud — sync-off
 // accounts keep these in their browser. Runs happen on the user's computer
 // (routes/runtime.ts, task kind `job_search`); results become job leads in
 // the browser (apps/web/src/lib/inbox/leads.ts → ingestFoundJobs).
+import { parseSourceRuns } from '@landed/schema/automation'
 import { parseBrief } from '@landed/schema/search-brief'
 import { Hono } from 'hono'
 import type { AppEnv } from '../auth.ts'
@@ -13,7 +15,7 @@ import { fail, jsonBody } from '../http.ts'
 type Row = Record<string, any>
 
 export const SEARCH_COLUMNS = [
-  'id', 'brief', 'status', 'last_run_at', 'last_run_result', 'created_at', 'updated_at',
+  'id', 'brief', 'status', 'last_run_at', 'last_run_result', 'source_runs', 'created_at', 'updated_at',
 ] as const
 const STATUSES = ['active', 'archived']
 
@@ -57,11 +59,25 @@ export function searchRoutes(sql: Sql) {
     if (body.last_run_result !== undefined) {
       patch.last_run_result = body.last_run_result === null ? null : sql.json(body.last_run_result)
     }
-    if (Object.keys(patch).length === 0) fail(400, 'nothing to update (allowed: status, last_run_at, last_run_result)')
-    const [row] = await sql`
-      update job_searches set ${sql(patch)}, updated_at = now()
-      where id = ${c.req.param('id')} and user_id = ${c.get('user').id}
-      returning ${sql(cols)}`
+    // A source's run replaces only that source's: the lists and the boards
+    // finish separately.
+    const runs = body.source_runs !== undefined ? parseSourceRuns(body.source_runs) : null
+    if (runs && Object.keys(runs).length === 0) fail(400, 'source_runs needs a job_lists or company_boards run with its date')
+    if (Object.keys(patch).length === 0 && !runs) fail(400, 'nothing to update (allowed: status, last_run_at, last_run_result, source_runs)')
+    const id = c.req.param('id')
+    const userId = c.get('user').id
+    const row = await sql.begin(async (tx) => {
+      if (runs) {
+        const [cur] = await tx`select source_runs from job_searches where id = ${id} and user_id = ${userId} for update`
+        if (!cur) return null
+        patch.source_runs = tx.json({ ...parseSourceRuns(cur.source_runs), ...runs })
+      }
+      const [updated] = await tx`
+        update job_searches set ${tx(patch)}, updated_at = now()
+        where id = ${id} and user_id = ${userId}
+        returning ${tx(cols)}`
+      return updated ?? null
+    })
     if (!row) fail(404, 'search not found')
     return c.json(row)
   })

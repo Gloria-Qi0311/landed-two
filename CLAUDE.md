@@ -61,6 +61,8 @@ messages (PR title and a clean body, no trailer).
 - Public job postings are fetched by the browser, never through the server.
   Screening and scoring use the resume, so they run in the browser too. Lead
   queue fields go through `readLeadQueueFields` on every write path.
+- The job lists and the company boards each run on their own schedule, counted
+  from their last check of the active search (`job_searches.source_runs`).
 - A public list's postings go through `ingestFoundJobs` with one stable
   observation id per posting, so refreshing never adds a source twice.
 - Which companies an account follows (for their job boards) is worked out in the
