@@ -178,6 +178,11 @@ the field's own root, and the outline styles are injected there too.
 - **`pick_resume`** (above, "Between close resumes") sends a posting and the
   candidate resumes' directions, titles and skills to the user's own agent; it
   names a candidate or nothing.
+- **`same_job`** sends pairs of leads the duplicate rules couldn't call: only the
+  postings' public details (company, title, place, link, the start of the
+  description), never anything about the user. It answers same, different or
+  unsure per pair, with the tokens used
+  ([leads-model.md](leads-model.md#remove-duplicates-with-your-agent-146)).
 - Page labels are untrusted prompt text.
 
 Browser extensions are the only code that touches the DOM. `lib/fill/submit.js`

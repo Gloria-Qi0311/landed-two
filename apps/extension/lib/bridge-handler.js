@@ -31,6 +31,10 @@
 //                 own agent through Landed for Mac; it names one or nothing
 //   classify-statuses  what an imported spreadsheet's statuses mean: only the
 //                 status words go to the user's own agent through Landed for Mac
+//   same-job      whether pairs of leads the duplicate rules couldn't decide
+//                 are one opening: only the postings' public details (title,
+//                 company, place, link, the start of the description) go to
+//                 the user's own agent through Landed for Mac
 //   hello         presence + version check
 //
 // Requests arrive from lib/web-bridge.js (a content script injected only on
@@ -137,6 +141,28 @@
     return { type: 'pick_resume', job: { role, company: text(job.company, 120), description: text(job.description, 6000) }, resumes }
   }
 
+  /** A same-job request as the host takes it: pairs of public postings, capped. */
+  function sanitizeSameJob(raw) {
+    if (!raw || typeof raw !== 'object') return null
+    const text = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '')
+    const posting = (p) => {
+      const r = p && typeof p === 'object' ? p : {}
+      const url = text(r.url, 300)
+      return { title: text(r.title, 200), company: text(r.company, 120), location: text(r.location, 200), url: /^https?:\/\//i.test(url) ? url : '', description: text(r.description, 1500) }
+    }
+    const seen = new Set()
+    const pairs = (Array.isArray(raw.pairs) ? raw.pairs : []).flatMap((pair) => {
+      const id = pair && text(pair.id, 64)
+      if (!id || seen.has(id)) return []
+      const a = posting(pair.a)
+      const b = posting(pair.b)
+      if (!a.title || !b.title) return []
+      seen.add(id)
+      return [{ id, a, b }]
+    }).slice(0, 10)
+    return pairs.length ? { type: 'same_job', pairs } : null
+  }
+
   /** The job and example answers an assist-open carries: plain text, capped. */
   function sanitizeJob(raw) {
     if (!raw || typeof raw !== 'object') return null
@@ -165,7 +191,7 @@
   }
 
   function createBridgeHandler(deps) {
-    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced, pickResume, classifyStatuses } = deps
+    const { cfg, snapshotStore, pushMod, storage, chromeLocal, withLock, onQueueChanged, version, openAndFill, takeAssistResults, onAnswersSynced, pickResume, classifyStatuses, sameJob } = deps
     const allowed = new Set(cfg.WEB_ORIGINS)
 
     return async function handle(msg, sender) {
@@ -359,6 +385,21 @@
           if (!res || !res.ok) return { ok: false, error: (res && res.error) || 'your agent did not answer' }
           const stages = res.stages && typeof res.stages === 'object' ? res.stages : {}
           return { ok: true, data: { stages: Object.fromEntries(statuses.filter((t) => stages[t]).map((t) => [t, stages[t]])), model: typeof res.model === 'string' ? res.model : null } }
+        }
+
+        case 'same-job': {
+          const request = sanitizeSameJob(msg.payload)
+          if (!request) return { ok: false, error: 'no pairs to compare' }
+          if (!sameJob) return { ok: false, error: 'this browser cannot ask your agent' }
+          const res = await sameJob(request)
+          if (!res || !res.ok) return { ok: false, error: (res && res.error) || 'your agent did not answer' }
+          const ids = new Set(request.pairs.map((p) => p.id))
+          const verdicts = (Array.isArray(res.verdicts) ? res.verdicts : [])
+            .filter((v) => v && ids.has(v.id) && ['same', 'different', 'unsure'].includes(v.verdict))
+            .map((v) => ({ id: v.id, verdict: v.verdict, reason: typeof v.reason === 'string' ? v.reason.slice(0, 200) : '' }))
+          const n = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : 0)
+          const usage = { input_tokens: n(res.usage && res.usage.input_tokens), output_tokens: n(res.usage && res.usage.output_tokens) }
+          return { ok: true, data: { verdicts, usage, model: typeof res.model === 'string' ? res.model : null } }
         }
 
         default:

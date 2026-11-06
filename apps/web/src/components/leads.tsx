@@ -2,10 +2,13 @@
 // score and the reason that counts most, and, unfolded, every reason, what
 // the hard filters made of it, where it was found and when it was posted.
 // Plus the folded sections under the column: leads the filters hid and
-// leads whose posting closed.
-import { useState, type ReactNode, type SyntheticEvent } from 'react'
+// leads whose posting closed, and the postings the user's agent judged the
+// same job as a card (#146), each with Split.
+import { useMemo, useState, type ReactNode, type SyntheticEvent } from 'react'
 import { isPutBack } from '@landed/supply'
 import type { DbJobLead } from '../lib/store'
+import { useJobLeads } from '../hooks/inbox'
+import { useSplitDuplicate } from '../hooks/dedupe'
 import { Icon } from './primitives'
 
 /** Keeps a click or key on a control inside a draggable card from starting a drag. */
@@ -61,6 +64,31 @@ export function FitLine({ lead }: { lead: DbJobLead }) {
           {lead.fit.reasons[0]}
         </span>
       )}
+    </div>
+  )
+}
+
+/** The postings hidden under this lead because the user's agent judged
+ *  them the same job, each with why and Split. */
+export function SameJobLine({ lead }: { lead: DbJobLead }) {
+  const all = useJobLeads().data
+  const hidden = useMemo(() => (all ?? []).filter((l) => l.dedupe?.same_as === lead.id), [all, lead.id])
+  const split = useSplitDuplicate()
+  if (hidden.length === 0) return null
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {hidden.map((d) => (
+        <div key={d.id} style={{ display: 'flex', alignItems: 'baseline', gap: 5, fontSize: 10.5, color: 'var(--fg-muted)' }}>
+          <span style={{ flex: 1, minWidth: 0, lineHeight: 1.4 }} title={d.dedupe?.reason ?? undefined}>
+            {d.dedupe?.by ?? 'Your agent'}: same job as “{d.title}”{d.location ? ` in ${d.location}` : ''}, found by {sourceOn(d, d.sources[0]?.provider)}
+          </span>
+          <button type="button" className="btn-ghost" {...insideCard} disabled={split.isPending}
+            onClick={(e) => { stop(e); split.mutate(d) }} title="Not the same job: show it as its own lead"
+            style={{ fontSize: 10.5, padding: '1px 4px', flexShrink: 0 }}>
+            Split
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

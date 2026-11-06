@@ -313,6 +313,39 @@ in New Grad).
   Engineer, New Grad" and "Software Engineer, Platform (New Grad)" at one company
   badged both before.
 
+## Remove duplicates with your agent (#146)
+
+The rules come first (`sameJob` as a posting arrives; see
+[observation-processor.md](observation-processor.md)). When Workflow → Remove
+duplicates is set to "Landed rules, then your agent" (`users.automations.job_search.dedupe_by`,
+`'landed'` by default), the pairs the rules can't call go to the user's own agent:
+
+- **Which pairs**: `uncertainPairs` in the processor. Two open leads at one
+  company, titles close (≥ 0.5) but not the same, or the same title in places the
+  rules can't line up. Two job-board postings with different ids stay different.
+  A pair already compared isn't asked again.
+- **The batch** (`lib/dedupe.ts`, `hooks/dedupe.ts`): on each change to the
+  leads, at most 10 pairs and about 6,000 tokens of postings, through the
+  extension (bridge `same-job`) and Landed for Mac (native `same_job`: the
+  user's Claude Code with no tools, else Ollama). It sends only each posting's
+  company, title, place, link and the first 1,500 characters of its description.
+  Nothing about the user goes out. With no extension or no answer, nothing
+  changes, and Landed tries again after 15 minutes.
+- **Answers**:
+  - **same**: the lead with less to go on (no job-board posting, else no link,
+    else the later one) gets `dedupe.same_as` and leaves the column. It is never
+    deleted. The kept card says "Claude Code: same job as …", with the reason on
+    hover, and **Split**, which clears `same_as`.
+  - **different / unsure** (or no answer for a pair): both stay. One extra lead
+    beats a real job hidden.
+
+  Either way both leads note the other in `dedupe.checked`, so the pair is never
+  asked again, Split included.
+- **Logged**: each batch is an `ai_runs` row (task `same_job`, migration 0027):
+  the pairs, the answers, how many were the same, and the tokens. Workflow shows
+  the last batch.
+- `dedupe` is a lead queue field (`readLeadQueueFields`, migration 0027, Dexie v17).
+
 ## Approved-lead execution (#99)
 
 Approve starts linked `saved` applications automatically in the same `priority`

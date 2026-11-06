@@ -571,6 +571,12 @@ describe('data isolation + CRUD', () => {
     assert.equal(res.status, 201)
     assert.match(res.body.id, /^[0-9a-f-]{36}$/)
     assert.equal((await call('POST', '/api/ai-runs', { token: alice, body: { task: 'nope', provider: 'claude', prompt_text: 'p' } })).status, 400)
+    // a batch of duplicates asked of the user's agent (#146)
+    const same = await call('POST', '/api/ai-runs', {
+      token: alice,
+      body: { task: 'same_job', provider: 'claude', prompt_text: '[{"id":"p1"}]', response_text: '[]', parsed_json: { asked: 1, input_tokens: 2400, output_tokens: 120 }, parse_format: 'json' },
+    })
+    assert.equal(same.status, 201, JSON.stringify(same.body))
   })
 
   test('ai keys are write-only and encrypted at rest', async () => {
@@ -911,6 +917,18 @@ describe('observation processing storage (Cloud)', () => {
       assert.equal((await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: bad })).status, 400, JSON.stringify(bad))
     }
     assert.equal((await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: { fit: null } })).body.fit, null, 'null clears')
+
+    // the agent's duplicate verdict (#146, 0027): validated the same way
+    const other = crypto.randomUUID()
+    const judged = await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: {
+      dedupe: { same_as: other, checked: [other, other], by: 'Claude Code', at: '2026-10-26T12:00:00Z', reason: 'One opening, posted twice.' },
+    } })
+    assert.equal(judged.status, 200, JSON.stringify(judged.body))
+    assert.deepEqual(judged.body.dedupe, { same_as: other, checked: [other], by: 'Claude Code', at: '2026-10-26T12:00:00.000Z', reason: 'One opening, posted twice.' })
+    assert.equal((await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: { dedupe: { same_as: other, checked: 'x' } } })).status, 400)
+    const split = await call('PATCH', `/api/job-leads/${id}`, { token: owner, body: { dedupe: { ...judged.body.dedupe, same_as: null } } })
+    assert.equal(split.body.dedupe.same_as, null)
+    assert.deepEqual(split.body.dedupe.checked, [other], 'Split keeps the pair answered')
   })
 
   test('suggestions: upsert, resolve, one per dedupe key', async () => {

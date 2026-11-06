@@ -13,6 +13,8 @@ import { useKnownAnswers } from './hooks/answers';
 import { useAgentChatRunner } from './hooks/conversations';
 import { useSearchRunner } from './hooks/search';
 import { useAutoSupply, useLeadScreening, usePutBack, useSupplyRefresh } from './hooks/supply';
+import { useLeadDedupe } from './hooks/dedupe';
+import { isHiddenDuplicate } from './lib/dedupe';
 import { screenedOut } from './lib/screen';
 import { useAutomationRunner } from './hooks/automation';
 import { useAutoApplyRunner } from './hooks/auto-apply';
@@ -145,6 +147,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useSearchRunner();
   useAutoSupply();
   useLeadScreening();
+  useLeadDedupe();
   useAutomationRunner();
   useAutoApplyRunner();
   usePortalRunner();
@@ -363,10 +366,13 @@ function ApplicationsPage({
   // Kanban's Leads column. Postings that closed leave it (the data stays;
   // the column folds them away under "Closed", newest first). The hard
   // filters (#92) hide what plainly can't be applied to; the column lists
-  // those apart, with their reasons and a way back.
+  // those apart, with their reasons and a way back. A posting the user's
+  // agent judged the same job as another shows on that one's card (#146).
   const allLeads = useJobLeads().data ?? [];
-  const open = allLeads.filter((l) => l.status === 'new' && !l.closed_at);
-  const closedLeads = allLeads.filter((l) => l.status === 'new' && l.closed_at)
+  const leadIds = new Set(allLeads.map((l) => l.id));
+  const shown = allLeads.filter((l) => !isHiddenDuplicate(l, leadIds));
+  const open = shown.filter((l) => l.status === 'new' && !l.closed_at);
+  const closedLeads = shown.filter((l) => l.status === 'new' && l.closed_at)
     .sort((a, b) => b.closed_at!.localeCompare(a.closed_at!));
   const leadByApp = new Map(allLeads.filter((l) => l.application_id).map((l) => [l.application_id!, l]));
   const leads = open.filter((l) => !screenedOut(l));

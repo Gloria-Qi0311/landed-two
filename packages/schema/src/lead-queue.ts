@@ -9,21 +9,29 @@
 //   screen     {pass, reasons}  hard filters (graduation date, sponsorship,
 //                               citizenship / clearance)
 //   fit        {score, reasons} match against the master resume, score 0–1
+//   dedupe     {same_as, checked, by, at, reason}  a duplicate the rules
+//              couldn't decide, as the user's own agent judged it (#146)
 //
 // Every field is optional (null). Priority is computed when shown, never
 // stored (packages/supply → priority).
 
 export type LeadScreen = { pass: boolean; reasons: string[] }
 export type LeadFit = { score: number; reasons: string[] }
+/** `same_as`: the lead this one is the same job as, hidden from Leads while
+ *  set (Split clears it; the lead is never deleted). `checked`: the leads it
+ *  was already compared with, whatever the answer, so a pair is asked once.
+ *  `by`: who judged ("Claude Code"); `reason`: why, for "same". */
+export type LeadDedupe = { same_as: string | null; checked: string[]; by: string; at: string; reason: string | null }
 
 export type LeadQueueFields = {
   posted_at: string | null
   closed_at: string | null
   screen: LeadScreen | null
   fit: LeadFit | null
+  dedupe: LeadDedupe | null
 }
 
-export const LEAD_QUEUE_FIELDS = ['posted_at', 'closed_at', 'screen', 'fit'] as const
+export const LEAD_QUEUE_FIELDS = ['posted_at', 'closed_at', 'screen', 'fit', 'dedupe'] as const
 
 export const MAX_REASONS = 10
 /** Years a posting or closing date may have: a source that sends seconds
@@ -100,7 +108,24 @@ export function parseFit(raw: unknown): LeadFit | null {
   return { score: r.score, reasons }
 }
 
-const PARSERS = { posted_at: parsePostedAt, closed_at: parseClosedAt, screen: parseScreen, fit: parseFit } as const
+const LEAD_ID = /^[A-Za-z0-9-]{1,64}$/
+/** The newest this many compared leads are kept. */
+export const MAX_DEDUPE_CHECKED = 50
+
+/** `{same_as, checked, by, at, reason}` → itself, cleaned; else null. */
+export function parseDedupe(raw: unknown): LeadDedupe | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const r = raw as Record<string, unknown>
+  const same = r.same_as === null || r.same_as === undefined ? null : typeof r.same_as === 'string' && LEAD_ID.test(r.same_as) ? r.same_as : undefined
+  const by = typeof r.by === 'string' ? r.by.replace(/\s+/g, ' ').trim().slice(0, 80) : ''
+  const at = parseClosedAt(r.at)
+  if (same === undefined || !Array.isArray(r.checked) || !by || !at) return null
+  const checked = [...new Set(r.checked.filter((id): id is string => typeof id === 'string' && LEAD_ID.test(id)))].slice(-MAX_DEDUPE_CHECKED)
+  const reason = typeof r.reason === 'string' && r.reason.trim() ? r.reason.replace(/\s+/g, ' ').trim().slice(0, MAX_REASON_LENGTH) : null
+  return { same_as: same, checked, by, at, reason }
+}
+
+const PARSERS = { posted_at: parsePostedAt, closed_at: parseClosedAt, screen: parseScreen, fit: parseFit, dedupe: parseDedupe } as const
 
 export type LeadQueueError = { field: typeof LEAD_QUEUE_FIELDS[number]; message: string }
 
@@ -109,6 +134,7 @@ const MESSAGES: Record<typeof LEAD_QUEUE_FIELDS[number], string> = {
   closed_at: 'closed_at must be a time',
   screen: 'screen must be {pass: boolean, reasons: string[]}',
   fit: 'fit must be {score: 0–1, reasons: string[]}',
+  dedupe: 'dedupe must be {same_as, checked: string[], by, at, reason}',
 }
 
 /** The queue fields present in `input` (undefined = not given), validated:
@@ -138,5 +164,6 @@ export function leadQueueDefaults(input: Record<string, unknown>): LeadQueueFiel
     closed_at: parseClosedAt(input.closed_at),
     screen: parseScreen(input.screen),
     fit: parseFit(input.fit),
+    dedupe: parseDedupe(input.dedupe),
   }
 }

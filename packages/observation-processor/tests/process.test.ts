@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { applyToContext, matchApplication, processObservation, type Context, type Effect, type Observation } from '../src'
+import { applyToContext, matchApplication, processObservation, uncertainPairs, type Context, type Effect, type JobLead, type Observation } from '../src'
 
 const NOW = '2026-10-10T12:00:00.000Z'
 let seq = 0
@@ -125,6 +125,51 @@ const pipelineApps = [
   app('acme-swe', 'co-acme', 'Software Engineer', 'saved'),
   app('ramp-ops', 'co-ramp', 'Operations Lead', 'saved'),
 ]
+
+describe('leads the rules can\'t call (#146)', () => {
+  const leadsOf = (payloads: Record<string, unknown>[]) => run(payloads.map((p) => job(p)), ctx()).ctx.leads
+  const titles = (pairs: ReturnType<typeof uncertainPairs>) => pairs.map((p) => [p.keep.title, p.other.title])
+
+  test('close titles or the same title in other places, at one company, are asked; what the rules decide is not', () => {
+    const leads = leadsOf([
+      { company: 'Northwind Robotics', title: 'Data Analyst, New Grad', job_url: 'https://boards.greenhouse.io/northwind/jobs/101', location: 'Seattle, WA' },
+      { company: 'Northwind Robotics', title: 'New Grad Data Analyst 2027', location: 'Seattle' },
+      // the same title in another city: the rules keep them apart, the agent may know better
+      { company: 'Lumen Labs', title: 'Product Analyst', location: 'Austin, TX' },
+      { company: 'Lumen Labs', title: 'Product Analyst', location: 'Denver, CO' },
+      // two job-board postings with different ids: different (the rules' call)
+      { company: 'Bluefin Analytics', title: 'Data Analyst', job_url: 'https://jobs.lever.co/bluefin/11111111-1111-4111-8111-111111111111' },
+      { company: 'Bluefin Analytics', title: 'Data Analyst I', job_url: 'https://jobs.lever.co/bluefin/22222222-2222-4222-8222-222222222222' },
+      // not close enough to ask
+      { company: 'Contoso', title: 'Software Engineer Intern' },
+      { company: 'Contoso', title: 'Software Engineer, New Grad' },
+      // close titles at different companies: never a pair
+      { company: 'Fabrikam', title: 'Business Analyst' },
+      { company: 'Tailspin Toys', title: 'Business Analyst' },
+    ])
+    expect(leads).toHaveLength(10)
+    expect(titles(uncertainPairs(leads))).toEqual([
+      ['Product Analyst', 'Product Analyst'],
+      // the one with a job-board posting stays
+      ['Data Analyst, New Grad', 'New Grad Data Analyst 2027'],
+    ])
+  })
+
+  test('hidden, closed, filtered, dismissed or already compared leads are not asked again; a batch is capped', () => {
+    const [a, b] = leadsOf([{ company: 'Lumen Labs', title: 'Product Analyst', location: 'Austin, TX' }, { company: 'Lumen Labs', title: 'Product Analyst', location: 'Denver, CO' }])
+    const asked = { same_as: null, checked: [b.id], by: 'Claude Code', at: NOW, reason: null }
+    expect(uncertainPairs([{ ...a, dedupe: asked }, b])).toEqual([])
+    expect(uncertainPairs([a, { ...b, dedupe: { ...asked, checked: [], same_as: 'x' } }])).toEqual([])
+    expect(uncertainPairs([a, { ...b, closed_at: NOW }])).toEqual([])
+    expect(uncertainPairs([a, { ...b, screen: { pass: false, reasons: ['Needs a US citizen'] } }])).toEqual([])
+    expect(uncertainPairs([a, { ...b, status: 'dismissed' }])).toEqual([])
+    expect(uncertainPairs([a, b])).toHaveLength(1)
+
+    const many: JobLead[] = Array.from({ length: 6 }, (_, i) => ({ ...a, id: `l${i}`, location: `City ${i}` }))
+    expect(uncertainPairs(many)).toHaveLength(10) // 15 pairs, one batch of 10
+    expect(uncertainPairs(many, 3)).toHaveLength(3)
+  })
+})
 
 describe('application_status — automatic mode (default)', () => {
   const pipeline = ctx({ companies, applications: pipelineApps })

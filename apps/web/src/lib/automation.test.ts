@@ -188,6 +188,13 @@ describe('Find new jobs → Search with', () => {
     expect(before).toMatchObject({ enabled: true, schedule: { kind: 'interval', hours: 6 }, sources: { agents: ['codex'], job_lists: false, company_boards: true, schedules: { job_lists: daily, company_boards: daily } } })
   })
 
+  test('who removes duplicates: Landed rules unless the agent was picked (#146)', () => {
+    expect(parseAutomations({}).job_search.dedupe_by).toBe('landed')
+    expect(parseAutomations({ job_search: { enabled: true, dedupe_by: 'agent' } }).job_search.dedupe_by).toBe('agent')
+    expect(parseAutomations({ job_search: { enabled: true, dedupe_by: 'codex' } }).job_search.dedupe_by).toBe('landed')
+    expect(parseAutomations({ email_check: { enabled: true, dedupe_by: 'agent' } }).email_check.dedupe_by).toBeUndefined()
+  })
+
   test('source runs: what was checked when, validated', () => {
     expect(parseSourceRuns(null)).toEqual({})
     expect(parseSourceRuns([])).toEqual({})

@@ -16,7 +16,7 @@ const lead = (application_id: string, score: number): DbJobLead => ({
   company_key: application_id, title_key: application_id, company_name: application_id, title: application_id,
   job_url: null, location: null, description: null, deadline: null, sources: [], status: 'saved', application_id,
   first_seen_at: '2026-10-01T00:00:00Z', last_seen_at: '2026-10-01T00:00:00Z', posted_at: null,
-  closed_at: null, screen: null, fit: { score, reasons: [] },
+  closed_at: null, screen: null, fit: { score, reasons: [] }, dedupe: null,
 })
 const suggestion = (application_id: string): DbSuggestion => ({
   id: crypto.randomUUID(), user_id: 'local', dedupe_key: crypto.randomUUID(), kind: 'note', state: 'auto_applied',
