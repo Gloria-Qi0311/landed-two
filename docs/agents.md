@@ -313,6 +313,11 @@ or Gemini stays as the other way.
 
 ## Job search
 
+How an agent searches (where to look, what to check before reporting a posting,
+one entry per posting, its budget) is the shared playbook in
+[agent-sourcing.md](agent-sourcing.md): the daemon's `job_search` and cloud
+agents' `get_tasks` send the same lines (`packages/schema/src/agent-sourcing.ts`).
+
 The chat agent ends a reply with a ```` ```landed-brief ```` JSON block once the
 direction is clear; when the user said which agents should search or how often,
 the same JSON may carry `search_with` (agent ids) and `schedule` ("daily 09:00",

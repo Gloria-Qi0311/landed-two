@@ -66,6 +66,10 @@ messages (PR title and a clean body, no trailer).
 - A listing site's own page (jobright.ai) is never the application: a posting
   takes its company's board link only for the very same title, else auto apply
   skips it and says so.
+- Every searching agent (the daemon's `job_search`, cloud agents' `get_tasks`)
+  gets the one playbook in `packages/schema/src/agent-sourcing.ts`: report only
+  postings whose own page it opened, the company's or job board's link, never a
+  social post; never sign in, pass a CAPTCHA or scrape LinkedIn / Indeed.
 - Which companies an account follows (for their job boards) is worked out in the
   browser and never sent to the server.
 - A spreadsheet import adds nothing until the user confirms the preview, never

@@ -17,6 +17,7 @@ import { CODEX_KINDS, detectCodex, runCodex } from './codex.ts'
 import { knownSessions, loadMailCache, rememberSession, saveMailCache, workspace } from './config.ts'
 import { pdfText } from './pdf.ts'
 import type { Spec, Task, TaskEvent } from './types.ts'
+import { SEARCH_PLAYBOOK, searchQueries } from '@landed/schema/agent-sourcing'
 
 /** `mail`: the mailbox the agent can read (e.g. "Gmail"), if any.
  *  `browser`: "Chrome" when Claude in Chrome is connected (portal checks). */
@@ -456,18 +457,15 @@ export type Brief = {
   notes?: string | null
 }
 
+// The playbook is shared with cloud agents' get_tasks (packages/schema/src/agent-sourcing.ts;
+// docs/agent-sourcing.md).
 const SEARCH_SYSTEM_PROMPT = [
   "You are Landed's job-search agent, running on the user's own computer. Find job postings that are open",
-  "now and match the user's search brief, using web search and by opening pages.",
-  '- Only report postings you actually found. Never invent companies, titles or links.',
-  "- Link the company's own careers or ATS page (Greenhouse, Lever, Ashby, Workday, the company site) when",
-  '  you can; an aggregator link (LinkedIn, Indeed, …) is fine when that is all there is.',
-  '- Skip postings that are closed, or clearly older than about two months.',
-  '- Respect the brief: never include excluded companies; look at the companies it names first.',
-  "- sponsorship: what the posting says about visa sponsorship, or what is publicly known about the company's",
-  '  sponsoring for this kind of role. Leave it empty rather than guess.',
-  '- deadline: the application deadline if the posting states one (YYYY-MM-DD); new-grad programs often have one.',
-  '- Aim for 15–30 good matches. Fewer good ones beat many weak ones.',
+  "now and match the user's search brief, using web search and by opening pages. Landed already reads the",
+  'SimplifyJobs and jobright lists and the job boards of companies the user follows: look beyond them.',
+  '',
+  ...SEARCH_PLAYBOOK,
+  '',
   'When you are done, return the results with the structured output tool.',
 ].join('\n')
 
@@ -532,6 +530,9 @@ export function searchPrompt(brief: Brief, today: Date): string {
     `- Companies to look at first: ${listOr(brief.include_companies, 'none named')}`,
     `- Companies to exclude: ${listOr(brief.exclude_companies, 'none')}`,
     ...(brief.notes ? [`- Notes: ${brief.notes}`] : []),
+    '',
+    'Searches to start from (then follow where they lead):',
+    ...searchQueries(brief as Parameters<typeof searchQueries>[0]).map((q) => `- ${q}`),
     '',
     `Today is ${today.toISOString().slice(0, 10)}. Find open postings that match, then return them.`,
   ].join('\n')

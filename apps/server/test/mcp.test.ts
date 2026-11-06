@@ -227,6 +227,10 @@ describe('MCP', () => {
     assert.equal(search.id, 'job_search')
     assert.equal(search.submit_with, 'submit_jobs')
     assert.match(search.instructions, /Backend Engineer/)
+    // The same playbook as the daemon's search, and searches to start from (#138).
+    assert.match(search.instructions, /Never report a posting you haven't opened/)
+    assert.match(search.instructions, /Budget: stop once you have about 25 good matches/)
+    assert.match(search.instructions, /- site:myworkdayjobs\.com "Backend Engineer" Seattle/)
     assert.equal(email.id, 'email_check')
     assert.deepEqual(email.applications, [{ company: 'Blorp', role: 'Engineer', stage: 'applied' }])
     assert.ok(Date.now() - Date.parse(email.since) > 13 * 86_400_000) // first check looks back two weeks
