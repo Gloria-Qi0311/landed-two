@@ -456,3 +456,17 @@ export async function undoImport(store: DataStore, outcome: ImportOutcome): Prom
   for (const id of outcome.added) await store.deleteApplication(id)
 }
 
+
+// ── after an import: bringing it up to date from email ───────────────────
+
+/** How email brings an import up to date: on its own when Check email is on
+ *  and a computer can read it; one click when Check email is off (the user's
+ *  explicit choice, not the schedule); set it up when no computer can read it;
+ *  nothing when the import changed nothing. */
+export type EmailAfterImport = 'auto' | 'offer' | 'setup' | 'none'
+
+export function emailAfterImport(o: { changed: number; canRead: boolean; enabled: boolean }): EmailAfterImport {
+  if (o.changed === 0) return 'none'
+  if (!o.canRead) return 'setup'
+  return o.enabled ? 'auto' : 'offer'
+}

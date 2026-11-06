@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import { describe, expect, test } from 'vitest'
 import { ingestFoundJobs } from './inbox'
 import {
-  decodeBytes, findHeader, guessMapping, isForward, parseDay, parseStage, planImport, readRows, readStatus, readTable, runImport, undoImport, unreadStatuses,
+  decodeBytes, findHeader, guessMapping, isForward, parseDay, parseStage, planImport, readRows, readStatus, readTable, runImport, undoImport, unreadStatuses, emailAfterImport,
 } from './import-applications'
 import { createLocalStore } from './store/local'
 
@@ -248,5 +248,16 @@ describe('against Landed', () => {
     await undoImport(store, outcome)
     expect((await store.listApplications()).find((a) => a.id === ultra.id)?.stage).toBe('applied')
     expect((await store.listJobLeads())[0]).toMatchObject({ status: 'already_applied', application_id: ultra.id })
+  })
+})
+
+describe('after an import, email brings it up to date', () => {
+  test('on its own only when Check email is on; once, on a click, when it is off; set up when no computer reads email', () => {
+    expect(emailAfterImport({ changed: 32, canRead: true, enabled: true })).toBe('auto')
+    // The user turned Check email off on Workflow: Landed never reads email on its own.
+    expect(emailAfterImport({ changed: 32, canRead: true, enabled: false })).toBe('offer')
+    expect(emailAfterImport({ changed: 32, canRead: false, enabled: true })).toBe('setup')
+    expect(emailAfterImport({ changed: 32, canRead: false, enabled: false })).toBe('setup')
+    expect(emailAfterImport({ changed: 0, canRead: true, enabled: true })).toBe('none')
   })
 })

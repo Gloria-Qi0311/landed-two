@@ -19,7 +19,7 @@ import { isHiddenDuplicate } from './lib/dedupe';
 import { screenedOut } from './lib/screen';
 import { useAutomationRunner } from './hooks/automation';
 import { useAutoApplyRunner } from './hooks/auto-apply';
-import { AgentUpdatesBar, usePendingUpdateCount } from './components/agent-updates';
+import { AgentUpdatesBar, EmailCheckRunning, usePendingUpdateCount } from './components/agent-updates';
 
 import { useAuth } from './lib/auth';
 import {
@@ -435,6 +435,7 @@ function ApplicationsPage({
           </>
         }
       />
+      <EmailCheckRunning />
       <AgentUpdatesBar />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         <KanbanView
