@@ -161,6 +161,7 @@ function processJob(o: Observation, ctx: Context, opts: ProcessOptions): Outcome
     screen: null,
     fit: null,
     dedupe: null,
+    rank: null,
   }
   return {
     status: 'processed',

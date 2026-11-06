@@ -195,6 +195,12 @@ describe('Find new jobs → Search with', () => {
     expect(parseAutomations({ email_check: { enabled: true, dedupe_by: 'agent' } }).email_check.dedupe_by).toBeUndefined()
   })
 
+  test('who ranks: Landed rules unless the agent was picked (#147)', () => {
+    expect(parseAutomations({}).job_search.rank_by).toBe('landed')
+    expect(parseAutomations({ job_search: { enabled: true, rank_by: 'agent', dedupe_by: 'landed' } }).job_search).toMatchObject({ rank_by: 'agent', dedupe_by: 'landed' })
+    expect(parseAutomations({ job_search: { enabled: true, rank_by: 'gpt' } }).job_search.rank_by).toBe('landed')
+  })
+
   test('source runs: what was checked when, validated', () => {
     expect(parseSourceRuns(null)).toEqual({})
     expect(parseSourceRuns([])).toEqual({})

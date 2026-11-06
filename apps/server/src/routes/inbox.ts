@@ -16,7 +16,7 @@ type Row = Record<string, any>
 export const LEAD_COLUMNS = [
   'id', 'fingerprint', 'ats_key', 'canonical_url', 'company_key', 'title_key', 'company_name', 'title',
   'job_url', 'location', 'description', 'sources', 'status', 'application_id', 'first_seen_at', 'last_seen_at',
-  'created_at', 'deadline', 'posted_at', 'closed_at', 'screen', 'fit', 'dedupe',
+  'created_at', 'deadline', 'posted_at', 'closed_at', 'screen', 'fit', 'dedupe', 'rank',
 ] as const
 
 export const SUGGESTION_COLUMNS = [
@@ -25,7 +25,7 @@ export const SUGGESTION_COLUMNS = [
   'resolved_at',
 ] as const
 
-const JSON_COLUMNS = new Set(['sources', 'candidate_ids', 'evidence', 'observation_ids', 'processing_result', 'screen', 'fit', 'dedupe'])
+const JSON_COLUMNS = new Set(['sources', 'candidate_ids', 'evidence', 'observation_ids', 'processing_result', 'screen', 'fit', 'dedupe', 'rank'])
 const PROCESSING_STATUSES = ['pending', 'processed', 'needs-review', 'rejected']
 
 /** Pick the given columns from a request body (null when absent), wrapping
@@ -91,7 +91,7 @@ export function inboxRoutes(sql: Sql) {
     }
     for (const [k, v] of Object.entries(leadQueue(body))) patch[k] = JSON_COLUMNS.has(k) && v !== null ? sql.json(v) : v
     if (Object.keys(patch).length === 0) {
-      fail(400, 'nothing to update (allowed: status, application_id, deadline, posted_at, closed_at, screen, fit, dedupe)')
+      fail(400, 'nothing to update (allowed: status, application_id, deadline, posted_at, closed_at, screen, fit, dedupe, rank)')
     }
     const [row] = await sql`
       update job_leads set ${sql(patch)} where id = ${c.req.param('id')} and user_id = ${c.get('user').id}

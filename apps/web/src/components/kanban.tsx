@@ -31,6 +31,7 @@ import { STAGES, columnOf } from '../data';
 import { findDuplicateAppIds } from '../lib/duplicates';
 import type { SupplyCheck } from '../lib/supply';
 import { byPriority, rankOf } from '../lib/fit';
+import { useRankSettings } from '../hooks/rank';
 import type { Approval } from '../lib/inbox';
 import { companyKey } from '@landed/observation-processor';
 import { ago, agoShort, FitLine, FoldedLeads, FoldedRow, insideCard, LeadDetails, SameJobLine, sourceOn } from './leads';
@@ -332,6 +333,8 @@ type LeadsColumnProps = {
   filtered?: DbJobLead[]; onPutBack?: (lead: DbJobLead) => void;
   /** leads whose posting is gone from its source */
   closed?: DbJobLead[];
+  /** new leads waiting for the user's agent to score them (#147) */
+  ranking?: number;
   /** the lead a saved application came from (its fit ranks the card) */
   leadForApp?: (appId: string) => DbJobLead | undefined;
   onApprove?: (leads: DbJobLead[]) => Promise<{ approved: Approval[]; failed: string[] }>; onUndoApprove?: (approvals: Approval[]) => Promise<number>;
@@ -373,11 +376,12 @@ function refreshNote(r: LeadsRefresh): string | null {
 // A Leads card: an agent-found job, or an application not applied to yet.
 type LeadItem = { lead: DbJobLead; app?: undefined; deadline: string | null } | { app: BoardApp; lead?: undefined; deadline: string | null };
 
-function LeadsColumn({ leads, queueLeads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack, closed = [], leadForApp = () => undefined, onApprove, onUndoApprove }: LeadsColumnProps) {
+function LeadsColumn({ leads, queueLeads, saved, onDismiss, onOpen, onOpenApp, getCompany, duplicateIds, onSetLeadDeadline, onSetAppDeadline, refresh, filtered = [], onPutBack, closed = [], ranking = 0, leadForApp = () => undefined, onApprove, onUndoApprove }: LeadsColumnProps) {
   // Dropping an application here puts it back to "not applied yet".
   const { setNodeRef, isOver } = useDroppable({ id: 'saved' });
   const count = leads.length + saved.length;
   const now = new Date();
+  const rankCounts = useRankSettings();
   // Picked leads (only those still here count), and the last approval, undoable.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const selected = leads.filter((l) => picked.has(l.id));
@@ -439,6 +443,11 @@ function LeadsColumn({ leads, queueLeads, saved, onDismiss, onOpen, onOpenApp, g
         {refresh && refreshNote(refresh) && (
           <div role="status" style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>{refreshNote(refresh)}</div>
         )}
+        {ranking > 0 && (
+          <div role="status" style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>
+            Ranking {ranking} new {ranking === 1 ? 'job' : 'jobs'} with your agent…
+          </div>
+        )}
         {onApprove && selected.length > 0 && (
           <ApproveBar count={selected.length} total={leads.length} busy={busy} onApprove={approve}
             onSelectAll={() => setPicked(new Set(leads.map((l) => l.id)))} onClear={() => setPicked(new Set())} />
@@ -460,7 +469,7 @@ function LeadsColumn({ leads, queueLeads, saved, onDismiss, onOpen, onOpenApp, g
         {/* Highest priority first (fit × urgency, lib/fit.ts); a company's leads and saved applications together. */}
         {byCompany(
           [...leads.map((l): LeadItem => ({ lead: l, deadline: l.deadline })), ...saved.map((a): LeadItem => ({ app: a, deadline: a.deadline }))]
-            .map((item) => ({ item, rank: rankOf(item.lead ? { lead: item.lead } : { app: { id: item.app!.id, deadline: item.app!.deadline } }, leadForApp, now) }))
+            .map((item) => ({ item, rank: rankOf(item.lead ? { lead: item.lead } : { app: { id: item.app!.id, deadline: item.app!.deadline } }, leadForApp, now, rankCounts) }))
             .sort((a, b) => byPriority(a.rank, b.rank))
             .map(({ item }) => item),
           (x) => (x.lead ? x.lead.company_name : getCompany(x.app.companyId).name),
@@ -525,13 +534,13 @@ type KanbanProps = {
   queueLeads?: DbJobLead[];
   onOpenLead?: (lead: DbJobLead) => void; onSetLeadDeadline?: SetDeadline; onSetAppDeadline?: SetDeadline;
   leadsRefresh?: LeadsRefresh; filteredLeads?: DbJobLead[]; onPutBackLead?: (lead: DbJobLead) => void; closedLeads?: DbJobLead[];
-  leadForApp?: (appId: string) => DbJobLead | undefined;
+  leadForApp?: (appId: string) => DbJobLead | undefined; rankingLeads?: number;
   onApproveLeads?: (leads: DbJobLead[]) => Promise<{ approved: Approval[]; failed: string[] }>; onUndoApprove?: (approvals: Approval[]) => Promise<number>;
 };
 
 const UNKNOWN_COMPANY: MarkCompany = { name: 'Unknown company', hue: null, logo: null };
 
-export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], queueLeads = leads, onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh, filteredLeads, onPutBackLead, closedLeads, leadForApp, onApproveLeads, onUndoApprove }: KanbanProps) => {
+export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], queueLeads = leads, onAddLead, onDismissLead, onOpenLead, onSetLeadDeadline, onSetAppDeadline, leadsRefresh, filteredLeads, onPutBackLead, closedLeads, leadForApp, rankingLeads, onApproveLeads, onUndoApprove }: KanbanProps) => {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -578,7 +587,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], qu
         <LeadsColumn leads={leads} queueLeads={queueLeads} saved={apps.filter(a => a.stage === 'saved')} onDismiss={onDismissLead} onOpen={onOpenLead}
           onOpenApp={onOpen} getCompany={getCompany} duplicateIds={duplicateIds}
           onSetLeadDeadline={onSetLeadDeadline} onSetAppDeadline={onSetAppDeadline} refresh={leadsRefresh}
-          filtered={filteredLeads} onPutBack={onPutBackLead} closed={closedLeads} leadForApp={leadForApp}
+          filtered={filteredLeads} onPutBack={onPutBackLead} closed={closedLeads} ranking={rankingLeads} leadForApp={leadForApp}
           onApprove={onApproveLeads} onUndoApprove={onUndoApprove} />
         {pipelineStages.map(stage => (
           <DroppableColumn

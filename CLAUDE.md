@@ -124,6 +124,10 @@ messages (PR title and a clean body, no trailer).
   details, never the user's. "Same" hides one lead under the other (never
   deleted; Split undoes it). Unsure or different keeps both, and a pair is asked
   once.
+- Ranking by the user's own agent (`rank_leads`) gets what the chat agent is told
+  and the postings, nothing more. The rules' score always stays. The agent's score
+  needs its reasons and counts 60% only while Rank is set to it and its search is
+  active. A new lead waits for it 5 minutes at most.
 - Resume tailoring never invents facts.
 - A resume uploads without a computer: the browser reads only name, email, phone
   and links, keeps the file, and the agent reads the rest once one is connected

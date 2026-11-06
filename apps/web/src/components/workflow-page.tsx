@@ -40,6 +40,7 @@ import { useAgentConnections } from '../hooks/agents'
 import { useRuntimes } from '../hooks/runtimes'
 import { requestAutoApplyRun, useAutoApplyControl, useExtension } from '../hooks/auto-apply'
 import { useDedupeState } from '../hooks/dedupe'
+import { useRankState } from '../hooks/rank'
 import { card, danger, muted, mutedLarge } from './ui'
 
 const ok = 'oklch(0.45 0.13 155)'
@@ -332,7 +333,7 @@ function statuses(w: W): Record<StepId, Status> {
     lists: !find.enabled || !sources.job_lists ? findOff : { dot: 'on', text: `SimplifyJobs, jobright · ${sched(sources.schedules.job_lists)}` },
     boards: !find.enabled || !sources.company_boards ? findOff : { dot: 'on', text: `${w.boards.length} ${w.boards.length === 1 ? 'company' : 'companies'} · ${sched(sources.schedules.company_boards)}` },
     dedupe: !find.enabled ? findOff : { dot: 'on', text: find.dedupe_by === 'agent' ? 'Landed rules + your agent · each batch' : 'Landed rules · each batch' },
-    rank: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
+    rank: !find.enabled ? findOff : { dot: 'on', text: find.rank_by === 'agent' ? 'Landed rules + your agent · each batch' : 'Landed rules · each batch' },
     apply: !a.auto_apply.enabled ? { dot: 'off', text: 'Off' }
       : !w.auto.ready ? { dot: 'needs', text: a.auto_apply.executor === 'extension' ? 'Needs the extension here' : 'Needs the selected agent connected' }
         : w.auto.blocked > 0 ? { dot: 'needs', text: `${w.auto.blocked} ${w.auto.blocked === 1 ? 'needs' : 'need'} you` }
@@ -458,23 +459,6 @@ function RailItem({ active, icon, title, status, onClick }: { active: boolean; i
 
 /** The built-in executor: Landed's own logic, in the browser. */
 const LANDED_AI = <span>Landed AI <span style={muted}>· built in, no tokens</span></span>
-
-/** Who does a step that an agent will also be able to do: Landed AI for now.
- *  The agents on the user's computer are listed but not selectable until
- *  that step's agent layer ships (#147 ranking); it then stores the choice
- *  in its own field of users.automations, like Remove duplicates' dedupe_by. */
-function ExecutorSelect({ w, label, soon }: { w: W; label: string; soon: string }) {
-  const agents = [...new Map(w.targets.flatMap((t) => t.runtime.agents).map((a) => [a.id, a])).values()]
-  return (
-    <>
-      <select aria-label={label} value="landed" style={{ fontSize: 12.5, alignSelf: 'flex-start' }} onChange={() => {}}>
-        <option value="landed">Landed AI (default)</option>
-        {agents.map((a) => <option key={a.id} value={a.id} disabled>{a.label} · coming soon</option>)}
-      </select>
-      <span style={muted}>{soon}</span>
-    </>
-  )
-}
 
 function StepPane({ id, w, onSelect }: { id: StepId; w: W; onSelect: (id: StepId) => void }) {
   switch (id) {
@@ -681,17 +665,39 @@ function DedupePane({ w }: { w: W }) {
   )
 }
 
+/** How asking the user's agent to rank is going (hooks/rank.ts). */
+function rankStatus(on: boolean, extension: boolean, s: ReturnType<typeof useRankState.getState>): string {
+  if (!on) return 'Landed\'s rules score every lead: the title, place and skills against your search and resume.'
+  if (!extension) return 'Needs the Landed extension in this browser: it asks your agent through Landed for Mac. Until then the rules rank.'
+  if (s.running) return 'Your agent is ranking new jobs…'
+  if (s.error) return `Couldn't ask your agent: ${s.error}. The rules rank meanwhile; Landed tries again in 15 minutes.`
+  if (!s.last) return 'No jobs ranked by your agent yet.'
+  const l = s.last
+  return `Last ranked ${formatRelative(l.at)}: ${l.scored} of ${l.asked} ${l.asked === 1 ? 'job' : 'jobs'} · ${(l.input_tokens + l.output_tokens).toLocaleString()} tokens`
+}
+
 function RankPane({ w }: { w: W }) {
+  const a = w.automations.job_search
+  const byAgent = a.rank_by === 'agent'
+  const extension = !!useExtension().data
+  const state = useRankState()
   return (
     <Pane title="Rank" help="Leads are ordered by how worth applying to they are, highest first."
       controls={<FindControls w={w} />}>
       <FindNotes w={w} />
       <Settings>
-        <Field label="Done by">
-          <ExecutorSelect w={w} label="Who ranks" soon="Soon your own agent can rank: it reads each posting against your resume and writes its reasons. Until then Landed AI ranks." />
+        <Field label="Done by" help="The rules' score is always there. Your agent gets the gist of your resume, the answers that shape your search and the search itself, never your contact details, address, date of birth or EEO answers.">
+          <select aria-label="Who ranks" value={byAgent ? 'agent' : 'landed'} disabled={!w.loaded || w.set.isPending} style={{ fontSize: 12.5, alignSelf: 'flex-start' }}
+            onChange={(e) => w.save({ ...w.automations, job_search: { ...a, rank_by: e.target.value === 'agent' ? 'agent' : 'landed' } })}>
+            <option value="landed">Landed rules (default)</option>
+            <option value="agent">Landed rules and your agent</option>
+          </select>
+          <span style={muted}>{rankStatus(byAgent, extension, state)}</span>
         </Field>
-        <Field label="When"><span>Each new batch</span></Field>
-        <Field label="Fit"><span>How well the title, place and skills match what you're looking for and your resume. Each card shows its reasons.</span></Field>
+        <Field label="When"><span>{byAgent ? 'Each new batch: new jobs wait for your agent\'s score, a few minutes at most' : 'Each new batch'}</span></Field>
+        <Field label="Fit"><span>{byAgent
+          ? 'Your agent reads each posting against your resume and search and gives a score with its reasons; the order counts it 60% and the rules\' score 40%. Each card shows the reasons.'
+          : 'How well the title, place and skills match what you\'re looking for and your resume. Each card shows its reasons.'}</span></Field>
         <Field label="Urgency"><span>How soon it closes: its deadline, else when it was posted.</span></Field>
         <Field label="Filtered out"><span>Postings that rule you out in so many words (graduation date, sponsorship, clearance) are hidden from Leads. You can put any back.</span></Field>
       </Settings>

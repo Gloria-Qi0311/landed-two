@@ -1,4 +1,4 @@
-import type { LeadDedupe, LeadFit, LeadScreen } from '@landed/schema/lead-queue'
+import type { LeadDedupe, LeadFit, LeadRank, LeadScreen } from '@landed/schema/lead-queue'
 import type { InterviewRound } from '@landed/schema/pipeline'
 
 // Shapes the processor reads and writes. Mirrors the job_leads /
@@ -62,6 +62,8 @@ export type JobLead = {
   fit: LeadFit | null
   /** a duplicate the rules couldn't decide, as the user's own agent judged it */
   dedupe: LeadDedupe | null
+  /** the user's own agent's score, for the search it was made for */
+  rank: LeadRank | null
 }
 
 export type SuggestionKind = 'stage_change' | 'new_application' | 'ambiguous' | 'note'

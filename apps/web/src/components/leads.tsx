@@ -9,6 +9,8 @@ import { isPutBack } from '@landed/supply'
 import type { DbJobLead } from '../lib/store'
 import { useJobLeads } from '../hooks/inbox'
 import { useSplitDuplicate } from '../hooks/dedupe'
+import { useRankSettings } from '../hooks/rank'
+import { agentRanked, queueFit } from '../lib/fit'
 import { Icon } from './primitives'
 
 /** Keeps a click or key on a control inside a draggable card from starting a drag. */
@@ -51,17 +53,20 @@ const fitTone = (score: number) => (score >= 0.8 ? FIT_TONES.strong : score >= 0
 
 /** "86% fit" and the reason that counts most. Nothing before a search scores it. */
 export function FitLine({ lead }: { lead: DbJobLead }) {
-  if (!lead.fit) return null
-  const pct = Math.round(lead.fit.score * 100)
+  const counts = useRankSettings()
+  const fit = queueFit(lead, counts)
+  if (!fit) return null
+  const pct = Math.round(fit.score * 100)
+  const byAgent = agentRanked(lead, counts)
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
-      <span title="How well it fits your search and resume" style={{
-        ...fitTone(lead.fit.score), fontSize: 10.5, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+      <span title={byAgent ? `How well it fits your search and resume: Landed's rules and ${lead.rank!.by}` : 'How well it fits your search and resume'} style={{
+        ...fitTone(fit.score), fontSize: 10.5, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
         padding: '1px 6px', borderRadius: 4, flexShrink: 0,
       }}>{pct}% fit</span>
-      {lead.fit.reasons[0] && (
+      {fit.reasons[0] && (
         <span style={{ fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-          {lead.fit.reasons[0]}
+          {fit.reasons[0]}
         </span>
       )}
     </div>
@@ -115,10 +120,18 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 /** Everything behind the score, unfolded on the card. */
 export function LeadDetails({ lead, id }: { lead: DbJobLead; id: string }) {
   const sources = [...new Map(lead.sources.map((s) => [sourceLabel(s.provider), s])).entries()]
+  const byAgent = agentRanked(lead, useRankSettings())
   return (
     <div id={id} {...insideCard} onClick={stop} style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 7, cursor: 'auto' }}>
+      {byAgent && (
+        <Detail label={`${lead.rank!.by}: ${Math.round(lead.rank!.score * 100)}%`}>
+          <ul style={{ ...detailText, margin: 0, paddingLeft: 14, listStyle: 'disc' }}>
+            {lead.rank!.reasons.map((r) => <li key={r}>{r}</li>)}
+          </ul>
+        </Detail>
+      )}
       {lead.fit && (
-        <Detail label="Why this score">
+        <Detail label={byAgent ? `Landed's rules: ${Math.round(lead.fit.score * 100)}%` : 'Why this score'}>
           <ul style={{ ...detailText, margin: 0, paddingLeft: 14, listStyle: 'disc' }}>
             {lead.fit.reasons.map((r) => <li key={r}>{r}</li>)}
           </ul>

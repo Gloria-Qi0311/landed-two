@@ -56,8 +56,11 @@ export type StepExecutor = typeof STEP_EXECUTORS[number]
 /** `quiet_days` (portal_check only): look at an application's portal once
  *  it has had no news for this many days. `sources` (job_search only).
  *  `dedupe_by` (job_search only): who removes the duplicates the rules can't
- *  call (#146). `readers` (email_check only): who reads the email. */
-export type AutomationConfig = { enabled: boolean; schedule: Schedule; quiet_days?: number; sources?: SearchSources; dedupe_by?: StepExecutor; readers?: AgentSources }
+ *  call (#146). `rank_by` (job_search only): who ranks the leads (#147).
+ *  `readers` (email_check only): who reads the email. */
+export type AutomationConfig = {
+  enabled: boolean; schedule: Schedule; quiet_days?: number; sources?: SearchSources; dedupe_by?: StepExecutor; rank_by?: StepExecutor; readers?: AgentSources
+}
 /** Who drives an approved application. `extension` is Landed's browser
  * extension; a UUID names one connected personal agent (Muse, Today, …). */
 export type AutoApplyConfig = { enabled: boolean; max_concurrent: number; executor: 'extension' | string }
@@ -86,7 +89,7 @@ export const MAX_SEARCH_AGENTS = 6
 
 export const DEFAULT_AUTOMATIONS: Automations = {
   email_check: { enabled: false, schedule: { kind: 'interval', hours: 4 } },
-  job_search: { enabled: false, schedule: { kind: 'daily', time: '09:00', days: ALL_DAYS }, sources: DEFAULT_SEARCH_SOURCES, dedupe_by: 'landed' },
+  job_search: { enabled: false, schedule: { kind: 'daily', time: '09:00', days: ALL_DAYS }, sources: DEFAULT_SEARCH_SOURCES, dedupe_by: 'landed', rank_by: 'landed' },
   portal_check: { enabled: false, schedule: { kind: 'daily', time: '10:00', days: [1] }, quiet_days: 14 },
   // Preserve #99's shipped behavior: approved leads execute automatically
   // unless the user turns this off on Automation.
@@ -116,6 +119,7 @@ export function parseAutomations(raw: unknown): Automations {
     if (kind === 'job_search') {
       out[kind].sources = parseSearchSources(x?.sources)
       out[kind].dedupe_by = STEP_EXECUTORS.includes(x?.dedupe_by as StepExecutor) ? x!.dedupe_by as StepExecutor : 'landed'
+      out[kind].rank_by = STEP_EXECUTORS.includes(x?.rank_by as StepExecutor) ? x!.rank_by as StepExecutor : 'landed'
     }
     if (kind === 'email_check') out[kind].readers = parseAgentSources(x?.readers, DEFAULT_EMAIL_READERS)
   }

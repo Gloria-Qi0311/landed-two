@@ -14,6 +14,7 @@ import { useAgentChatRunner } from './hooks/conversations';
 import { useSearchRunner } from './hooks/search';
 import { useAutoSupply, useLeadScreening, usePutBack, useSupplyRefresh } from './hooks/supply';
 import { useLeadDedupe } from './hooks/dedupe';
+import { useLeadRanking, useRankHold } from './hooks/rank';
 import { isHiddenDuplicate } from './lib/dedupe';
 import { screenedOut } from './lib/screen';
 import { useAutomationRunner } from './hooks/automation';
@@ -148,6 +149,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useAutoSupply();
   useLeadScreening();
   useLeadDedupe();
+  useLeadRanking();
   useAutomationRunner();
   useAutoApplyRunner();
   usePortalRunner();
@@ -375,7 +377,9 @@ function ApplicationsPage({
   const closedLeads = shown.filter((l) => l.status === 'new' && l.closed_at)
     .sort((a, b) => b.closed_at!.localeCompare(a.closed_at!));
   const leadByApp = new Map(allLeads.filter((l) => l.application_id).map((l) => [l.application_id!, l]));
-  const leads = open.filter((l) => !screenedOut(l));
+  // With Rank on the user's agent, a new lead waits for its score (#147), a few minutes at most.
+  const ranking = useRankHold(open);
+  const leads = open.filter((l) => !screenedOut(l) && !ranking.has(l.id));
   const filteredLeads = open.filter(screenedOut);
   const leadsRefresh = useSupplyRefresh();
   const putBack = usePutBack();
@@ -449,6 +453,7 @@ function ApplicationsPage({
           filteredLeads={filteredLeads}
           onPutBackLead={(lead: DbJobLead) => putBack.mutate(lead)}
           closedLeads={closedLeads}
+          rankingLeads={open.filter((l) => !screenedOut(l) && ranking.has(l.id)).length}
           leadForApp={(id: string) => leadByApp.get(id)}
           onApproveLeads={(picked: DbJobLead[]) => leadActions.approve.mutateAsync(picked)}
           onUndoApprove={(approvals) => leadActions.undoApprove.mutateAsync(approvals)}

@@ -2,7 +2,7 @@
 // there); they are tested here, next to the package that writes them.
 import { describe, expect, test } from 'vitest'
 import {
-  leadQueueDefaults, MAX_DEDUPE_CHECKED, MAX_REASON_LENGTH, MAX_REASONS, parseClosedAt, parseDedupe, parseFit, parsePostedAt, parseScreen, readLeadQueueFields,
+  leadQueueDefaults, MAX_DEDUPE_CHECKED, MAX_REASON_LENGTH, MAX_REASONS, parseClosedAt, parseDedupe, parseFit, parsePostedAt, parseRank, parseScreen, readLeadQueueFields,
 } from '@landed/schema/lead-queue'
 
 describe('parsePostedAt', () => {
@@ -74,6 +74,19 @@ describe('parseDedupe (#146)', () => {
   })
 })
 
+describe('parseRank (#147)', () => {
+  const ok = { score: 0.82, reasons: ['  Asks for SQL,\n which they use. ', 'Seattle.', 'New grad.', 'a fourth'], by: 'Claude Code', at: '2026-10-26T12:00:00Z', search_id: '00000000-0000-4000-8000-000000000001' }
+  test('a score with 1–3 reasons, for a search', () => {
+    expect(parseRank(ok)).toEqual({ ...ok, reasons: ['Asks for SQL, which they use.', 'Seattle.', 'New grad.'], at: '2026-10-26T12:00:00.000Z' })
+    expect(parseRank({ ...ok, search_id: null })?.search_id).toBeNull()
+  })
+  test('no reasons, a score outside 0–1 or anything else wrong: rejected', () => {
+    for (const raw of [null, [], { ...ok, reasons: [] }, { ...ok, reasons: ['  '] }, { ...ok, score: 1.2 }, { ...ok, score: '0.8' }, { ...ok, by: '' }, { ...ok, at: 'now' }, { ...ok, search_id: 'not an id!' }]) {
+      expect(parseRank(raw)).toBeNull()
+    }
+  })
+})
+
 describe('readLeadQueueFields (every write path)', () => {
   test('only the fields given; null and "" clear', () => {
     expect(readLeadQueueFields({ status: 'new' })).toEqual({ ok: true, fields: {} })
@@ -90,6 +103,6 @@ describe('readLeadQueueFields (every write path)', () => {
 })
 
 test('leadQueueDefaults: an old backup row gets every field, unreadable ones null', () => {
-  expect(leadQueueDefaults({ id: 'x', title: 'Engineer' })).toEqual({ posted_at: null, closed_at: null, screen: null, fit: null, dedupe: null })
-  expect(leadQueueDefaults({ posted_at: '2026-10-01', fit: { score: 9 } })).toEqual({ posted_at: '2026-10-01', closed_at: null, screen: null, fit: null, dedupe: null })
+  expect(leadQueueDefaults({ id: 'x', title: 'Engineer' })).toEqual({ posted_at: null, closed_at: null, screen: null, fit: null, dedupe: null, rank: null })
+  expect(leadQueueDefaults({ posted_at: '2026-10-01', fit: { score: 9 } })).toEqual({ posted_at: '2026-10-01', closed_at: null, screen: null, fit: null, dedupe: null, rank: null })
 })

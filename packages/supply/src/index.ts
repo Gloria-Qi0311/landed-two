@@ -1,7 +1,7 @@
 // @landed/supply — the supply track's pure functions (docs/leads-model.md).
 // Parsers for public job sources, the hard filters and the fit score land
 // here in their own PRs; priority is the first.
-export { daysUntil, NO_DATE_URGENCY, priority, UNRANKED, UNSCORED_FIT, urgency, type PriorityInput } from './priority'
+export { AGENT_RANK_WEIGHT, daysUntil, NO_DATE_URGENCY, priority, rankedFit, UNRANKED, UNSCORED_FIT, urgency, type PriorityInput } from './priority'
 export { scoreFit, skillsMentioned, yearsAsked, yearsOnResume, type FitInput } from './fit'
 export {
   levelMatches, listsForBrief, MAX_AGE_DAYS, tooSenior, MAX_PER_LIST, parseSimplifyListings, placeMatches, roleMatches, selectForBrief,

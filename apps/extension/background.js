@@ -1133,6 +1133,9 @@ const handleBridge = self.LandedBridge.createBridgeHandler({
   // Whether leads the duplicate rules couldn't decide are one opening
   // (bridge-handler.js sends only the postings' public details).
   sameJob: (request) => askNative(request),
+  // Scores for new leads (bridge-handler.js sends the chat agent's context
+  // about the user, never contact details, and the postings).
+  rankLeads: (request) => askNative(request),
 })
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
