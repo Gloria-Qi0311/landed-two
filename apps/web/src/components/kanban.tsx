@@ -361,9 +361,10 @@ function refreshNote(r: LeadsRefresh): string | null {
   const last = r.last;
   if (!last) return null;
   const listsOk = last.lists.length > 0 && last.failed.length < last.lists.length;
+  const jobrightOk = (last.jobright?.lists.length ?? 0) > (last.jobright?.failed.length ?? 0);
   const boardsOk = last.boards - last.boards_failed.length;
-  const checked = [listsOk && 'SimplifyJobs', boardsOk > 0 && `${boardsOk} company board${boardsOk === 1 ? '' : 's'}`].filter(Boolean).join(' and ');
-  if (!checked) return last.lists.length === 0 && last.boards === 0
+  const checked = [listsOk && 'SimplifyJobs', jobrightOk && 'jobright', boardsOk > 0 && `${boardsOk} company board${boardsOk === 1 ? '' : 's'}`].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1');
+  if (!checked) return last.lists.length === 0 && last.boards === 0 && !last.jobright?.lists.length
     ? 'Nothing to check: the job lists carry internships and new-grad roles, and no company is followed yet'
     : "Couldn't reach the job lists or company boards";
   return `Checked ${checked} · ${last.added ? `${last.added} new` : 'nothing new'}${last.closed ? ` · ${last.closed} closed` : ''}`;
@@ -425,7 +426,7 @@ function LeadsColumn({ leads, queueLeads, saved, onDismiss, onOpen, onOpenApp, g
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>Leads</span>
           <span style={laneCount}>{count}</span>
           {refresh?.refresh && (
-            <button type="button" className="btn-ghost" title="Check the SimplifyJobs lists and the job boards of companies you follow for new postings that fit your search"
+            <button type="button" className="btn-ghost" title="Check the job lists (SimplifyJobs, jobright) and the job boards of companies you follow for new postings that fit your search"
               aria-label="Check job lists now" disabled={refresh.running} onClick={refresh.refresh}
               style={{ padding: 2, display: 'flex', color: 'var(--fg-muted)', opacity: refresh.running ? 0.5 : 1 }}>
               <Icon name="refresh" size={12} />
