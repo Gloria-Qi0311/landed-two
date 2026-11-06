@@ -22,5 +22,5 @@ Landed Cloud sync.
 ## Read next
 
 - [CONTRIBUTING.md](CONTRIBUTING.md): set up, workflow, releases
-- [docs/architecture.md](docs/architecture.md): how the pieces fit together
+- [docs/architecture.md](docs/architecture.md): what Landed is, the pipeline every job goes through, and how the pieces fit together
 - [CLAUDE.md](CLAUDE.md): the rules every change follows (also what Claude Code reads)
