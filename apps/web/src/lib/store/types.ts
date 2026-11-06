@@ -14,6 +14,7 @@ import type { OpenAnswer } from '@landed/schema/open-answers'
 import type { MasterResume, ResumeTarget, TailorNotes } from '@landed/schema/master-resume'
 import type { InterviewRound } from '@landed/schema/pipeline'
 import type { LEAD_QUEUE_FIELDS } from '@landed/schema/lead-queue'
+import type { SourceRuns } from '@landed/schema/automation'
 import type { SearchBrief } from '@landed/schema/search-brief'
 import type { JobLead, Suggestion } from '@landed/observation-processor'
 
@@ -188,6 +189,8 @@ export type DbJobSearch = {
   status: 'active' | 'archived'
   last_run_at: string | null
   last_run_result: SearchRunResult | null
+  /** each public source's last check of this search (its own schedule) */
+  source_runs: SourceRuns | null
   created_at: string
   updated_at: string
 }
@@ -356,9 +359,10 @@ export interface DataStore {
   listJobSearches(): Promise<DbJobSearch[]> // created_at desc
   /** Confirm a brief: it becomes the active search, the previous one is archived. */
   addJobSearch(brief: SearchBrief): Promise<DbJobSearch>
+  /** `source_runs` replaces only the sources it carries. */
   updateJobSearch(
     id: string,
-    patch: Partial<Pick<DbJobSearch, 'status' | 'last_run_at' | 'last_run_result'>>,
+    patch: Partial<Pick<DbJobSearch, 'status' | 'last_run_at' | 'last_run_result'>> & { source_runs?: SourceRuns },
   ): Promise<DbJobSearch>
 
   listConversations(): Promise<DbConversation[]> // updated_at desc

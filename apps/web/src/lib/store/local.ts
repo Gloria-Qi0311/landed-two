@@ -6,6 +6,7 @@
 // same defaults, same enum checks, same "reference must exist" rules — so a
 // device's data always uploads cleanly when the user turns Cloud on.
 import Dexie, { type Table } from 'dexie'
+import { parseSourceRuns } from '@landed/schema/automation'
 import { parseConversation } from '@landed/schema/conversation'
 import { parseApplicationAnswers } from '@landed/schema/application-answers'
 import { parseApplicationFile, parseResumeFile } from '@landed/schema/application-files'
@@ -181,6 +182,10 @@ class LandedDB extends Dexie {
     // v15: the open-ended answers each application was sent with.
     this.version(15).stores({}).upgrade(async (tx) => {
       await tx.table('applications').toCollection().modify((a: DbApplication) => { if (a.open_answers === undefined) a.open_answers = null })
+    })
+    // v16: each public source's last check of a search, for its own schedule.
+    this.version(16).stores({}).upgrade(async (tx) => {
+      await tx.table('job_searches').toCollection().modify((s: DbJobSearch) => { if (s.source_runs === undefined) s.source_runs = null })
     })
   }
 }
@@ -599,7 +604,7 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         for (const s of active) await db.job_searches.put({ ...s, status: 'archived', updated_at: at })
         const row: DbJobSearch = {
           id: uuid(), user_id: LOCAL_USER, brief, status: 'active',
-          last_run_at: null, last_run_result: null, created_at: now(), updated_at: at,
+          last_run_at: null, last_run_result: null, source_runs: null, created_at: now(), updated_at: at,
         }
         await db.job_searches.add(row)
         return row
@@ -610,7 +615,12 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       return db.transaction('rw', db.job_searches, async () => {
         const row = await db.job_searches.get(id)
         if (!row) throw new LocalStoreError(404, 'search not found')
-        const next: DbJobSearch = { ...row, ...patch, updated_at: now() }
+        // Like the server: a source's run replaces only that source's.
+        const runs = patch.source_runs !== undefined ? parseSourceRuns(patch.source_runs) : null
+        if (runs && Object.keys(runs).length === 0) throw new LocalStoreError(400, 'source_runs needs a job_lists or company_boards run with its date')
+        const next: DbJobSearch = {
+          ...row, ...patch, source_runs: runs ? { ...parseSourceRuns(row.source_runs), ...runs } : row.source_runs ?? null, updated_at: now(),
+        }
         await db.job_searches.put(next)
         return next
       })

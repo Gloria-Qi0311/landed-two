@@ -1711,6 +1711,18 @@ describe('job searches (Cloud)', () => {
     assert.equal(ran.status, 200)
     assert.deepEqual(ran.body.last_run_result, { found: 12, added: 9 })
     assert.equal((await call('PATCH', `/api/job-searches/${second.body.id}`, { token: owner, body: { status: 'paused' } })).status, 400)
+
+    // each public source's run replaces only its own (#145)
+    assert.equal(ran.body.source_runs, null)
+    const lists = { at: '2026-10-22T09:00:00.000Z', found: 5, added: 3, merged: 2, closed: 0, checked: 1, failed: 0 }
+    const boards = { at: '2026-10-22T10:00:00.000Z', found: 2, added: 2, merged: 0, closed: 1, checked: 4, failed: 1 }
+    await call('PATCH', `/api/job-searches/${second.body.id}`, { token: owner, body: { source_runs: { job_lists: lists } } })
+    const both = await call('PATCH', `/api/job-searches/${second.body.id}`, { token: owner, body: { source_runs: { company_boards: { ...boards, extra: 'dropped' } } } })
+    assert.equal(both.status, 200, JSON.stringify(both.body))
+    assert.deepEqual(both.body.source_runs, { job_lists: lists, company_boards: boards })
+    assert.deepEqual(both.body.last_run_result, { found: 12, added: 9 }, "the agents' run stays")
+    assert.equal((await call('PATCH', `/api/job-searches/${second.body.id}`, { token: owner, body: { source_runs: { job_lists: { found: 1 } } } })).status, 400)
+    assert.equal((await call('PATCH', `/api/job-searches/${second.body.id}`, { token: other, body: { source_runs: { job_lists: lists } } })).status, 404)
     assert.equal((await call('PATCH', `/api/job-searches/${second.body.id}`, { token: other, body: { status: 'archived' } })).status, 404)
     assert.equal((await call('GET', '/api/job-searches', { token: other })).body.length, 0)
 
@@ -1724,7 +1736,13 @@ describe('job searches (Cloud)', () => {
     const up = await call('POST', '/api/sync/upload', { token: fresh, body: device })
     assert.equal(up.status, 201, JSON.stringify(up.body))
     assert.equal(up.body.job_searches, 2)
-    const statuses = (await call('GET', '/api/job-searches', { token: fresh })).body.map((s: any) => s.status).sort()
-    assert.deepEqual(statuses, ['active', 'archived', 'archived'])
+    const uploaded = (await call('GET', '/api/job-searches', { token: fresh })).body
+    assert.deepEqual(uploaded.map((s: any) => s.status).sort(), ['active', 'archived', 'archived'])
+    // source runs come along, validated
+    assert.deepEqual(uploaded.map((s: any) => s.source_runs).filter(Boolean), [{ job_lists: lists, company_boards: boards }])
+    const bad = await signup('search-bad-runs@example.com')
+    const badSnap = { ...device, job_searches: device.job_searches.map((s: any) => ({ ...s, id: crypto.randomUUID(), source_runs: { job_lists: { found: 1 } } })) }
+    assert.equal((await call('POST', '/api/sync/upload', { token: bad, body: badSnap })).status, 201)
+    assert.deepEqual((await call('GET', '/api/job-searches', { token: bad })).body.map((s: any) => s.source_runs), [null, null])
   })
 })

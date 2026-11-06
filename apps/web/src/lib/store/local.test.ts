@@ -218,6 +218,19 @@ describe('job searches', () => {
     expect(ran.last_run_result?.added).toBe(9)
     await expect(store.updateJobSearch('nope', { status: 'archived' })).rejects.toThrow(/not found/)
 
+    // each public source's run replaces only its own, and leaves the agents' alone
+    expect(second.source_runs).toBeNull()
+    const lists = { at: '2026-10-22T09:00:00.000Z', found: 5, added: 3, merged: 2, closed: 0, checked: 1, failed: 0 }
+    const boards = { at: '2026-10-22T10:00:00.000Z', found: 2, added: 2, merged: 0, closed: 1, checked: 4, failed: 1 }
+    await store.updateJobSearch(second.id, { source_runs: { job_lists: lists } })
+    const both = await store.updateJobSearch(second.id, { source_runs: { company_boards: boards } })
+    expect(both.source_runs).toEqual({ job_lists: lists, company_boards: boards })
+    expect(both.last_run_result?.added).toBe(9)
+    const again = await store.updateJobSearch(second.id, { source_runs: { job_lists: { ...lists, at: '2026-10-23T09:00:00.000Z', added: 0 } } })
+    expect(again.source_runs).toEqual({ job_lists: { ...lists, at: '2026-10-23T09:00:00.000Z', added: 0 }, company_boards: boards })
+    // @ts-expect-error — untrusted input is validated like the server does
+    await expect(store.updateJobSearch(second.id, { source_runs: { job_lists: { found: 1 } } })).rejects.toThrow(/source_runs/)
+
     const snap = await store.exportSnapshot()
     expect(snap.job_searches).toHaveLength(2)
     const copy = fresh()
@@ -462,6 +475,26 @@ describe('upgrades', () => {
     const [lead] = await createLocalStore(name).listJobLeads()
     expect(lead).toMatchObject({ title: 'Data Scientist Intern', deadline: '2026-10-30', posted_at: null, closed_at: null, screen: null, fit: null })
   })
+  test('v16: searches from before per-source schedules have no source runs yet', async () => {
+    const name = `landed-upgrade-${++n}`
+    const old = new Dexie(name)
+    old.version(15).stores({
+      companies: 'id, name', applications: 'id, company_id, last_activity_at', resumes: 'id, created_at',
+      portal_connections: 'id, [company_id+provider]', portal_events: 'id, created_at', ai_runs: 'id', meta: 'key',
+      agent_observations: 'id, created_at, &[connection_id+idempotency_key], processing_status',
+      job_leads: 'id, &fingerprint, status, last_seen_at', status_suggestions: 'id, &dedupe_key, state, created_at',
+      job_searches: 'id, status, created_at', agent_conversations: 'id, updated_at', application_answers: 'id', application_files: 'id, &kind',
+      resume_files: 'id, &resume_id',
+    })
+    await old.table('job_searches').add({
+      id: 's1', user_id: 'local', brief: { summary: 'Data analyst, Seattle', roles: ['Data Analyst'] }, status: 'active',
+      last_run_at: null, last_run_result: null, created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z',
+    })
+    old.close()
+    const [search] = await createLocalStore(name).listJobSearches()
+    expect(search).toMatchObject({ id: 's1', status: 'active', source_runs: null })
+  })
+
   test('v10: a round added by hand after v9 is numbered with the others, by time', async () => {
     const name = `landed-upgrade-${++n}`
     const old = new Dexie(name)

@@ -354,7 +354,7 @@ first step that needs the user.
 | Group | Steps (done by) | Settings |
 |---|---|---|
 | What to look for | Search criteria | The active brief, editable in place (an edit makes a new active search via `addJobSearch`) |
-| 1 Find jobs | Agent search (the ticked agents and cloud agents, on the schedule) · Job lists and Company boards (Landed, every 6 hours while Landed is open) · Remove duplicates and Rank (Landed AI, built in, each new batch; the agents on the computer are listed as coming soon until #146 / #147) | Stage switch and Run now; agents, schedule, a switch per public source, the followed companies |
+| 1 Find jobs | Agent search (the ticked agents and cloud agents, on the schedule) · Job lists and Company boards (Landed, each on its own schedule while Landed is open, with its last check's result) · Remove duplicates and Rank (Landed AI, built in, each new batch; the agents on the computer are listed as coming soon until #146 / #147) | Stage switch and Run now; agents, schedule, a switch per public source, the followed companies |
 | 2 Apply | Auto apply (the extension; the user's agent checks the form) · Mark as applied (Landed, when the portal confirms) | Stage switch and Run now; at most N at a time |
 | 3 Keep up to date | Check email (the ticked readers: the computer's agent that can read email, today Claude Code with its mail connector, and each cloud agent on its own; `email_check.readers`) · Check candidate portals (the agent that can use Chrome: Claude Code with Claude in Chrome, the only one wired for it) | A switch, schedule and Run now each; email: who reads it, the auto-apply choice (`users.auto_apply_updates`), re-read 30 days; portals: days without news |
 
@@ -412,9 +412,11 @@ decision).
 They run on a schedule the user sets (`users.automations` via `/me`, migration
 0015; `packages/schema/src/automation.ts`, which also has the schedule math).
 One exception: with Find new jobs on, the open web app also checks the public
-SimplifyJobs lists and the job boards of companies the user follows itself, 30 seconds after the search last changed and every 6
-hours (`hooks/supply.ts`, `lib/supply.ts`; see
-[leads-model.md](leads-model.md#sources)). That needs no agent and no computer.
+SimplifyJobs lists and the job boards of companies the user follows itself, each
+on its own schedule (`sources.schedules`, default daily) and right after the search
+changes (`hooks/supply.ts`, `lib/supply.ts`; the last check of each is kept on the
+search, `job_searches.source_runs`; see [leads-model.md](leads-model.md#sources)).
+That needs no agent and no computer.
 
 - **The daemon runs the schedule**, so it works with Landed closed
   (`apps/daemon/src/automations.ts`, state in `~/.landed/automations.json`, mode

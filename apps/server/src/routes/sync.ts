@@ -14,6 +14,7 @@
 // same snapshot inserts nothing new. Companies merge by name and portal
 // connections by (company, provider), so signing in on a second device that
 // has its own data merges rather than duplicates.
+import { parseSourceRuns } from '@landed/schema/automation'
 import { parseDirections, parseMasterResume, parseResumeChoice } from '@landed/schema/master-resume'
 import { parseOpenAnswers } from '@landed/schema/open-answers'
 import { leadQueueDefaults } from '@landed/schema/lead-queue'
@@ -89,7 +90,7 @@ function defaults(now: string): Row {
 
 const JSON_COLUMNS = new Set([
   'payload_json', 'parsed_json', 'processing_result', 'sources', 'candidate_ids', 'evidence', 'observation_ids',
-  'brief', 'last_run_result', 'interviews', 'master_json', 'target_json', 'turns', 'answers', 'screen', 'fit', 'resume_choice', 'open_answers',
+  'brief', 'last_run_result', 'source_runs', 'interviews', 'master_json', 'target_json', 'turns', 'answers', 'screen', 'fit', 'resume_choice', 'open_answers',
 ])
 
 function chunks<T>(rows: T[]): T[][] {
@@ -262,7 +263,10 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
     .map((r) => {
       const active = r.status === 'active' && !activeTaken
       if (active) activeTaken = true
-      return normalize('job_searches', r, { brief: parseBrief(r.brief), status: active ? 'active' : 'archived' })
+      const runs = parseSourceRuns(r.source_runs)
+      return normalize('job_searches', r, {
+        brief: parseBrief(r.brief), status: active ? 'active' : 'archived', source_runs: Object.keys(runs).length ? runs : null,
+      })
     }), true)
 
   // chat history — validated like a PUT; an id the account already has is kept as is

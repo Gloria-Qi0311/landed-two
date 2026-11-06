@@ -2,7 +2,9 @@
 // (the computer is mocked: it answers with a finished email check).
 import 'fake-indexeddb/auto'
 import { describe, expect, test, vi } from 'vitest'
-import { cloudAgentSearches, DEFAULT_SEARCH_SOURCES, describeSchedule, isDue, nextRun, parseAutomations, parseSyncInput, parseSyncOutput, pickSearchAgents } from '@landed/schema/automation'
+import {
+  cloudAgentSearches, DEFAULT_SEARCH_SOURCES, describeSchedule, dueSources, isDue, nextRun, nextSourceRun, parseAutomations, parseSourceRuns, parseSyncInput, parseSyncOutput, pickSearchAgents,
+} from '@landed/schema/automation'
 import { createLocalStore } from './store/local'
 
 const syncs: Record<string, unknown>[] = []
@@ -165,12 +167,50 @@ describe('connectors: look again when the page is waiting', () => {
 
 describe('Find new jobs → Search with', () => {
   test('sources: Claude Code and the free sources by default; stored ones validated', () => {
-    expect(parseAutomations({}).job_search.sources).toEqual({ agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true, cloud_skip: [] })
+    const daily = { kind: 'daily', time: '09:00', days: [0, 1, 2, 3, 4, 5, 6] }
+    expect(parseAutomations({}).job_search.sources).toEqual({
+      agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true, cloud_skip: [], schedules: { job_lists: daily, company_boards: daily },
+    })
     const chatgpt = '11111111-2222-4333-8444-555555555555'
     expect(parseAutomations({ job_search: { enabled: true, sources: { agents: ['codex', 'gemini', 'codex', 'Bad Id!', 7], job_lists: false, cloud_agents: 'yes', cloud_skip: [chatgpt, chatgpt, 'nope', 3] } } }).job_search.sources)
-      .toEqual({ agents: ['codex', 'gemini'], job_lists: false, company_boards: true, cloud_agents: true, cloud_skip: [chatgpt] })
+      .toEqual({ agents: ['codex', 'gemini'], job_lists: false, company_boards: true, cloud_agents: true, cloud_skip: [chatgpt], schedules: { job_lists: daily, company_boards: daily } })
     expect(parseAutomations({ job_search: { enabled: true, sources: { agents: [] } } }).job_search.sources?.agents).toEqual([])
     expect(parseAutomations({ email_check: { enabled: true, sources: { agents: ['x'] } } }).email_check.sources).toBeUndefined()
+  })
+
+  test('the job lists and the company boards each keep their own schedule (#145)', () => {
+    const daily = { kind: 'daily', time: '09:00', days: [0, 1, 2, 3, 4, 5, 6] }
+    const stored = { job_search: { enabled: true, sources: { agents: [], schedules: { job_lists: { kind: 'interval', hours: 3 }, company_boards: { kind: 'interval', hours: 5 } } } } }
+    // a schedule that isn't one of the choices falls back on its own; the other one stays
+    expect(parseAutomations(stored).job_search.sources?.schedules).toEqual({ job_lists: { kind: 'interval', hours: 3 }, company_boards: daily })
+    // settings saved before #145 keep everything else and get the daily default
+    const before = parseAutomations({ job_search: { enabled: true, schedule: { kind: 'interval', hours: 6 }, sources: { agents: ['codex'], job_lists: false, company_boards: true } } }).job_search
+    expect(before).toMatchObject({ enabled: true, schedule: { kind: 'interval', hours: 6 }, sources: { agents: ['codex'], job_lists: false, company_boards: true, schedules: { job_lists: daily, company_boards: daily } } })
+  })
+
+  test('source runs: what was checked when, validated', () => {
+    expect(parseSourceRuns(null)).toEqual({})
+    expect(parseSourceRuns([])).toEqual({})
+    expect(parseSourceRuns({
+      job_lists: { at: '2026-10-22T09:00:00Z', found: 12, added: 3.7, merged: -2, closed: 'x', checked: 2, failed: 0 },
+      company_boards: { found: 4 },
+      agents: { at: '2026-10-22T09:00:00Z' },
+    })).toEqual({ job_lists: { at: '2026-10-22T09:00:00.000Z', found: 12, added: 3, merged: 0, closed: 0, checked: 2, failed: 0 } })
+  })
+
+  test('a source is due on its own schedule after its last check of this search; a new search right away', () => {
+    const now = new Date(2026, 9, 22, 12)
+    const ago = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString()
+    const run = (at: string) => ({ at, found: 1, added: 1, merged: 0, closed: 0, checked: 1, failed: 0 })
+    const sources = { ...DEFAULT_SEARCH_SOURCES, schedules: { job_lists: { kind: 'interval' as const, hours: 3 }, company_boards: DEFAULT_SEARCH_SOURCES.schedules.company_boards } }
+    expect(dueSources(sources, null, now)).toEqual({ job_lists: true, company_boards: true })
+    expect(nextSourceRun(sources, null, 'job_lists', now)).toEqual(now)
+    // lists every 3 hours, boards daily at 9:00: each counts from its own run
+    expect(dueSources(sources, { job_lists: run(ago(2)), company_boards: run(ago(2)) }, now)).toEqual({ job_lists: false, company_boards: false })
+    expect(dueSources(sources, { job_lists: run(ago(4)), company_boards: run(ago(2)) }, now)).toEqual({ job_lists: true, company_boards: false })
+    expect(dueSources(sources, { job_lists: run(ago(2)), company_boards: run(ago(20)) }, now)).toEqual({ job_lists: false, company_boards: true })
+    // a source that's off is never due
+    expect(dueSources({ ...sources, job_lists: false }, null, now)).toEqual({ job_lists: false, company_boards: true })
   })
 
   test('who searches: the ticked agents that are here, else the first that can', () => {

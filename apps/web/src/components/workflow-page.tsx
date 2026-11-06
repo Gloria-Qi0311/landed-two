@@ -20,8 +20,8 @@ import { Children, useEffect, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AUTO_APPLY_CONCURRENCY, cloudAgentOn, cloudAgentSearches, DEFAULT_EMAIL_READERS, describeSchedule, INTERVAL_HOURS, pickAgents, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
-  type Abilities, type AutomationKind, type AutomationRun, type Automations, type Schedule,
+  AUTO_APPLY_CONCURRENCY, cloudAgentOn, cloudAgentSearches, DEFAULT_EMAIL_READERS, describeSchedule, INTERVAL_HOURS, nextSourceRun, pickAgents, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
+  type Abilities, type AutomationKind, type AutomationRun, type Automations, type PublicSource, type Schedule,
 } from '@landed/schema/automation'
 import { parseBrief, type RemotePreference, type SearchBrief } from '@landed/schema/search-brief'
 import { ATS_LABELS } from '@landed/supply'
@@ -328,8 +328,8 @@ function statuses(w: W): Record<StepId, Status> {
       if (text) return { dot: 'on' as const, text }
       return sources.agents.length === 0 ? { dot: 'off' as const, text: 'No agent ticked' } : { dot: 'needs' as const, text: 'No agent online' }
     })(),
-    lists: !find.enabled || !sources.job_lists ? findOff : { dot: 'on', text: 'SimplifyJobs, jobright · every 6 hours' },
-    boards: !find.enabled || !sources.company_boards ? findOff : { dot: 'on', text: `${w.boards.length} ${w.boards.length === 1 ? 'company' : 'companies'} · every 6 hours` },
+    lists: !find.enabled || !sources.job_lists ? findOff : { dot: 'on', text: `SimplifyJobs, jobright · ${sched(sources.schedules.job_lists)}` },
+    boards: !find.enabled || !sources.company_boards ? findOff : { dot: 'on', text: `${w.boards.length} ${w.boards.length === 1 ? 'company' : 'companies'} · ${sched(sources.schedules.company_boards)}` },
     dedupe: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
     rank: !find.enabled ? findOff : { dot: 'on', text: 'Landed AI · each batch' },
     apply: !a.auto_apply.enabled ? { dot: 'off', text: 'Off' }
@@ -571,6 +571,38 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
   )
 }
 
+const SOURCE_PRESETS = [...INTERVALS.filter((p) => ['h3', 'h6', 'h12'].includes(p.key)), ...DAILY]
+
+/** A public source's next check and what its last check of this search found. */
+function sourceState(w: W, source: PublicSource): string {
+  const a = w.automations.job_search
+  const sources = a.sources!
+  if (!a.enabled || !sources[source]) return 'Off'
+  if (!w.search) return 'Waiting for what to look for'
+  if (w.supply.running) return 'Checking now…'
+  const runs = w.search.source_runs
+  const next = nextSourceRun(sources, runs, source)
+  const nextText = next.getTime() <= Date.now() ? 'Due now' : `Next ${when(next.toISOString())}`
+  const last = runs?.[source]
+  if (!last) return `${nextText} · not checked for this search yet`
+  const what = source === 'company_boards' && last.checked === 0 ? 'no company followed yet'
+    : `${last.added ? `${last.added} new in Leads` : 'nothing new'}${last.failed ? ` · ${last.failed} of ${last.checked} couldn't be reached` : ''}`
+  return `${nextText} · last checked ${formatRelative(last.at)}: ${what}`
+}
+
+/** When a public source checks, and how its last check went. */
+function SourceWhen({ w, source }: { w: W; source: PublicSource }) {
+  const a = w.automations.job_search
+  const sources = a.sources!
+  return (
+    <Field label="When" help="While Landed is open in a browser, and right after you change what to look for">
+      <SchedulePicker schedule={sources.schedules[source]} presets={SOURCE_PRESETS} disabled={!w.loaded || w.set.isPending}
+        onChange={(schedule) => w.save({ ...w.automations, job_search: { ...a, sources: { ...sources, schedules: { ...sources.schedules, [source]: schedule } } } })} />
+      <span style={muted}>{sourceState(w, source)}</span>
+    </Field>
+  )
+}
+
 function ListsPane({ w }: { w: W }) {
   const a = w.automations.job_search
   const sources = a.sources!
@@ -581,7 +613,7 @@ function ListsPane({ w }: { w: W }) {
       <Settings>
         <Field label="Use these lists"><span><Switch on={sources.job_lists} label="Job lists" disabled={w.set.isPending} onChange={(job_lists) => w.save({ ...w.automations, job_search: { ...a, sources: { ...sources, job_lists } } })} /></span></Field>
         <Field label="Done by">{LANDED_AI}</Field>
-        <Field label="When"><span>Every 6 hours while Landed is open, and right after you change what to look for</span></Field>
+        <SourceWhen w={w} source="job_lists" />
         <Field label="What's kept"><span>Open postings from the last 30 days with one of your roles in the title, in one of your places. The new-grad list, the internship list or both, from the level you're looking for. jobright's lists for the directions your roles name (a product, data or business analyst role), with a word of one of your roles in the title and no senior titles; a posting there gets its company's own application page when Landed finds the same title on its board, and auto apply skips the ones still on jobright's page.</span></Field>
       </Settings>
     </Pane>
@@ -598,7 +630,7 @@ function BoardsPane({ w }: { w: W }) {
       <Settings>
         <Field label="Check these boards"><span><Switch on={sources.company_boards} label="Company boards" disabled={w.set.isPending} onChange={(company_boards) => w.save({ ...w.automations, job_search: { ...a, sources: { ...sources, company_boards } } })} /></span></Field>
         <Field label="Done by">{LANDED_AI}</Field>
-        <Field label="When"><span>Every 6 hours while Landed is open</span></Field>
+        <SourceWhen w={w} source="company_boards" />
         <Field label="What's kept"><span>Postings with one of your roles and places, at your level, newest first, at most 15 a board.</span></Field>
       </Settings>
       <section style={card}>
