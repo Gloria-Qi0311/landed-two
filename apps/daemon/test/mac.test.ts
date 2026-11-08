@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
-import { EXTENSION_ID, installNativeHost, launchAgentPlist, nativeHostManifest, parseAgentConnectUrl, parseConnectUrl, servicePath } from '../src/mac.ts'
+import { EXTENSION_ID, installNativeHost, launchAgentPlist, nativeHostManifest, parseConnectUrl, servicePath } from '../src/mac.ts'
 
 test('connect links: only landed://connect with an http(s) server and a runtime token', () => {
   const token = 'landed_rt_' + 'a'.repeat(43)
@@ -18,24 +18,6 @@ test('connect links: only landed://connect with an http(s) server and a runtime 
     `https://connect?server=https://x.com&token=${token}`,
     'not a url',
   ]) assert.equal(parseConnectUrl(bad), null, bad)
-})
-
-test('agent connect links: only supported agents and a secure Landed MCP endpoint', () => {
-  assert.deepEqual(parseAgentConnectUrl(`landed://connect-agent?agent=codex&url=${encodeURIComponent('https://landed.example.com/mcp')}`), {
-    agent: 'codex', url: 'https://landed.example.com/mcp',
-  })
-  assert.deepEqual(parseAgentConnectUrl(`landed://connect-agent?agent=gemini&url=${encodeURIComponent('https://landed.example.com/mcp')}`), {
-    agent: 'gemini', url: 'https://landed.example.com/mcp',
-  })
-  assert.equal(parseAgentConnectUrl(`landed://connect-agent?agent=codex&url=${encodeURIComponent('http://localhost:5173/mcp')}`)?.url, 'http://localhost:5173/mcp')
-  for (const bad of [
-    'landed://connect-agent?agent=claude&url=https%3A%2F%2Flanded.example.com%2Fmcp',
-    'landed://connect-agent?agent=codex&url=http%3A%2F%2Flanded.example.com%2Fmcp',
-    'landed://connect-agent?agent=codex&url=https%3A%2F%2Flanded.example.com%2Fother',
-    'landed://connect-agent?agent=codex&url=https%3A%2F%2Fuser%3Apass%40landed.example.com%2Fmcp',
-    'landed://connect-agent?agent=codex&url=https%3A%2F%2Flanded.example.com%2Fmcp%3Fx%3D1',
-    'https://connect-agent?agent=codex&url=https%3A%2F%2Flanded.example.com%2Fmcp',
-  ]) assert.equal(parseAgentConnectUrl(bad), null, bad)
 })
 
 test('the LaunchAgent starts at login, restarts, and escapes paths', () => {

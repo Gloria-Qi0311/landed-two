@@ -44,8 +44,8 @@ export type Config = {
   signup: 'open' | 'first-only'
   // Built web app to serve at /. Null disables static serving (dev uses Vite).
   webDist: string | null
-  // The public origin (e.g. https://landed.example.com) for OAuth/MCP
-  // metadata and password-reset links. Unset: taken from each request.
+  // The public origin (e.g. https://landed.example.com) for password-reset
+  // links. Unset: taken from each request.
   publicUrl?: string | null
   // Transactional mail. Null keeps password recovery explicitly unavailable.
   email?: EmailConfig | null

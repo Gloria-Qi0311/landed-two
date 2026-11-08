@@ -29,8 +29,8 @@ Two things set it apart:
   there. It never guesses and never invents a fact. When it isn't sure, it
   stops that one application and says why.
 - **The AI work runs on the user's own agents.** These are Claude Code, Codex,
-  Gemini CLI or local Ollama on the user's own computer, or a cloud agent they
-  already use (ChatGPT, Claude, Gemini…), on their own subscription. The data
+  Gemini CLI or local Ollama on the user's own computer, on their own
+  subscription. The data
   stays in their browser unless they turn on Cloud sync.
 
 ## Who does what
@@ -69,7 +69,8 @@ answered), and the user can change it.
    application can't be taken back, so only an approved lead is ever
    submitted, and only after every check passes.
 6. **Local-first.** Data lives in the browser unless the user turns on Cloud
-   sync. The server relays and never stores a sync-off account's data.
+   sync. The server never stores a sync-off account's data; it only relays
+   tasks to the user's computer, in memory.
    Scheduling runs in Landed for Mac; processing runs in the browser.
 7. **The user's own agents, within fixed limits.** Each agent call has a fixed
    request type validated at both ends, a fixed tool allowlist, and a fixed
@@ -104,17 +105,15 @@ answered), and the user can change it.
                                       │ SSE tasks / POST results
  ┌────────────────────────────────────▼────────────────────────────────────────┐
  │ apps/server (Hono + Postgres, Mac mini behind a tunnel)                     │
- │  accounts · Cloud data (sync-on only) · agent relay · runtime hub (memory)  │
- │  MCP + OAuth for cloud agents · serves the web app and Mac app downloads    │
- └────────────────────────────────────▲────────────────────────────────────────┘
-                                      │ MCP / HTTP with per-connection tokens
-                     cloud agents (ChatGPT, Claude, Gemini, Muse, Manus…)
+ │  accounts · Cloud data (sync-on only) · runtime hub (memory)                │
+ │  serves the web app and Mac app downloads                                   │
+ └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 | Part | What it is | Start reading at |
 |---|---|---|
 | `apps/web` | Vite + React app: Applications board, Agent page, Workflow, My Resume, Extension | `src/App.tsx`, `src/lib/store/types.ts` |
-| `apps/server` | Hono API on Postgres: auth, Cloud data, agent relay, runtime hub, MCP/OAuth, downloads | `src/app.ts`, `src/routes/` |
+| `apps/server` | Hono API on Postgres: auth, Cloud data, runtime hub, downloads | `src/app.ts`, `src/routes/` |
 | `apps/daemon` | Node daemon plus the Swift menu bar app, packaged as Landed for Mac. Runs agent tasks and the schedule, and answers the extension's native requests | `src/cli.ts`, `src/agents.ts`, `src/native-host.ts`, `macos/LandedMenuBar.swift` |
 | `apps/extension` | MV3 extension for Chrome, Edge, Brave and Safari: fills and submits applications, detects portal status | `manifest.json`, `background.js`, `content.js`, `lib/fill/` |
 | `packages/schema` | Shapes and validators shared by web, server and daemon | `src/index.ts` |
@@ -128,9 +127,7 @@ answered), and the user can change it.
 |---|---|---|
 | Applications, leads, suggestions, resumes and their files, answers, files, chats, searches | IndexedDB `landed-<userId>` | Postgres, through `cloud.ts` |
 | Account, preferences, Workflow settings (`users.automations`) | Postgres `users` row | same |
-| Agent observations | Server holds them until the browser pulls and acks, then keeps only a hash | stored |
 | Runtime tasks and their output | Server memory only, never the database | same |
-| Briefing for cloud agents (`{brief, applications: [{company, role, stage}]}`) | Server, only while a cloud-agent connection exists | same |
 | Fill traces | The extension keeps the last 20 | also on the server for 30 days |
 | Extension: resumes, their files, answers, pending portal events | `chrome.storage.local` | same |
 | Daemon automation state | `~/.landed/automations.json` | same |
@@ -160,8 +157,8 @@ executor or schedule field when it gets one, and older Landed for Mac versions
 ignore fields they don't know.
 
 Today the user picks who does **Agent search** (#151) and **Check email**
-(#153). For each, every agent on the computer and each cloud agent is ticked
-on its own, and all unticked means none. Choosing an executor for the other
+(#153). For each, every agent on the computer is ticked on its own, and all
+unticked means none. Choosing an executor for the other
 steps is planned: apply (#142), each source kind (#145),
 remove duplicates (#146), rank (#147). Running every step with the page closed
 is #141. Details: [agents.md](agents.md#workflow).
@@ -188,14 +185,12 @@ is #141. Details: [agents.md](agents.md#workflow).
 |---|---|---|
 | **Job lists**: SimplifyJobs New Grad and Internships | Landed's code reads the list, in the browser while Landed is open: 30 seconds after the search changes, then every 6 hours; no tokens | Shipped (#90). Planned: more lists, especially product / data / business (#138) |
 | **Platform APIs**: Greenhouse, Lever, Ashby boards of up to 25 followed companies | Landed's code, in the browser like the lists | Shipped (#91). Planned: more platforms (#138) |
-| **Wild jobs**: postings on no list (company sites, posts, referrals) | Agent search (`job_search`, web tools only): each agent on the computer and each cloud agent ticked on its own (#151), every 3, 6 or 12 hours, daily, on weekdays or weekly (#152) | Shipped. Planned: the playbook and measurement (#138) |
+| **Wild jobs**: postings on no list (company sites, posts, referrals) | Agent search (`job_search`, web tools only): each agent on the computer ticked on its own (#151), every 3, 6 or 12 hours, daily, on weekdays or weekly (#152) | Shipped. Planned: the playbook and measurement (#138) |
 | **The user**: Add, a spreadsheet import, screenshots in chat | The user, and Landed reads them | Shipped (#120; chat blocks) |
 
 ```
 Agent chat → landed-brief block → user confirms → active job_searches row
-   ├─► job_search task on every online computer's agents (daemon)
-   ├─► cloud agents: get_tasks → submit_jobs
-   └─► external agents: job_discovered observations
+   └─► job_search task on every online computer's agents (daemon)
 SimplifyJobs lists, Greenhouse / Lever / Ashby boards (fetched by the browser)
    └─► the same path
               ▼
@@ -321,19 +316,17 @@ appears after Submit is recorded as a blocker.
 
 | Check | Executor | Reach | Then |
 |---|---|---|---|
-| Email | The ticked readers (#153): the computer's agent that can read email (today Claude Code with its mail connector) and each cloud agent on its own, with the mailbox's **read** tools only; on the schedule set on Workflow | New mail since the last check (or back to an import, up to 90 days) | Status observations |
+| Email | The ticked readers (#153): the computer's agent that can read email (today Claude Code with its mail connector), with the mailbox's **read** tools only; on the schedule set on Workflow | New mail since the last check (or back to an import, up to 90 days) | Status observations |
 | Pages the user visits | The extension | Confirmation and status pages | Portal events |
 
 ```
-email check (daemon, scheduled)  ─┐
-cloud agent submit_email_updates ─┘─► application_status observation ─► server (relay or store)
-                                                                             │
-extension portal events (pages)  ──────────── page bridge ───────────┐       │
-                                                                     ▼       ▼
-                                         browser: lib/inbox/process.ts → processPending
-                                         packages/observation-processor decides:
-                                           confident forward move → apply (undoable)
-                                           otherwise → "Needs your input"
+email check (daemon, scheduled) ─► findings ─► automation_sync ─┐
+extension portal events (pages) ──────────── page bridge ───────┤
+                                                                ▼
+                            browser: lib/inbox (ingestEmailFindings, confirmations)
+                            packages/observation-processor decides:
+                              confident forward move → apply (undoable)
+                              otherwise → "Needs your input"
 ```
 
 A confident forward move applies on its own unless the user turned that off on
@@ -361,9 +354,6 @@ whether to call an application ghosted. Planned (#144): other computer agents
   proposes through cards the user clicks: a search brief, applications read
   from screenshots, answers read from a filled form, duplicates to merge.
   Details: [agents.md](agents.md#agent-page-and-chat).
-- **Cloud agents** (ChatGPT, Claude, Gemini, Muse, Manus…): connect over MCP,
-  read a briefing, and report jobs and email updates as observations. Each can
-  be ticked on its own for Agent search and Check email.
 - **Accounts and data**: an account's data lives on this device unless the user
   turns on Cloud sync (and back off). The account menu also exports and
   restores a backup and shows recovery codes. A new account gets a short tour
@@ -393,7 +383,7 @@ whether to call an application ghosted. Planned (#144): other computer agents
 
 | Part | Never does |
 |---|---|
-| Server | Store data for a sync-off account (except the briefing); write runtime tasks to the database; forward free-form commands to a daemon |
+| Server | Store data for a sync-off account; write runtime tasks to the database; forward free-form commands to a daemon |
 | Agents | Edit the pipeline directly; use write tools on the mailbox |
 | Daemon | Pair without the native confirm dialog; run an agent with the user's own settings, hooks or MCP servers (except the mail tools a task needs); install an update not signed with its release key |
 | Extension | Click Submit, except one unambiguous final Submit for an approved lead once every check passed; bypass a CAPTCHA; tick a consent box unless the user turned that on; send answer values anywhere but the user's own agent; send sensitive answers to any model |
@@ -416,7 +406,6 @@ whether to call an application ghosted. Planned (#144): other computer agents
 | New data table or column | Dexie `this.version(n)` in `local.ts`, a migration `apps/server/migrations/NNNN_*.sql`, the server route (behind `requireCloud`), `DataStore` in `types.ts` + `local.ts` + `cloud.ts`, `SNAPSHOT_TABLES` (web) and `COLUMNS` in `routes/sync.ts`, deletion in `/api/cloud/disable` |
 | New agent task kind | Input validation in `routes/runtime.ts`, a runner in `apps/daemon/src/agents.ts` (and `specFor` for Codex/ACP), the agent's `kinds` |
 | New native host request (the extension asking the user's agent) | A handler with its own input check in `apps/daemon/src/native-host.ts`; the allowed `type` in `background.js` (`native-assist`) or a case in `lib/bridge-handler.js`; a row in "What each agent call sees" above, and a CLAUDE.md rule if what it sees is new |
-| New observation type or field | Validators in `routes/agent.ts`, `AGENT_PROTOCOL.md`, the prompt in `apps/web/src/lib/agent-prompt.ts` |
 | New job source | A pure parser in `packages/supply` with tests, a stable observation id, closed detection, a switch on Workflow's Find jobs step ([leads-model.md](leads-model.md)) |
 | New autofill rule | The `lib/fill/*.js` module for that kind of field, or `lib/choice-answers.js` for a question; an integration test in `apps/extension/tests/`; `live-check` before release |
 | New extension fill module | A file in `lib/fill/` that registers on `window.LandedFill`, listed in `manifest.json` `content_scripts` before `content.js` |
@@ -446,7 +435,7 @@ Landed for Mac. Installed copies update themselves (see
 
 | Issue | What | Owner | Status |
 |---|---|---|---|
-| #140 | Foundation: Automation becomes the Workflow page | Antares | Shipped (#149). Also shipped since: each agent and cloud agent ticked on its own for Agent search (#151) and Check email (#153); searches every 3 or 6 hours (#152) |
+| #140 | Foundation: Automation becomes the Workflow page | Antares | Shipped (#149). Also shipped since: each agent ticked on its own for Agent search (#151) and Check email (#153); searches every 3 or 6 hours (#152) |
 | #148 | Workflow overview: every stage configurable | Both | Planned (open) |
 | #141 | Landed for Mac runs every stage on its schedule, with the page closed | Antares | Planned |
 | #142 | ④ An undo window after Approve, and other executors | Antares | Planned |

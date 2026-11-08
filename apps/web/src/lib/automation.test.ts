@@ -3,7 +3,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, test, vi } from 'vitest'
 import {
-  cloudAgentSearches, DEFAULT_SEARCH_SOURCES, describeSchedule, dueSources, isDue, nextRun, nextSourceRun, parseAutomations, parseSourceRuns, parseSyncInput, parseSyncOutput, pickSearchAgents,
+  DEFAULT_SEARCH_SOURCES, describeSchedule, dueSources, isDue, nextRun, nextSourceRun, parseAutomations, parseSourceRuns, parseSyncInput, parseSyncOutput, pickSearchAgents,
 } from '@landed/schema/automation'
 import { createLocalStore } from './store/local'
 
@@ -38,16 +38,15 @@ describe('schedules', () => {
 
   test('settings and sync payloads are normalized', () => {
     expect(parseAutomations({ email_check: { enabled: true, schedule: { kind: 'interval', hours: 5 } } }).email_check)
-      .toEqual({ enabled: true, schedule: { kind: 'interval', hours: 4 }, readers: { agents: ['claude'], cloud_agents: true, cloud_skip: [] } }) // 5h isn't offered → default
+      .toEqual({ enabled: true, schedule: { kind: 'interval', hours: 4 }, readers: { agents: ['claude'] } }) // 5h isn't offered → default
     expect(parseAutomations({ job_search: { enabled: true, schedule: { kind: 'interval', hours: 3 } } }).job_search.schedule)
       .toEqual({ kind: 'interval', hours: 3 }) // Agent search every 3 hours
     expect(parseAutomations(null).job_search.enabled).toBe(false)
-    expect(parseAutomations(null).auto_apply).toEqual({ enabled: true, max_concurrent: 5, executor: 'extension' })
+    expect(parseAutomations(null).auto_apply).toEqual({ enabled: true, max_concurrent: 5 })
     expect(parseAutomations({ auto_apply: { enabled: false, max_concurrent: 2 } }).auto_apply)
-      .toEqual({ enabled: false, max_concurrent: 2, executor: 'extension' })
-    expect(parseAutomations({ auto_apply: { executor: '11111111-2222-4333-8444-555555555555' } }).auto_apply.executor)
-      .toBe('11111111-2222-4333-8444-555555555555')
-    expect(parseAutomations({ auto_apply: { executor: 'not-an-agent' } }).auto_apply.executor).toBe('extension')
+      .toEqual({ enabled: false, max_concurrent: 2 })
+    // A personal-agent executor saved before #3 is dropped: the extension applies.
+    expect(parseAutomations({ auto_apply: { executor: '11111111-2222-4333-8444-555555555555' } }).auto_apply).not.toHaveProperty('executor')
     expect(parseAutomations({ auto_apply: { enabled: true, max_concurrent: 99 } }).auto_apply.max_concurrent).toBe(5)
     expect(parseSyncInput({ runtime_id: 'nope' })).toBeNull()
     const input = parseSyncInput({
@@ -143,11 +142,11 @@ describe('Find new jobs → Search with', () => {
   test('sources: Claude Code and the free sources by default; stored ones validated', () => {
     const daily = { kind: 'daily', time: '09:00', days: [0, 1, 2, 3, 4, 5, 6] }
     expect(parseAutomations({}).job_search.sources).toEqual({
-      agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true, cloud_skip: [], schedules: { job_lists: daily, company_boards: daily },
+      agents: ['claude'], job_lists: true, company_boards: true, schedules: { job_lists: daily, company_boards: daily },
     })
-    const chatgpt = '11111111-2222-4333-8444-555555555555'
-    expect(parseAutomations({ job_search: { enabled: true, sources: { agents: ['codex', 'gemini', 'codex', 'Bad Id!', 7], job_lists: false, cloud_agents: 'yes', cloud_skip: [chatgpt, chatgpt, 'nope', 3] } } }).job_search.sources)
-      .toEqual({ agents: ['codex', 'gemini'], job_lists: false, company_boards: true, cloud_agents: true, cloud_skip: [chatgpt], schedules: { job_lists: daily, company_boards: daily } })
+    // Cloud-agent fields saved before #3 are dropped.
+    expect(parseAutomations({ job_search: { enabled: true, sources: { agents: ['codex', 'gemini', 'codex', 'Bad Id!', 7], job_lists: false, cloud_agents: true, cloud_skip: ['x'] } } }).job_search.sources)
+      .toEqual({ agents: ['codex', 'gemini'], job_lists: false, company_boards: true, schedules: { job_lists: daily, company_boards: daily } })
     expect(parseAutomations({ job_search: { enabled: true, sources: { agents: [] } } }).job_search.sources?.agents).toEqual([])
     expect(parseAutomations({ email_check: { enabled: true, sources: { agents: ['x'] } } }).email_check.sources).toBeUndefined()
   })
@@ -208,25 +207,15 @@ describe('Find new jobs → Search with', () => {
     expect(pickSearchAgents([], DEFAULT_SEARCH_SOURCES)).toEqual([])
   })
 
-  test('who reads email: Claude Code and every cloud agent by default; ticked on their own', () => {
-    const chatgpt = '11111111-2222-4333-8444-555555555555'
-    expect(parseAutomations({}).email_check.readers).toEqual({ agents: ['claude'], cloud_agents: true, cloud_skip: [] })
-    expect(parseAutomations({ email_check: { readers: { agents: [], cloud_skip: [chatgpt, 'x'] } } }).email_check.readers)
-      .toEqual({ agents: [], cloud_agents: true, cloud_skip: [chatgpt] })
+  test('who reads email: Claude Code by default; unticking every agent is none', () => {
+    expect(parseAutomations({}).email_check.readers).toEqual({ agents: ['claude'] })
+    expect(parseAutomations({ email_check: { readers: { agents: [], cloud_skip: ['x'] } } }).email_check.readers)
+      .toEqual({ agents: [] })
     expect(parseAutomations({ job_search: { enabled: true } }).job_search.readers).toBeUndefined()
   })
 
   test('every agent unticked is none, not the first that can', () => {
     const here = [{ id: 'claude', label: 'Claude Code' }]
     expect(pickSearchAgents(here, { ...DEFAULT_SEARCH_SOURCES, agents: [] })).toEqual([])
-  })
-
-  test('each cloud agent searches unless it was unticked, or all were', () => {
-    const chatgpt = '11111111-2222-4333-8444-555555555555'
-    const claudeAi = '66666666-7777-4888-9999-000000000000'
-    expect(cloudAgentSearches(DEFAULT_SEARCH_SOURCES, chatgpt)).toBe(true)
-    expect(cloudAgentSearches({ ...DEFAULT_SEARCH_SOURCES, cloud_skip: [chatgpt] }, chatgpt)).toBe(false)
-    expect(cloudAgentSearches({ ...DEFAULT_SEARCH_SOURCES, cloud_skip: [chatgpt] }, claudeAi)).toBe(true)
-    expect(cloudAgentSearches({ ...DEFAULT_SEARCH_SOURCES, cloud_agents: false }, claudeAi)).toBe(false)
   })
 })

@@ -201,15 +201,15 @@ function describeRun(kind: AutomationKind, n: number, input: Record<string, unkn
 async function runAutomation(kind: AutomationKind, opts: RunOptions = {}) {
   const st = s()
   if (running.has(kind) || !st.context || !runTaskFn) return
-  // No agent on this computer ticked: the user chose the lists, boards and
-  // cloud agents. Nothing to do here, and nothing to report: the schedule
+  // No agent on this computer ticked: the user chose the lists and boards.
+  // Nothing to do here, and nothing to report: the schedule
   // just moves on.
   if (kind === 'job_search' && opts.agents === undefined && st.automations?.job_search.sources?.agents.length === 0) {
     nothingHere(kind, opts.manual)
     return
   }
   // Email is read by the agent ticked under Check email (the first of them
-  // that can here); none ticked: the cloud agents read it, not this computer.
+  // that can here); none ticked: nobody reads it.
   const readers = kind === 'email_check' ? st.automations?.email_check.readers : undefined
   if (readers && opts.agents === undefined && readers.agents.length === 0) {
     nothingHere(kind, opts.manual)

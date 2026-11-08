@@ -6,7 +6,6 @@
 import { useState, type ReactNode } from 'react'
 import { Icon, StageBadge } from './primitives'
 import { formatRelative } from '../lib/time'
-import { AGENT_PROVIDERS } from '../lib/agent-prompt'
 import { STAGE_LABELS } from '../data'
 import { canUndo, isPanelQuestion, isSeenConfirmation, PORTAL_APPLIED } from '../lib/inbox'
 import { isDupQuestion } from '../lib/duplicates'
@@ -18,7 +17,9 @@ import { useAutomationSync } from '../lib/automation-sync'
 type AppShape = { id: string; companyId: string; role: string; stage: string }
 type CompanyShape = { id: string; name: string }
 
-const providerLabel = (id?: string | null) => AGENT_PROVIDERS.find((p) => p.id === id)?.label ?? id ?? 'An agent'
+/** Who read the email: an agent on the user's computer, by its id. */
+const AGENT_LABELS: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' }
+const providerLabel = (id?: string | null) => (id ? AGENT_LABELS[id] ?? id : 'Your agent')
 const STATUS_TEXT: Record<string, string> = {
   applied: 'application received', recruiter_response: 'recruiter replied', assessment: 'online assessment',
   interview: 'interview invitation',
@@ -36,9 +37,7 @@ function Evidence({ s }: { s: DbSuggestion }) {
     <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
       <Icon name="inbox" size={11} />
       <span>
-        {e.source === 'portal'
-          ? <>{providerLabel(s.provider)} looked at the candidate portal{e.sender_domain ? ` (${e.sender_domain})` : ''}{e.subject ? `: “${e.subject}”` : ''}</>
-          : <>{providerLabel(s.provider)} read {e.source ? `a ${e.source} email` : 'an email'}{parts.length ? ': ' : ''}{parts.join(' · ')}</>}
+        {providerLabel(s.provider)} read {e.source ? `a ${e.source} email` : 'an email'}{parts.length ? ': ' : ''}{parts.join(' · ')}
       </span>
       {s.confidence != null && <span style={{ fontFamily: 'var(--font-mono)' }}>· {Math.round(s.confidence * 100)}% sure</span>}
       {s.observation_ids.length > 1 && <span>· reported {s.observation_ids.length}×</span>}

@@ -3,8 +3,7 @@ import { Routes, Route, Navigate, useSearchParams, useNavigate, useLocation } fr
 import { useQueryClient } from '@tanstack/react-query';
 import { useOnboardedAt, useMarkOnboarded, useResetOnboarded } from './hooks/profile';
 import { useExtensionBridge } from './hooks/extension-bridge';
-import { useAgentRelay, useCloudBriefing } from './hooks/agents';
-import { useJobLeads, useLeadActions, useObservationProcessor, useRecordApplyClick } from './hooks/inbox';
+import { useJobLeads, useLeadActions, useQuestionUpkeep, useRecordApplyClick } from './hooks/inbox';
 import { usePanelQuestions } from './components/panel-questions';
 import { usePendingQuestions } from './components/pending-questions';
 import { useResumeTaskRunner } from './hooks/resumes';
@@ -45,7 +44,6 @@ import {
   EmptyApplicationsView,
 } from './components/empty-states';
 import { COMPANIES as COMPANY_CATALOG } from './data';
-import { AuthorizeAgentPage } from './components/authorize-agent';
 
 // Keep the applications board as the fast default route. The three heavier
 // workspaces are only downloaded when the user opens them; Resume in
@@ -77,9 +75,6 @@ export function App() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  // A cloud agent's connect request (OAuth consent): sign in first if
-  // needed, then the consent page, outside the app shell.
-  const authorizing = location.pathname === '/authorize-agent';
   const resettingPassword = location.pathname === '/reset-password';
   const forgotPassword = location.pathname === '/forgot-password';
 
@@ -104,10 +99,9 @@ export function App() {
     if (prev === undefined || prev === sessionKey) return;
     queryClient.clear();
     // Fresh start on /applications so nobody lands on a URL that only made
-    // sense for the previous account or mode — except a connect request,
-    // which is why they just signed in.
-    if (!authorizing) navigate('/applications');
-  }, [authReady, sessionKey, queryClient, navigate, authorizing]);
+    // sense for the previous account or mode.
+    navigate('/applications');
+  }, [authReady, sessionKey, queryClient, navigate]);
 
   // While the session probe runs, render nothing — avoids flashing the
   // login screen at a signed-in user.
@@ -117,7 +111,6 @@ export function App() {
   if (resettingPassword) return <LoginScreen initialMode="reset" />;
   if (forgotPassword) return <LoginScreen initialMode="forgot" />;
   if (!user) return <LoginScreen />;
-  if (authorizing) return <AuthorizeAgentPage />;
   return <SignedInApp key={sessionKey!} theme={theme} setTheme={setTheme} />;
 }
 
@@ -141,9 +134,7 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   // database, or Landed Cloud when the account syncs).
   const appsQuery = useApplications();
   useExtensionBridge();
-  useAgentRelay();
-  useCloudBriefing();
-  useObservationProcessor();
+  useQuestionUpkeep();
   useSearchRunner();
   useAutoSupply();
   useLeadScreening();

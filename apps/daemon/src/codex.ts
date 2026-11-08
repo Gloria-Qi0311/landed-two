@@ -9,17 +9,32 @@
 // is made strict-compatible first (every field required, optional ones
 // nullable) and the nulls are dropped again before the result goes on.
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { findCodex } from './codex-connector.ts'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { delimiter, join } from 'node:path'
 import { workspace } from './config.ts'
 import { doneFromOutput, jsonFromText, type Spec, type TaskEvent } from './types.ts'
+
+/** Find the CLI whether Codex was installed in PATH or bundled with the
+ * desktop app. The desktop bundle path is not normally in launchd's PATH. */
+export function findCodex(path = process.env.PATH ?? ''): string | null {
+  const candidates = [
+    process.env.CODEX_CLI_PATH,
+    ...path.split(delimiter).filter(Boolean).map((dir) => join(dir, 'codex')),
+    '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
+    join(homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'),
+    '/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
+    join(homedir(), 'Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'),
+  ]
+  return [...new Set(candidates.filter((candidate): candidate is string => !!candidate))]
+    .find((candidate) => existsSync(candidate)) ?? null
+}
 
 export const CODEX_KINDS = ['chat', 'job_search', 'resume_parse', 'resume_merge', 'resume_tailor']
 
 /** Installed and signed in → its version; otherwise why not (for the log). */
 /** The Codex CLI: on the PATH, or the one inside ChatGPT.app / Codex.app,
- *  which isn't on the PATH (findCodex, the same lookup as the connector). */
+ *  which isn't on the PATH (findCodex). */
 const codexBin = () => findCodex() ?? 'codex'
 
 export function detectCodex(): { version: string } | { missing: string } | null {

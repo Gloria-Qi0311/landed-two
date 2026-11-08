@@ -9,9 +9,6 @@ import { connect } from './db.ts'
 import { migrate } from './migrate.ts'
 import { PortalEventsHub } from './realtime.ts'
 import { RuntimeHub } from './runtime-hub.ts'
-import { purgeAgentRelay } from './routes/agent.ts'
-import { purgeOAuth } from './routes/oauth.ts'
-import { purgeAgentApplyTasks } from './routes/agent-apply.ts'
 
 const config = loadConfig()
 const sql = connect(config.databaseUrl)
@@ -28,9 +25,6 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
 
 const cleanup = setInterval(() => {
   void deleteExpiredSessions(sql).catch(console.error)
-  void purgeAgentRelay(sql).catch(console.error)
-  void purgeOAuth(sql).catch(console.error)
-  void purgeAgentApplyTasks(sql).catch(console.error)
 }, 3_600_000)
 
 async function shutdown() {

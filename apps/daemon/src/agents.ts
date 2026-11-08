@@ -424,8 +424,7 @@ export type Brief = {
   notes?: string | null
 }
 
-// The playbook is shared with cloud agents' get_tasks (packages/schema/src/agent-sourcing.ts;
-// docs/agent-sourcing.md).
+// The playbook: packages/schema/src/agent-sourcing.ts (docs/agent-sourcing.md).
 const SEARCH_SYSTEM_PROMPT = [
   "You are Landed's job-search agent, running on the user's own computer. Find job postings that are open",
   "now and match the user's search brief, using web search and by opening pages. Landed already reads the",

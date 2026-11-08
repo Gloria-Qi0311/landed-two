@@ -2,7 +2,7 @@
 // server (apps/server). Active for accounts with Landed Cloud sync on.
 import { api } from '../api'
 import type {
-  DataStore, DbAgentObservation, DbApplication, DbApplicationAnswers, DbApplicationFile, DbResumeFile, DbConversation, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
+  DataStore, DbApplication, DbApplicationAnswers, DbApplicationFile, DbResumeFile, DbConversation, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
 } from './types'
 
 export function createCloudStore(): DataStore {
@@ -41,12 +41,6 @@ export function createCloudStore(): DataStore {
     },
 
     addAiRun: (row) => api.post<{ id: string }>('/ai-runs', row),
-
-    listAgentObservations: (limit) => api.get<DbAgentObservation[]>(`/agent-observations?limit=${limit}`),
-    listPendingObservations: (limit) => api.get<DbAgentObservation[]>(`/agent-observations/pending?limit=${limit}`),
-    markObservation: async (id, processing_status, processing_result) => {
-      await api.patch(`/agent-observations/${id}`, { processing_status, processing_result })
-    },
 
     listJobLeads: () => api.get<DbJobLead[]>('/job-leads'),
     saveJobLead: (lead) => api.put<DbJobLead>(`/job-leads/${lead.id}`, lead),

@@ -12,7 +12,6 @@ import { formatRelative } from '../lib/time'
 import { useJobSearch, type SearchRun } from '../lib/job-search'
 import type { DbJobSearch } from '../lib/store'
 import { useRuntimes } from '../hooks/runtimes'
-import { useAgentConnections } from '../hooks/agents'
 import { useAutomations, useSetAutomations } from '../hooks/automation'
 import { chosenSearchTargets, needsDaemonUpdate, searchComputer, useActiveSearch, useEditBrief, useStartSearch } from '../hooks/search'
 import { SearchSourcesPicker } from './search-sources'
@@ -70,7 +69,6 @@ export function BriefCard({ brief, setup, latest }: { brief: SearchBrief; setup:
   const { automations, loaded } = useAutomations()
   const setAutomations = useSetAutomations()
   const saveBrief = useEditBrief()
-  const cloud = (useAgentConnections().data ?? []).filter((c) => !c.revoked_at && c.scopes.includes('tasks:read')).map((c) => ({ id: c.id, name: c.display_name }))
   const choices = searchComputer(runtimes.data, automations).map((t) => t.agent)
   const confirmed = !!active && sameBrief(active.brief, brief)
   const stale = !latest && !confirmed
@@ -126,7 +124,7 @@ export function BriefCard({ brief, setup, latest }: { brief: SearchBrief; setup:
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>Search with</div>
-              <SearchSourcesPicker agents={choices} sources={draft} cloud={cloud} disabled={busy || !loaded} onChange={setSources} />
+              <SearchSourcesPicker agents={choices} sources={draft} disabled={busy || !loaded} onChange={setSources} />
             </div>
             <div>
               <button type="button" className="btn-primary" disabled={busy || !loaded} style={{ opacity: busy || !loaded ? 0.6 : 1 }} onClick={() => void save()}>

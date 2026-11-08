@@ -18,7 +18,7 @@ import { parseBrief } from '@landed/schema/search-brief'
 import { companyKey, titleKey } from '@landed/observation-processor'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
-  type AiRunInput, type ApplicationInput, type DbAgentObservation, type DbApplicationAnswers, type DbApplicationFile, type DbResumeFile, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
+  type AiRunInput, type ApplicationInput, type DbApplicationAnswers, type DbApplicationFile, type DbResumeFile, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
   type DbPortalEvent, type DbResume, type ApplicationsImport, type PortalEventInput, type Snapshot,
 } from './types'
@@ -75,7 +75,6 @@ class LandedDB extends Dexie {
   portal_events!: Table<DbPortalEvent, string>
   ai_runs!: Table<DbAiRun, string>
   meta!: Table<Meta, string>
-  agent_observations!: Table<DbAgentObservation, string>
   job_leads!: Table<DbJobLead, string>
   status_suggestions!: Table<DbSuggestion, string>
   job_searches!: Table<DbJobSearch, string>
@@ -195,6 +194,8 @@ class LandedDB extends Dexie {
     this.version(18).stores({}).upgrade(async (tx) => {
       await tx.table('job_leads').toCollection().modify((l: DbJobLead) => { if (l.rank === undefined) l.rank = null })
     })
+    // v19: external agents and their observation relay are gone (#3).
+    this.version(19).stores({ agent_observations: null })
   }
 }
 
@@ -300,9 +301,6 @@ const byDesc = <T>(key: keyof T) => (a: T, b: T) => String(b[key]).localeCompare
 const strip = <T extends { user_id: string }>({ user_id: _, ...rest }: T) => rest
 
 export type LocalStore = DataStore & {
-  /** Store observations pulled from the server's relay inbox; returns the ids
-   *  now safely on this device (to ack). Re-deliveries are ignored. */
-  receiveAgentObservations(rows: DbAgentObservation[]): Promise<string[]>
   /** True when this device holds no rows (profile flags don't count). */
   isEmpty(): Promise<boolean>
   /** Replace everything on this device with a snapshot (backup restore, leaving Cloud). */
@@ -539,17 +537,6 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       return { id: row.id }
     },
 
-    async listAgentObservations(limit) {
-      return db.agent_observations.orderBy('created_at').reverse().limit(limit).toArray()
-    },
-    async listPendingObservations(limit) {
-      return (await db.agent_observations.where('processing_status').equals('pending').sortBy('created_at')).slice(0, limit)
-    },
-    async markObservation(id, processing_status, processing_result) {
-      const n = await db.agent_observations.update(id, { processing_status, processing_result })
-      if (!n) throw new LocalStoreError(404, 'observation not found')
-    },
-
     async listJobLeads() {
       return (await db.job_leads.toArray()).sort(byDesc('last_seen_at'))
     },
@@ -719,21 +706,6 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       })
     },
 
-    async receiveAgentObservations(rows) {
-      return db.transaction('rw', db.agent_observations, async () => {
-        const stored: string[] = []
-        for (const r of rows) {
-          const dup = await db.agent_observations
-            .where('[connection_id+idempotency_key]').equals([r.connection_id, r.idempotency_key]).first()
-          // provider/display_name are kept: leads and the review queue show
-          // which agent reported what.
-          if (!dup) await db.agent_observations.add({ ...r, user_id: LOCAL_USER })
-          stored.push(r.id)
-        }
-        return stored
-      })
-    },
-
     async exportSnapshot(): Promise<Snapshot> {
       return db.transaction('r', SNAPSHOT_TABLES.map((t) => db[t]), async () => ({
         format: BACKUP_FORMAT,
@@ -746,7 +718,6 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         portal_connections: (await db.portal_connections.toArray()).map(strip),
         portal_events: (await db.portal_events.toArray()).map(strip),
         ai_runs: (await db.ai_runs.toArray()).map(strip),
-        agent_observations: (await db.agent_observations.toArray()).map(strip),
         job_leads: (await db.job_leads.toArray()).map(strip),
         status_suggestions: (await db.status_suggestions.toArray()).map(strip),
         job_searches: (await db.job_searches.toArray()).map(strip),
@@ -779,7 +750,6 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         await db.portal_connections.bulkAdd(own(snapshot.portal_connections) as DbPortalConnection[])
         await db.portal_events.bulkAdd(own(snapshot.portal_events) as DbPortalEvent[])
         await db.ai_runs.bulkAdd(own(snapshot.ai_runs) as DbAiRun[])
-        await db.agent_observations.bulkAdd(own(snapshot.agent_observations) as DbAgentObservation[])
         // Backups from before the queue fields: present, and null when unreadable.
         await db.job_leads.bulkAdd((own(snapshot.job_leads) as DbJobLead[]).map((l) => ({ ...l, ...leadQueueDefaults(l) })))
         await db.status_suggestions.bulkAdd(own(snapshot.status_suggestions) as DbSuggestion[])

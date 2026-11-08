@@ -1,26 +1,20 @@
-# Agents: external, cloud and local
+# Agents on the user's computer
 
-Landed uses agents the user already has. They work in three places:
+Landed uses agents the user already has, on their own computer: Claude Code,
+Codex and ACP agents (Gemini CLI, Copilot, Cursor, Goose…). `apps/daemon` (the
+connector) runs them for Landed's tasks. External agents with a key, cloud
+agents through MCP and personal agents applying for the user were removed in
+Landed two (#3).
 
-| Where | Who | How they talk to Landed |
-|---|---|---|
-| The user's computer | Claude Code, Codex, ACP agents (Gemini CLI, Copilot, Cursor, Goose…) | `apps/daemon` runs them for Landed's tasks |
-| The cloud, as a connector | ChatGPT, Claude… | MCP at `/mcp` with OAuth |
-| The cloud, with a key | Muse, Manus, OpenClaw… | The same tools over HTTP, or raw observations |
+## Agents report; Landed decides
 
-## External agents report observations; Landed decides
+What an agent finds (jobs, email updates) never edits the pipeline directly.
+The browser turns each result into an observation and runs it through
+`packages/observation-processor` (pure functions, the only place matching and
+auto-apply rules live; [observation-processor.md](observation-processor.md)),
+which produces job leads and review-queue suggestions
+(`apps/web/src/lib/inbox`: `ingestFoundJobs`, `ingestEmailFindings`).
 
-Agents submit **observations** to `POST /api/agent/observations` with a narrow
-per-connection token (`apps/server/src/routes/agent.ts`, protocol in
-[apps/server/AGENT_PROTOCOL.md](../apps/server/AGENT_PROTOCOL.md)).
-
-- **Agents never mutate the pipeline.** Observations are stored raw. The
-  observation processor turns them into job leads and review-queue suggestions.
-  Rules and thresholds live in `packages/observation-processor` (pure functions,
-  the only place matching and auto-apply rules live) and
-  [observation-processor.md](observation-processor.md). It runs in the browser for
-  both modes (`apps/web/src/lib/inbox/process.ts` → `processPending`, driven by
-  `useObservationProcessor`).
 - **Email updates apply automatically by default** (product decision after
   acceptance review; `users.auto_apply_updates`). Confident (≥ 0.8 + email
   evidence) forward stage changes, new applications and recruiter notes apply
@@ -37,72 +31,8 @@ per-connection token (`apps/server/src/routes/agent.ts`, protocol in
   Bracketed text is noise when matching an email to an application, but it tells
   rows of one list apart (产品管培生（上海） vs （广东省）), so screenshot matching
   uses `keepBrackets` and a 0.8 bar. Dexie v8 recomputes stored lead keys.
-- **Agent data follows local-first too.** For sync-off accounts the server is
-  only a relay: hold until the browser pulls and acks (`hooks/agents.ts` →
-  `useAgentRelay`), then purge the payload and keep a hash-only receipt for
-  idempotency. Unclaimed payloads expire after 7 days. Don't add server-side
-  processing that reads a sync-off account's observations.
-- **Schema changes** (a new `observation_type`, new fields) go in three places
-  together: the validators in `agent.ts`, `AGENT_PROTOCOL.md`, and the setup prompt
-  in `apps/web/src/lib/agent-prompt.ts`. Bump `schema_version` for breaking
-  changes.
-- Every agent write is idempotent on `(connection_id, Idempotency-Key)`. The same
-  key with a different body is a 409. Agents retry and reuse stale bodies, so
-  never rely on "called once".
-
-## Cloud agents: MCP connector
-
-Cloud agents connect as an MCP connector (`/mcp`, `apps/server/src/routes/mcp.ts`;
-stateless Streamable HTTP, JSON responses). Landed can't start a cloud agent, so
-it's **pull**: `get_tasks` (approved applications assigned to that connection,
-job search for the confirmed brief, and email checks), then `submit_application_result`,
-`submit_jobs` or `submit_email_updates`. Search/email results become ordinary
-observations through `insertObservation`; application results return to the
-browser's local-first application/answer stores. Tool names and the scheduled-task prompt live in
-`packages/schema/src/cloud-agent.ts`.
-
-**Auth is OAuth 2.1** (`routes/oauth.ts`):
-
-- RFC 9728 / 8414 metadata, dynamic client registration (public PKCE clients;
-  confidential ones get a hashed secret);
-- redirect URIs https or loopback http only;
-- consent at the web app's `/authorize-agent` (outside the shell; sign-in first
-  keeps the URL);
-- one-time 10-minute codes, S256 only, 7-day access tokens with rotating refresh
-  tokens.
-
-Each approval is an `agent_connections` row (provider `mcp`, scopes
-`observations:write` + `tasks:read`), revoked like the others. Personal agents
-that connect with a key instead of OAuth get a token from Agent settings with the
-same scopes. It works for `/mcp`, for the same tools as plain HTTP
-(`agentTaskRoutes`: `GET /api/agent/tasks`, `POST /api/agent/jobs`,
-`POST /api/agent/email-updates`, `POST /api/agent/application-result`) and for
-`/api/agent/observations`. Connections
-from before tasks (scope `observations:write` only) may submit but not read
-tasks. Public origin: `PUBLIC_URL`, else the request's Host / X-Forwarded-*
-(Vite proxies `/mcp`, `/oauth`, `/.well-known` in dev).
-
-For Codex and Gemini CLI on macOS, Agent settings offers a one-click install
-through Landed for Mac: `landed://connect-agent?agent=codex|gemini&url=…/mcp`.
-The native app validates the HTTPS endpoint and asks in a native dialog. It then
-uses the agent's own `mcp add` command. Codex supplies `mcp login`; Gemini CLI is
-opened in Terminal with OAuth enabled for this server, so its startup opens the
-browser consent automatically. Each agent remains the owner of its shared config
-and OAuth credentials. Gemini's website has no custom MCP connector. Never remove
-the native confirmation: any page can open a custom URL.
-
-### The briefing
-
-The briefing is **one deliberate exception** to "no user data on the server
-for sync-off accounts". Cloud agents run in the cloud, so while the account has a
-connection with `tasks:read` (connector or key), the browser shares
-`{brief, applications: [{company, role, stage}]}` (`useCloudBriefing`,
-`PUT /api/agent-briefing`, only when it changed; 409 without such a connection).
-The server deletes it when the last such connection is revoked
-(`dropBriefingIfUnused`). The consent page says so. Don't widen it (no notes,
-contacts, resumes, emails). The other exception is a user-approved
-personal-agent application task: it is scoped to one connection and one job,
-and its copied context/file are erased on ack (details below).
+- Ingesting is idempotent: one stable observation id per run and item, so a
+  result stored twice changes nothing.
 
 ## Local agents: `apps/daemon`
 
@@ -138,8 +68,7 @@ agent's `kinds`. Daemons report what they can run; older ones get
 - **Claude Code** (`agents.ts`): the only one with email checks (its mail
   connector).
 - **Codex** (`codex.ts`, `codex exec --json`): found on the PATH or inside
-  ChatGPT.app / Codex.app (`findCodex`, the same lookup as the connector; the app's
-  CLI isn't on the PATH, and missing it left Codex only as a connected agent).
+  ChatGPT.app / Codex.app (`findCodex`; the app's CLI isn't on the PATH).
   Sandboxed by flags (read-only
   sandbox, `--disable shell_tool`, `--ignore-user-config`, approvals never, web
   search only when the task needs it). It validates `--output-schema` **strictly**,
@@ -176,8 +105,8 @@ product and security decision, not a convenience.**
 
 The daemon detects capabilities by starting Claude Code just far enough to read
 its init event (no model call, ~1.5 s), which lists the connected MCP servers and
-their tools: the mailbox (`mailFromInit`, the same flags as an email check) and
-Chrome (a `--chrome` probe). In `claude -p`, MCP servers connect in the
+their tools: the mailbox (`mailFromInit`, the same flags as an email check). In
+`claude -p`, MCP servers connect in the
 background by default, so a claude.ai connector often missed the init event
 (about two runs in three). Detection, and every task that needs a connector,
 sets `MCP_CONNECTION_NONBLOCKING=false` (`WAIT_FOR_CONNECTORS`) so Claude Code
@@ -313,8 +242,8 @@ or Gemini stays as the other way.
 
 How an agent searches (where to look, what to check before reporting a posting,
 one entry per posting, its budget) is the shared playbook in
-[agent-sourcing.md](agent-sourcing.md): the daemon's `job_search` and cloud
-agents' `get_tasks` send the same lines (`packages/schema/src/agent-sourcing.ts`).
+[agent-sourcing.md](agent-sourcing.md): the daemon's `job_search` sends it to
+whichever agent searches (`packages/schema/src/agent-sourcing.ts`).
 
 The chat agent ends a reply with a ```` ```landed-brief ```` JSON block once the
 direction is clear; when the user said which agents should search or how often,
@@ -352,9 +281,9 @@ first step that needs the user.
 | Group | Steps (done by) | Settings |
 |---|---|---|
 | What to look for | Search criteria | The active brief, editable in place (an edit makes a new active search via `addJobSearch`) |
-| 1 Find jobs | Agent search (the ticked agents and cloud agents, on the schedule) · Job lists and Company boards (Landed, each on its own schedule while Landed is open, with its last check's result) · Remove duplicates (Landed rules, or the rules then the user's agent for close calls, #146) and Rank (Landed rules, or the rules and the user's agent, #147), each new batch | Stage switch and Run now; agents, schedule, a switch per public source, the followed companies |
+| 1 Find jobs | Agent search (the ticked agents, on the schedule) · Job lists and Company boards (Landed, each on its own schedule while Landed is open, with its last check's result) · Remove duplicates (Landed rules, or the rules then the user's agent for close calls, #146) and Rank (Landed rules, or the rules and the user's agent, #147), each new batch | Stage switch and Run now; agents, schedule, a switch per public source, the followed companies |
 | 2 Apply | Auto apply (the extension; the user's agent checks the form) · Mark as applied (Landed, when the portal confirms) | Stage switch and Run now; at most N at a time |
-| 3 Keep up to date | Check email (the ticked readers: the computer's agent that can read email, today Claude Code with its mail connector, and each cloud agent on its own; `email_check.readers`) | A switch, schedule and Run now each; email: who reads it, the auto-apply choice (`users.auto_apply_updates`), re-read 30 days |
+| 3 Keep up to date | Check email (the ticked readers: the computer's agent that can read email, today Claude Code with its mail connector; `email_check.readers`) | A switch, schedule and Run now each; email: who reads it, the auto-apply choice (`users.auto_apply_updates`), re-read 30 days |
 
 The settings stay in `users.automations` (`packages/schema/src/automation.ts`),
 which installed Landed for Mac versions and the server already validate; a
@@ -380,32 +309,18 @@ is authorization; the setting never broadens it.
   agent there). Each ticked one searches, one after another, with the user's own
   subscription (`pickSearchAgents`; ticked ones that aren't on this computer →
   the first that can search). Unticking every one means none: the daemon logs
-  nothing and the schedule moves on (the schedule is only for the computer's
-  agents); the lists, boards and ticked cloud agents still search, cloud agents
-  whenever they run. The page says "Not used" under When and shows who searches
-  ("Claude.ai, ChatGPT on their own"). The daemon's scheduled run and Run now both use it, and the results
-  are merged by the processor. Default: Claude Code.
+  nothing and the schedule moves on; the lists and boards still search. The page
+  says "Not used" under When. The daemon's scheduled run and Run now both use
+  it, and the results are merged by the processor. Default: Claude Code.
 - **SimplifyJobs lists** and **company job boards**, fetched by the browser while
   Landed is open (`lib/supply.ts`, `refreshSupply`'s `sources`); they cost no
   tokens. Run now refreshes them too.
-- **Connected agents** (the UI's name for cloud agents: anything connected to
-  Landed's MCP or agent API, including Codex through its connector, which runs
-  on the same computer), one chip each, in their own row under the computer's
-  agents and with when each was last active (`agent_connections.last_seen_at`).
-  They pull the task when they run; Landed can't start them, so the schedule
-  doesn't apply to them. An unticked one
-  is in `cloud_skip` and `get_tasks` gives it no job search
-  (`cloudAgentSearches`, `routes/mcp.ts`). `cloud_agents` stays the switch for all
-  of them (older Landed versions read only that): unticking the last one turns it
-  off, ticking one again turns it on with the others still skipped.
 
 **Check email → Done by** (`users.automations.email_check.readers`, `AgentSources`;
-default Claude Code and every cloud agent): the computer reads email with the
-first ticked agent that can (`pickAgents`; today Claude Code once its mail
-connector is found, listed before that so it can be ticked). None ticked: the
-daemon logs nothing and the schedule moves on. Cloud agents read with their own
-connectors; an unticked one is in `cloud_skip` and `get_tasks` gives it no email
-check (`cloudAgentOn`). Other computer agents (Codex, ACP agents) get no email
+default Claude Code): the computer reads email with the first ticked agent that
+can (`pickAgents`; today Claude Code once its mail connector is found, listed
+before that so it can be ticked). None ticked: the daemon logs nothing and the
+schedule moves on, and nobody reads email. Other computer agents (Codex, ACP agents) get no email
 check until each has its own read-only allowlist (#144, a security decision).
 
 They run on a schedule the user sets (`users.automations` via `/me`, migration
@@ -436,22 +351,10 @@ That needs no agent and no computer.
   `useAutomationRunner`) sends the schedule plus the context the tasks need
   (`{applications, email_since, brief, search_id}`) and acks the
   results it has stored. The daemon answers with finished results and its run log.
-  Results go through the processor like any other agent report, and nothing is
-  stored on the server.
+  Results go through the processor, and nothing is stored on the server.
 - **One designated computer** runs the schedule (the online one that can do the
   most of what's turned on: read mail), and every online computer gets
   the settings so a previous one stops.
-- Cloud agents' `get_tasks` follows the same switches (email check, job search).
-- **Personal-agent auto apply** is per connection (`automations.auto_apply.executor`).
-  Approve authorizes one job. The browser copies that job, the chosen resume,
-  saved application answers and prior edited open answers into
-  `agent_apply_tasks`, even for a local-first account. Only the selected
-  connection can read it. `submit_application_result` returns submitted,
-  blocked or error plus structured `unanswered` questions. Those questions go
-  into the existing Application answers queue; after the user answers all of
-  them, the task's context is refreshed and the same authorized job is offered
-  again. Ack then erases the copied context and resume bytes. The unguessable
-  resume download expires after seven days and is invalid immediately on ack.
 - **Email checks** need a mail connector the user already gave their agent, and
   the daemon allows **only its read tools**: the first word must be a read verb
   and no word a write verb, since "thread" contains "read". Discovered write tools

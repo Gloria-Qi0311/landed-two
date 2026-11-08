@@ -17,7 +17,7 @@ import { Icon } from './primitives'
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 export const insideCard = { onPointerDown: stop, onKeyDown: stop }
 
-const PROVIDER_LABELS: Record<string, string> = { meta_muse: 'Muse', claude: 'Claude', codex: 'Codex' }
+const PROVIDER_LABELS: Record<string, string> = { claude: 'Claude', codex: 'Codex' }
 
 /** Who found a lead: "Claude", "Lever · Acme", "SimplifyJobs New Grad". */
 export const sourceLabel = (provider: string | undefined) => (provider ? PROVIDER_LABELS[provider] ?? provider : 'agent')

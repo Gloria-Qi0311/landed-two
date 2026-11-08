@@ -4,7 +4,7 @@
 // lib/agent-chat.ts); pick one up any time. Not set up yet → connect a
 // computer here; computer offline → past chats stay readable. When the
 // agent proposes a search brief, it shows as a card: confirm it and every
-// connected agent searches; results land in the Leads column. The page also
+// ticked agent on the computer searches; results land in the Leads column. The page also
 // carries Landed's questions ("did you apply?", "no
 // news for 3 weeks"). ?view=settings shows agent settings.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
@@ -19,7 +19,6 @@ import { EditableText } from './editable'
 import { BriefCard, SearchStatus } from './search-brief'
 import { PanelQuestions } from './panel-questions'
 import { PairingError, PairingSteps, RuntimePanel, usePairing } from './runtime-panel'
-import { AgentSettings } from './agent-settings'
 import { ReportedApplicationsCard } from './reported-applications'
 import { ReportedAnswersCard } from './reported-answers'
 import { DuplicatesReview } from './duplicates'
@@ -97,7 +96,7 @@ export function AgentPage() {
                   <AgentPicker choices={choices} value={`${ready.id}:${agent.id}`} onChange={(v) => { setPreferred(v); writeChatAgent(v) }} />
                 </div>
               )}
-              <AgentSettings />
+              <RuntimePanel />
             </div>
           </div>
         ) : (
