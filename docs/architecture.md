@@ -162,7 +162,7 @@ ignore fields they don't know.
 Today the user picks who does **Agent search** (#151) and **Check email**
 (#153). For each, every agent on the computer and each cloud agent is ticked
 on its own, and all unticked means none. Choosing an executor for the other
-steps is planned: apply (#142), portal checks (#144), each source kind (#145),
+steps is planned: apply (#142), each source kind (#145),
 remove duplicates (#146), rank (#147). Running every step with the page closed
 is #141. Details: [agents.md](agents.md#workflow).
 
@@ -179,7 +179,7 @@ is #141. Details: [agents.md](agents.md#workflow).
       ↓
  ⑤ Write back    confirmed → Applied, with the resume used and the answers sent
       ↓
- ⑥ Keep current  email checks, portal checks → stage moves, or a question
+ ⑥ Keep current  email checks → stage moves, or a question
 ```
 
 ### ① Find jobs
@@ -322,13 +322,12 @@ appears after Submit is recorded as a blocker.
 | Check | Executor | Reach | Then |
 |---|---|---|---|
 | Email | The ticked readers (#153): the computer's agent that can read email (today Claude Code with its mail connector) and each cloud agent on its own, with the mailbox's **read** tools only; on the schedule set on Workflow | New mail since the last check (or back to an import, up to 90 days) | Status observations |
-| Portals | Claude Code with Claude in Chrome, the only agent wired for it, with Chrome's **navigate and read** tools only | Portals of applications quiet for N days, at most 5 a run | Status observations |
 | Pages the user visits | The extension | Confirmation and status pages | Portal events |
 
 ```
 email check (daemon, scheduled)  ─┐
-cloud agent submit_email_updates ─┼─► application_status observation ─► server (relay or store)
-portal check (Claude in Chrome)  ─┘                                          │
+cloud agent submit_email_updates ─┘─► application_status observation ─► server (relay or store)
+                                                                             │
 extension portal events (pages)  ──────────── page bridge ───────────┐       │
                                                                      ▼       ▼
                                          browser: lib/inbox/process.ts → processPending
@@ -341,9 +340,8 @@ A confident forward move applies on its own unless the user turned that off on
 Check email (`users.auto_apply_updates`; then every update asks). These always
 ask the user: an ambiguous update, a low-confidence one, and one that would
 reopen a closed application. Check email also has "Re-read the last 30 days". After 21 days with no news, Landed asks
-whether to call an application ghosted. Planned (#144): another agent for
-portal checks, and other computer agents (Codex, ACP agents) for email. Each
-needs its own read-only allowlist, which is a security decision. Details: [agents.md](agents.md), [pipeline.md](pipeline.md).
+whether to call an application ghosted. Planned (#144): other computer agents
+(Codex, ACP agents) for email. Each needs its own read-only allowlist, which is a security decision. Details: [agents.md](agents.md), [pipeline.md](pipeline.md).
 
 ## Around the pipeline
 
@@ -387,7 +385,6 @@ needs its own read-only allowlist, which is a security decision. Details: [agent
 | Chat | The user's chosen agent, with web tools | Resume gist, the answers that shape a search, the search | Contact details, address, date of birth, EEO | Answer, and propose cards |
 | `job_search` | The user's agents, with WebSearch / WebFetch | The search brief | — | Report found jobs |
 | `email_check` | The ticked reader, with the mailbox's read tools | The mailbox | — | Report status updates |
-| `portal_check` | Claude Code with Claude in Chrome, navigate and read tools only | The portals of quiet applications | — | Report status updates |
 | Resume parse / merge / tailor | The user's agent | The resume | — | Read the resume; tailoring never invents |
 | Planned: same job (#146) | The chosen agent | Two postings' public text | Anything about the user | Answer same / different / not sure |
 | Planned: rank (#147) | The chosen agent | The posting; the master resume's gist | Name, contact details, address, date of birth, EEO | Give a 0–1 score and reasons |
@@ -397,8 +394,8 @@ needs its own read-only allowlist, which is a security decision. Details: [agent
 | Part | Never does |
 |---|---|
 | Server | Store data for a sync-off account (except the briefing); write runtime tasks to the database; forward free-form commands to a daemon |
-| Agents | Edit the pipeline directly; use write tools on the mailbox; click, type or run scripts in Chrome during portal checks |
-| Daemon | Pair without the native confirm dialog; run an agent with the user's own settings, hooks or MCP servers (except the mail or Chrome tools a task needs); install an update not signed with its release key |
+| Agents | Edit the pipeline directly; use write tools on the mailbox |
+| Daemon | Pair without the native confirm dialog; run an agent with the user's own settings, hooks or MCP servers (except the mail tools a task needs); install an update not signed with its release key |
 | Extension | Click Submit, except one unambiguous final Submit for an approved lead once every check passed; bypass a CAPTCHA; tick a consent box unless the user turned that on; send answer values anywhere but the user's own agent; send sensitive answers to any model |
 
 ## Where the user sees it
@@ -454,7 +451,7 @@ Landed for Mac. Installed copies update themselves (see
 | #141 | Landed for Mac runs every stage on its schedule, with the page closed | Antares | Planned |
 | #142 | ④ An undo window after Approve, and other executors | Antares | Planned |
 | #143 | ⑤ Applied the moment a submit is confirmed | Antares | Planned |
-| #144 | ⑥ Another agent for portal checks, other computer agents for email | Antares | Planned (choosing email readers shipped in #153) |
+| #144 | ⑥ Other computer agents for email | Antares | Planned (choosing email readers shipped in #153) |
 | #138 | More job lists and platforms (beyond engineering), the wild-job playbook, before/after numbers | Gloria | Planned |
 | #145 | ① Each source kind with its own executor and schedule | Gloria | Planned |
 | #146 | ② The user's agent for pairs the rules can't decide | Gloria | Planned |

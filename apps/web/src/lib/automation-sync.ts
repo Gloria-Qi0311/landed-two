@@ -4,16 +4,15 @@
 // any other agent report — then ack it so the computer can drop it.
 //
 // One computer runs the schedule (the "designated" one): the online one
-// that can do the most of what's turned on (read mail for email checks, use
-// Chrome for portal checks), else the first that can sync. Every online computer gets the settings, so a computer
+// that can do the most of what's turned on (read mail for email checks), else
+// the first that can sync. Every online computer gets the settings, so a computer
 // that used to run the schedule stops.
 import { create } from 'zustand'
 import type { Settings } from '@landed/observation-processor'
 import { AUTOMATION_KINDS, type Abilities, type AutomationKind, type Automations, type SyncInput, type SyncOutput } from '@landed/schema/automation'
 import type { EmailFinding } from '@landed/schema/email-check'
-import type { PortalResult } from '@landed/schema/portal-check'
 import type { FoundJob } from '@landed/schema/search-brief'
-import { ingestEmailFindings, ingestFoundJobs, ingestPortalResults } from './inbox'
+import { ingestEmailFindings, ingestFoundJobs } from './inbox'
 import type { DataStore } from './store/types'
 import { canRun, followJob, startJob, type Runtime, type RuntimeAgent } from '../hooks/runtimes'
 
@@ -215,17 +214,6 @@ async function storeResult(env: Env, target: SyncTarget, result: SyncOutput['res
       }
       await env.onStored('job_search', result.started_at)
       return { kind: 'job_search', text: `${r.added} new in Leads${r.merged ? `, ${r.merged} already there` : ''}` }
-    }
-    if (result.kind === 'portal_check' && result.results && result.items) {
-      const r = await ingestPortalResults(env.store, result.items, result.results as PortalResult[], {
-        run_id: result.id, runtime_id: target.runtime.id, agent: target.agent.id,
-      })
-      await env.onStored('portal_check', result.started_at)
-      const parts = [
-        r.updated && `${r.updated} updated`, r.needs_input && `${r.needs_input} need${r.needs_input === 1 ? 's' : ''} you`,
-        r.in_process && `${r.in_process} still in process`, r.login_required.length && `sign in needed: ${r.login_required.join(', ')}`,
-      ].filter(Boolean)
-      return { kind: 'portal_check', text: parts.length ? parts.join(', ') : 'nothing new' }
     }
   } catch (e) {
     console.warn('[landed] storing an automation result failed', e)

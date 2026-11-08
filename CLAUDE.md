@@ -104,12 +104,12 @@ messages (PR title and a clean body, no trailer).
   shell, prompts-as-shell or file paths to the daemon.
 - The daemon sandboxes every agent by flags: empty workspace,
   `--setting-sources ""`, an explicit tool allowlist, `--strict-mcp-config` unless
-  the task needs the mailbox or Chrome. Email checks get read tools only; portal
-  checks get Chrome's navigate and read tools only. Widening an allowlist is a
-  product and security decision.
-- Email and portal tasks that never called their tool end in an error, not an
-  empty success.
-- A page waiting for Gmail or Chrome asks the computer to look again when the user
+  the task needs the mailbox. Email checks get read tools only. Widening an
+  allowlist is a product and security decision. No agent drives the user's
+  Chrome: candidate-portal checks were removed (#4); status comes from email.
+- Email tasks that never called their tool end in an error, not an empty
+  success.
+- A page waiting for Gmail asks the computer to look again when the user
   comes back to it; never make them wait for the half-hourly check.
 - Cached connector capabilities never override an explicit agent sign-out;
   auth failures name the exact recovery action, and periodic detection must
@@ -237,7 +237,7 @@ messages (PR title and a clean body, no trailer).
   is laid out like My Resume: the steps in the middle column, grouped What to look
   for → 1 Find jobs (agent search, job lists, company boards, remove duplicates,
   rank) → 2 Apply (after the user approves in Leads: auto apply, mark as applied) →
-  3 Keep up to date (email, portals), each with its status; the selected step on
+  3 Keep up to date (email), each with its status; the selected step on
   the right says who does it (Landed AI, the built-in logic, by default; an agent where one can),
   when, and holds its switch. A step gets a new executor or setting in its own field
   of `users.automations`. Extension content is managed on `/extension`.

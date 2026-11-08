@@ -9,7 +9,6 @@ import { api } from '../lib/api'
 import { syncAutomations, useAutomationSync } from '../lib/automation-sync'
 import { useStore, type DataStore } from '../lib/store'
 import { useAccountPrefs, type Me } from './inbox'
-import { IN_PROGRESS, lastSignal } from '../lib/inbox'
 import { useRuntimes } from './runtimes'
 
 const IDLE_MS = 5 * 60_000
@@ -33,7 +32,7 @@ export function useSetAutomations() {
 /** What agents' tasks need from the data store: the applications (company,
  *  role, stage), where email reading left off, the active search. */
 export async function taskContext(store: DataStore, emailSince: string | null) {
-  const [apps, companies, searches, suggestions] = await Promise.all([store.listApplications(), store.listCompanies(), store.listJobSearches(), store.listSuggestions()])
+  const [apps, companies, searches] = await Promise.all([store.listApplications(), store.listCompanies(), store.listJobSearches()])
   const name = new Map(companies.map((c) => [c.id, c.name]))
   const active = searches.find((s) => s.status === 'active')
   return {
@@ -41,16 +40,6 @@ export async function taskContext(store: DataStore, emailSince: string | null) {
     email_since: emailSince,
     brief: active?.brief ?? null,
     search_id: active?.id ?? null,
-    // Portal checks: in-progress applications with a portal link, and when
-    // each last showed a sign of life (the computer picks the quiet ones).
-    portal_apps: apps
-      .filter((a) => IN_PROGRESS.has(a.stage) && a.portal_application_url && name.get(a.company_id))
-      .map((a) => ({
-        // legacy phone/onsite rows are interviews
-        id: a.id, company: name.get(a.company_id)!, role: a.role, stage: a.stage === 'phone' || a.stage === 'onsite' ? 'interview' : a.stage,
-        url: a.portal_application_url!, last_signal_at: new Date(lastSignal(a, suggestions) || Date.now()).toISOString(),
-      }))
-      .slice(0, 100),
   }
 }
 

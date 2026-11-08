@@ -32,7 +32,7 @@ test('cached Gmail never hides sign-out; a later capability pass restores it aft
   const claude = signedOut.find((a) => a.id === 'claude')!
   assert.deepEqual(claude, {
     id: 'claude', label: 'Claude Code', version: '2.1.999 (Claude Code)',
-    kinds: ['automation_sync'], mail: null, browser: null, auth: 'signed_out',
+    kinds: ['automation_sync'], mail: null, auth: 'signed_out',
   })
   assert.match(agents.detectionNotes.join('\n'), /claude auth login/)
 

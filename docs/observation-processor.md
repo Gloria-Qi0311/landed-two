@@ -8,7 +8,7 @@
 >
 > **用户自己电脑上的 agent（2026-10-11/12）**：搜岗位（`job_search`）和查邮箱（`email_check`）的结果也走这个处理程序。浏览器把每条结果包装成一条合成的 `job_discovered` / `application_status` observation，`connection_id` 为 `runtime:<电脑 id>`，id 为 `<任务 id>:<序号>`，所以去重、匹配、自动生效、撤销的规则都和外部 agent 完全一样（`ingestFoundJobs` / `ingestEmailFindings`）。邮件状态新增了 `assessment`（在线测评 / 笔试 / take-home，对应 `oa` 阶段）。
 >
-> **门户检查（2026-10-12）**：投递超过 21 天没有任何信号，Agent 页面会问一次：标成 Ghosted（可撤销），再等等（21 天后再问），或者让 agent 在 Chrome 里看一眼候选人门户。门户检查只读：agent 只有开标签页、导航、读页面这几个工具，没有点击、输入、填表、执行脚本、登录的能力；遇到登录墙就报告"需要你登录"。门户读到的状态一律先问用户（只有"已提交"这种确认会直接生效），"仍在处理中"会把这条提醒往后推（`ingestPortalResults`）。
+> **很久没有消息（2026-10-12）**：投递超过 21 天没有任何信号，Agent 页面会问一次：标成 Ghosted（可撤销），或者再等等（21 天后再问）。原来还能让 agent 在 Chrome 里看一眼候选人门户，Landed two 已经去掉这个功能（#4），进度改由邮件跟踪。
 >
 > **"你投了吗？"**：用户从 Landed 点开一个 Lead 或 Saved 状态投递的岗位链接后，会生成一条待确认建议（dedupe key 为 `click:lead:<id>` / `click:app:<id>`）。它不进"Needs your input"，而是在 Agent 页面里问，侧边栏的 Agent 上有数字角标。回答"是"就把它加入或移到 Applied，回答"还没有"就关掉，下次再点开时再问。如果收到"已收到申请"的邮件，或者用户手动把它拖到后面的阶段，这个问题会自动关闭，并把对应的 Lead 关联到那条投递（`settleClickQuestions`）。
 

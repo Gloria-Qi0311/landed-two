@@ -77,16 +77,16 @@ function clickResolution(s: DbSuggestion, leads: DbJobLead[], apps: ApplicationR
 }
 
 // ── "no news for three weeks" ─────────────────────────────────────────────
-// An application in progress with no signal (no update, no email, no portal
-// check) for QUIET_DAYS gets one question in the panel: check its portal,
-// call it ghosted, or keep waiting (asks again QUIET_DAYS later).
+// An application in progress with no signal (no update, no email) for
+// QUIET_DAYS gets one question in the panel: call it ghosted, or keep waiting
+// (asks again QUIET_DAYS later).
 
 export const QUIET_DAYS = 21
 const DAY = 86_400_000
-export const IN_PROGRESS = new Set(['applied', 'oa', 'interview', 'phone', 'onsite'])
+const IN_PROGRESS = new Set(['applied', 'oa', 'interview', 'phone', 'onsite'])
 
 /** Latest sign of life: an edit/move, the applied date, or any agent update about it. */
-export function lastSignal(app: Pick<DbApplication, 'id' | 'last_activity_at' | 'applied_at'>, suggestions: DbSuggestion[]) {
+function lastSignal(app: Pick<DbApplication, 'id' | 'last_activity_at' | 'applied_at'>, suggestions: DbSuggestion[]) {
   let t = Math.max(Date.parse(app.last_activity_at) || 0, app.applied_at ? Date.parse(app.applied_at) || 0 : 0)
   for (const s of suggestions) {
     if (s.application_id === app.id && !isPanelQuestion(s)) t = Math.max(t, Date.parse(s.created_at) || 0)
