@@ -126,8 +126,7 @@ not sessions.
 ### Task kinds
 
 Tasks are a fixed set of kinds (`chat`, `job_search`, `email_check`,
-`portal_check`, `resume_parse`, `resume_merge`, `resume_tailor`,
-`automation_sync`), validated on both ends. The server forwards only the
+`resume_parse`, `resume_merge`, `resume_tailor`, `automation_sync`), validated on both ends. The server forwards only the
 validated fields. **Never forward arbitrary commands, prompts-as-shell, or file
 paths to the daemon.** A new kind gets explicit input validation in
 `routes/runtime.ts`, a runner in `apps/daemon/src/agents.ts`, and an entry in that
@@ -136,8 +135,8 @@ agent's `kinds`. Daemons report what they can run; older ones get
 
 ### Any agent, three runners
 
-- **Claude Code** (`agents.ts`): the only one with email and portal checks
-  (connectors + Claude in Chrome).
+- **Claude Code** (`agents.ts`): the only one with email checks (its mail
+  connector).
 - **Codex** (`codex.ts`, `codex exec --json`): found on the PATH or inside
   ChatGPT.app / Codex.app (`findCodex`, the same lookup as the connector; the app's
   CLI isn't on the PATH, and missing it left Codex only as a connected agent).
@@ -170,8 +169,7 @@ Empty workspace dir, `--setting-sources ""` (ignore the user's own settings and
 hooks), and an explicit tool allowlist (`--tools` / `--allowedTools`). Chat and
 search also pass `--strict-mcp-config` so none of the user's MCP connectors load.
 Email checks get `ToolSearch` (connector tools are deferred behind it) and the
-mailbox's read tools, never write tools. Portal checks get Chrome's navigate and
-read tools, never click/type/form/script tools. **Widening the allowlist is a
+mailbox's read tools, never write tools. **Widening the allowlist is a
 product and security decision, not a convenience.**
 
 ### Capabilities
@@ -197,9 +195,9 @@ The computer answers with what it reaches (`abilities`: mailbox `ready`,
 `missing`, plus Chrome), and the card says "Checking…", then "✓ Gmail
 connected · read-only", or what to do. No button: coming back is the trigger.
 
-An email or portal task whose MCP server is missing from the init event is
-killed before the model runs and retried (`requireServer`, up to 5 times). A
-task that still never called its mailbox or Chrome tool must end in an error,
+An email task whose MCP server is missing from the init event is killed
+before the model runs and retried (`requireServer`, up to 5 times). A task
+that still never called its mailbox tool must end in an error,
 not an empty success; otherwise a check that read nothing would advance
 `email_checked_at` and skip mail.
 
@@ -275,8 +273,8 @@ Search with (below).
   - `click:lead:<id>` / `click:app:<id>`: "did you apply?" after opening a posting
     from Landed (`recordApplyClick`);
   - `quiet:<app id>`: no signal for 21 days on an in-progress application
-    (`flagQuietApplications`). Answers: ghosted (undoable), wait (asks again in
-    21 days), or look at its portal.
+    (`flagQuietApplications`). Answers: ghosted (undoable) or wait (asks again
+    in 21 days).
 
 ## Resume upload
 
@@ -345,7 +343,7 @@ stage, each with a status line and a dot (green on, grey off, red needs the
 user); the right side is the selected step: what it does, its controls (Run now
 and the switch), who does it, when, what it needs, how it decides and its recent
 runs. A stage's switch sits on its heading in the list (Find jobs, Apply); a step
-with its own sits on its page (Check email, Check candidate portals). The
+with its own sits on its page (Check email). The
 selected step is the URL's hash, so other pages link straight to one
 (`/workflow#email`; the older `#find` and `#track` still land on a step). With
 nothing picked it opens on What to look for until there is a search, else on the
@@ -356,7 +354,7 @@ first step that needs the user.
 | What to look for | Search criteria | The active brief, editable in place (an edit makes a new active search via `addJobSearch`) |
 | 1 Find jobs | Agent search (the ticked agents and cloud agents, on the schedule) · Job lists and Company boards (Landed, each on its own schedule while Landed is open, with its last check's result) · Remove duplicates (Landed rules, or the rules then the user's agent for close calls, #146) and Rank (Landed rules, or the rules and the user's agent, #147), each new batch | Stage switch and Run now; agents, schedule, a switch per public source, the followed companies |
 | 2 Apply | Auto apply (the extension; the user's agent checks the form) · Mark as applied (Landed, when the portal confirms) | Stage switch and Run now; at most N at a time |
-| 3 Keep up to date | Check email (the ticked readers: the computer's agent that can read email, today Claude Code with its mail connector, and each cloud agent on its own; `email_check.readers`) · Check candidate portals (the agent that can use Chrome: Claude Code with Claude in Chrome, the only one wired for it) | A switch, schedule and Run now each; email: who reads it, the auto-apply choice (`users.auto_apply_updates`), re-read 30 days; portals: days without news |
+| 3 Keep up to date | Check email (the ticked readers: the computer's agent that can read email, today Claude Code with its mail connector, and each cloud agent on its own; `email_check.readers`) | A switch, schedule and Run now each; email: who reads it, the auto-apply choice (`users.auto_apply_updates`), re-read 30 days |
 
 The settings stay in `users.automations` (`packages/schema/src/automation.ts`),
 which installed Landed for Mac versions and the server already validate; a
@@ -407,9 +405,8 @@ first ticked agent that can (`pickAgents`; today Claude Code once its mail
 connector is found, listed before that so it can be ticked). None ticked: the
 daemon logs nothing and the schedule moves on. Cloud agents read with their own
 connectors; an unticked one is in `cloud_skip` and `get_tasks` gives it no email
-check (`cloudAgentOn`). Other computer agents (Codex, ACP agents) get no email or
-portal check until each has its own read-only allowlist (#144, a security
-decision).
+check (`cloudAgentOn`). Other computer agents (Codex, ACP agents) get no email
+check until each has its own read-only allowlist (#144, a security decision).
 
 They run on a schedule the user sets (`users.automations` via `/me`, migration
 0015; `packages/schema/src/automation.ts`, which also has the schedule math).
@@ -437,15 +434,14 @@ That needs no agent and no computer.
   delivered it.
 - **The browser side**: the `automation_sync` task (`lib/automation-sync.ts`,
   `useAutomationRunner`) sends the schedule plus the context the tasks need
-  (`{applications, email_since, brief, search_id, portal_apps}`) and acks the
+  (`{applications, email_since, brief, search_id}`) and acks the
   results it has stored. The daemon answers with finished results and its run log.
   Results go through the processor like any other agent report, and nothing is
   stored on the server.
 - **One designated computer** runs the schedule (the online one that can do the
-  most of what's turned on: read mail, use Chrome), and every online computer gets
+  most of what's turned on: read mail), and every online computer gets
   the settings so a previous one stops.
 - Cloud agents' `get_tasks` follows the same switches (email check, job search).
-  Portal checks need the user's Chrome, so never in the cloud.
 - **Personal-agent auto apply** is per connection (`automations.auto_apply.executor`).
   Approve authorizes one job. The browser copies that job, the chosen resume,
   saved application answers and prior edited open answers into
@@ -462,20 +458,3 @@ That needs no agent and no computer.
   are passed as `--disallowedTools`. The browser only sends
   `{since, applications: [{company, role, stage}]}`; mail content never reaches
   the server.
-
-## Portal checks
-
-`portal_check`, the fallback when email is silent, runs when the user clicks
-(Agent page questions, or "Check status now" on an application's Candidate portal
-card, `components/portal-card.tsx`) or on the Workflow schedule (opt-in, off by
-default), on ≤ 5 applications per run, through Claude in Chrome
-(`claude --chrome --strict-mcp-config`). Scheduled runs pick applications with a
-portal link and no news for `quiet_days` (`pickQuietPortals`; the daemon also
-skips ones it looked at within that window, `portal_checked` in its state),
-quietest first.
-
-They are **read-only by construction**: the allowlist is Chrome's
-tab/navigate/read tools; `computer`, `form_input`, `javascript_tool`, uploads and
-network reads are denied. The browser sends refs ("1"…"5"), not ids. Results go
-through the processor in ask-first mode (`ingestPortalResults` in
-`lib/inbox/portal.ts`); only "submitted" confirmations apply on their own.

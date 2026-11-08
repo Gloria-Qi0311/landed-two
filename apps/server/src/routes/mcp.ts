@@ -205,8 +205,7 @@ function briefText(b: SearchBrief): string {
 
 /** The work for this account right now: the automations the user turned
  *  on (Workflow page) that a cloud agent can do — a job search and an
- *  email check. Portal checks need the user's own Chrome, so they stay on
- *  the user's computer. */
+ *  email check. */
 export function buildTasks(briefing: Briefing | null, on: { job_search: boolean; email_check: boolean }, emailSince: Date, now = new Date()) {
   const tasks: Record<string, unknown>[] = []
   if (on.job_search && briefing?.brief) {

@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickAgents, pickQuietPortals, pickSearchAgents,
+  AUTOMATION_KINDS, isDue, nextRun, parseAutomations, pickAgents, pickSearchAgents,
   type Abilities, type AutomationKind, type AutomationResult, type AutomationRun, type Automations, type SyncContext, type SyncInput, type SyncOutput,
 } from '@landed/schema/automation'
 import { home } from './config.ts'
@@ -29,8 +29,6 @@ type State = {
   last_failure: Partial<Record<AutomationKind, string>>
   outbox: AutomationResult[]
   runs: AutomationRun[]
-  /** application id → when a portal check last looked at it */
-  portal_checked: Record<string, string>
 }
 
 const RETRY_MS = 30 * 60_000
@@ -40,7 +38,7 @@ const FIRST_EMAIL_LOOKBACK_MS = 30 * 86_400_000
 const EMAIL_OVERLAP_MS = 3_600_000
 
 const file = () => join(home(), 'automations.json')
-const empty = (): State => ({ owner: null, runtime_id: null, automations: null, context: null, last_success: {}, last_failure: {}, outbox: [], runs: [], portal_checked: {} })
+const empty = (): State => ({ owner: null, runtime_id: null, automations: null, context: null, last_success: {}, last_failure: {}, outbox: [], runs: [] })
 
 function load(): State {
   try {
@@ -165,7 +163,7 @@ export function tick() {
 }
 
 type Planned =
-  | { input: Record<string, unknown>; items?: AutomationResult['items'] }
+  | { input: Record<string, unknown> }
   | { error: string }
   /** nothing to do this time (not a failure) */
   | { skip: string }
@@ -182,19 +180,11 @@ function inputFor(kind: AutomationKind, ctx: SyncContext, st: State, opts: RunOp
       : ctx.email_since ? new Date(ctx.email_since) : new Date(Date.now() - FIRST_EMAIL_LOOKBACK_MS)
     return { input: { since: since.toISOString(), applications: ctx.applications } }
   }
-  if (kind === 'portal_check') {
-    const quiet = st.automations?.portal_check.quiet_days ?? 14
-    const picked = pickQuietPortals(ctx.portal_apps ?? [], quiet, st.portal_checked ?? {})
-    if (picked.length === 0) return { skip: `No application with a portal link has gone ${quiet} days without news.` }
-    // The agent sees refs, never application ids.
-    const items = picked.map((a, i) => ({ ref: String(i + 1), application_id: a.id, company: a.company }))
-    return { input: { items: picked.map((a, i) => ({ ref: String(i + 1), company: a.company, role: a.role, stage: a.stage, url: a.url })) }, items }
-  }
   if (!ctx.brief || !ctx.search_id) return { error: 'No search direction yet — confirm one with your agent first.' }
   return { input: { brief: ctx.brief, search_id: ctx.search_id } }
 }
 
-const PAYLOAD: Record<AutomationKind, 'findings' | 'jobs' | 'results'> = { email_check: 'findings', job_search: 'jobs', portal_check: 'results' }
+const PAYLOAD: Record<AutomationKind, 'findings' | 'jobs'> = { email_check: 'findings', job_search: 'jobs' }
 
 /** "Oct 13, 1:20 PM" in this computer's time zone (the user's). */
 const localTime = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -202,7 +192,6 @@ const localTime = (iso: string) => new Date(iso).toLocaleString('en-US', { month
 function describeRun(kind: AutomationKind, n: number, input: Record<string, unknown>, agentLabel: string | null) {
   const s = n === 1 ? '' : 's'
   if (kind === 'email_check') return `${n} application email${s} since ${localTime(String(input.since))}`
-  if (kind === 'portal_check') return `${n} portal${s} checked`
   return `${n} job${s}${agentLabel ? ` · ${agentLabel}` : ''}`
 }
 
@@ -277,7 +266,6 @@ async function runWith(kind: AutomationKind, agent: string | null, agentLabel: s
   st.runs = [run, ...st.runs].slice(0, MAX_RUNS)
   const plan: Planned = agent ? inputFor(kind, st.context, st, opts) : {
     error: kind === 'email_check' ? 'No agent on this computer can read your email (Claude Code with a Gmail connector can).'
-      : kind === 'portal_check' ? "No agent on this computer can use Chrome (Claude Code with Claude in Chrome can)."
       : 'No agent on this computer can search for jobs.',
   }
   if ('error' in plan) {
@@ -306,10 +294,9 @@ async function runWith(kind: AutomationKind, agent: string | null, agentLabel: s
   if (e?.type === 'done' && Array.isArray(payload)) {
     st.last_success[kind] = started
     delete st.last_failure[kind]
-    st.outbox.push({ id, kind, started_at: started, finished_at: finished, summary: e.text, [PAYLOAD[kind]]: payload, ...(plan.items ? { items: plan.items } : {}) })
-    for (const item of plan.items ?? []) (st.portal_checked ??= {})[item.application_id] = finished
+    st.outbox.push({ id, kind, started_at: started, finished_at: finished, summary: e.text, [PAYLOAD[kind]]: payload })
     run.status = 'ok'
-    run.summary = describeRun(kind, kind === 'portal_check' ? plan.items?.length ?? payload.length : payload.length, input, agentLabel)
+    run.summary = describeRun(kind, payload.length, input, agentLabel)
   } else {
     st.last_failure[kind] = finished
     run.status = 'error'

@@ -6,7 +6,7 @@ export type TaskEvent =
   | { type: 'started'; agent: string }
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string }
-  | { type: 'done'; text: string; session_id?: string; jobs?: unknown[]; findings?: unknown[]; results?: unknown[]; output?: unknown }
+  | { type: 'done'; text: string; session_id?: string; jobs?: unknown[]; findings?: unknown[]; output?: unknown }
   | { type: 'error'; message: string }
 
 export type Task = { id: string; agent: string; kind: string; input: Record<string, unknown> }
@@ -33,14 +33,13 @@ export type Spec = {
 }
 
 /** A structured result → the `done` event the browser expects (jobs,
- *  findings, results, or the whole object as `output`). */
+ *  findings, or the whole object as `output`). */
 export function doneFromOutput(out: unknown, text: string, sessionId?: string): Extract<TaskEvent, { type: 'done' }> {
   const o = out as Record<string, unknown> | null
   const summary = typeof o?.summary === 'string' ? o.summary : text
   const base = { type: 'done' as const, text: summary, ...(sessionId ? { session_id: sessionId } : {}) }
   if (o && typeof o === 'object' && Array.isArray(o.jobs)) return { ...base, jobs: o.jobs }
   if (o && typeof o === 'object' && Array.isArray(o.findings)) return { ...base, findings: o.findings }
-  if (o && typeof o === 'object' && Array.isArray(o.results)) return { ...base, results: o.results }
   if (o && typeof o === 'object') return { ...base, output: o }
   return { type: 'done', text, ...(sessionId ? { session_id: sessionId } : {}) }
 }

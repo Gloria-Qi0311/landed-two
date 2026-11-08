@@ -7,7 +7,6 @@ import { useAgentRelay, useCloudBriefing } from './hooks/agents';
 import { useJobLeads, useLeadActions, useObservationProcessor, useRecordApplyClick } from './hooks/inbox';
 import { usePanelQuestions } from './components/panel-questions';
 import { usePendingQuestions } from './components/pending-questions';
-import { usePortalRunner } from './hooks/portal';
 import { useResumeTaskRunner } from './hooks/resumes';
 import { useKnownAnswers } from './hooks/answers';
 import { useAgentChatRunner } from './hooks/conversations';
@@ -152,7 +151,6 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useLeadRanking();
   useAutomationRunner();
   useAutoApplyRunner();
-  usePortalRunner();
   useResumeTaskRunner();
   useKnownAnswers();
   useAgentChatRunner();

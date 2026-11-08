@@ -6,7 +6,7 @@
 //                              remove duplicates, rank → Leads
 //   2 Apply                    after the user approves in Leads: auto apply,
 //                              mark as applied
-//   3 Keep up to date          check email, check candidate portals
+//   3 Keep up to date          check email
 // A stage's switch sits on its heading in the list; a step with its own sits
 // on its page. The selected step is the URL's hash (/workflow#email), so other
 // pages link straight to one. The settings stay users.automations
@@ -18,9 +18,9 @@
 // tabs continue if Landed closes.
 import { Children, useEffect, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import {
-  AUTO_APPLY_CONCURRENCY, cloudAgentOn, cloudAgentSearches, DEFAULT_EMAIL_READERS, describeSchedule, INTERVAL_HOURS, nextSourceRun, pickAgents, pickQuietPortals, QUIET_DAY_CHOICES, WEEKDAYS,
+  AUTO_APPLY_CONCURRENCY, cloudAgentOn, cloudAgentSearches, DEFAULT_EMAIL_READERS, describeSchedule, INTERVAL_HOURS, nextSourceRun, pickAgents, WEEKDAYS,
   type Abilities, type AutomationKind, type AutomationRun, type Automations, type PublicSource, type Schedule,
 } from '@landed/schema/automation'
 import { parseBrief, type RemotePreference, type SearchBrief } from '@landed/schema/search-brief'
@@ -30,9 +30,8 @@ import { PageHeader } from './shell'
 import { EditableList, EditableText } from './editable'
 import { AgentSourcesPicker } from './search-sources'
 import { formatRelative } from '../lib/time'
-import { useStore } from '../lib/store'
 import { computerCan, designate, requestRecheck, requestRunNow, syncTargets, useAutomationSync, type SyncTarget } from '../lib/automation-sync'
-import { taskContext, useAutomations, useSetAutomations } from '../hooks/automation'
+import { useAutomations, useSetAutomations } from '../hooks/automation'
 import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
 import { searchComputer, chosenSearchTargets, useActiveSearch, useEditBrief } from '../hooks/search'
 import { useFollowedBoards, useSupplyRefresh } from '../hooks/supply'
@@ -214,16 +213,16 @@ function runner(designated: SyncTarget | null, kind: AutomationKind) {
 
 type Connection = 'ok' | 'checking' | 'confirming' | 'missing'
 
-/** Whether the computers' agents reach a connector (Gmail, Chrome). While
- *  they don't, the computers look again as soon as the user comes back to the
- *  page (they connect it in claude.ai or Chrome, then return), and every
- *  minute while it's open, instead of at their half-hourly check. */
-function useConnection(which: 'mail' | 'chrome', targets: SyncTarget[], reached: boolean): Connection {
+/** Whether the computers' agents reach a mailbox (Gmail through Claude's
+ *  connector). While they don't, the computers look again as soon as the user
+ *  comes back to the page (they connect it in claude.ai, then return), and
+ *  every minute while it's open, instead of at their half-hourly check. */
+function useMailConnection(targets: SyncTarget[], reached: boolean): Connection {
   const qc = useQueryClient()
   const abilities = useAutomationSync((s) => s.abilities)
   const recheckAt = useAutomationSync((s) => s.recheckAt)
   const seen = targets.map((t) => abilities[t.runtime.id]).filter((a): a is Abilities => !!a)
-  const found = seen.some((a) => (which === 'mail' ? a.mail === 'ready' : a.chrome))
+  const found = seen.some((a) => a.mail === 'ready')
   const waiting = !reached && !found && targets.length > 0
   // The computer found it: its agents' new abilities are on the server now.
   useEffect(() => { if (found && !reached) void qc.invalidateQueries({ queryKey: ['runtimes'] }) }, [found, reached, qc])
@@ -242,7 +241,7 @@ function useConnection(which: 'mail' | 'chrome', targets: SyncTarget[], reached:
     }
   }, [waiting])
   if (reached || found) return 'ok'
-  if (which === 'mail' && seen.some((a) => a.mail === 'confirming')) return 'confirming'
+  if (seen.some((a) => a.mail === 'confirming')) return 'confirming'
   // Only computers that report what they reach answer a recheck (an older Landed for Mac doesn't).
   const looked = recheckAt !== null && seen.some((a) => !!a.checked_at && Date.parse(a.checked_at) >= recheckAt)
   if (seen.length && recheckAt !== null && !looked && Date.now() - recheckAt < 2 * 60_000) return 'checking'
@@ -274,9 +273,7 @@ function useWorkflow() {
   const localReaders = pickAgents(mailAgents, readers)
   const emailAgent = localReaders.length ? runner(designated, 'email_check') : null
   // No computer agent ticked: nothing on the computer to wait for.
-  const mail = useConnection('mail', targets, localReaders.length === 0 || !!emailAgent || targets.some((t) => computerCan(t, 'email_check')))
-  const portalAgent = runner(designated, 'portal_check')
-  const chrome = useConnection('chrome', targets, !!portalAgent || targets.some((t) => computerCan(t, 'portal_check')))
+  const mail = useMailConnection(targets, localReaders.length === 0 || !!emailAgent || targets.some((t) => computerCan(t, 'email_check')))
   const auto = {
     ready: useAutoApplyControl((s) => s.ready),
     busy: useAutoApplyControl((s) => s.busy),
@@ -290,7 +287,7 @@ function useWorkflow() {
   const save = (next: Automations) => set.mutate(next)
   return {
     automations, loaded, set, save, sync, targets, designated, cloud, search, boards, supply, choices, chosenSearchers, searchers, anyAgent, findNote, setFindNote,
-    emailAgent, mail, readers, mailAgents, localReaders, portalAgent, chrome, auto,
+    emailAgent, mail, readers, mailAgents, localReaders, auto,
     anyPaired: (runtimes ?? []).some((r) => !r.revoked_at && r.last_seen_at),
     outdated: (runtimes ?? []).some((r) => r.online && r.agents.length && !r.agents.some((a) => a.kinds?.includes('automation_sync'))),
   }
@@ -299,8 +296,8 @@ type W = ReturnType<typeof useWorkflow>
 
 // ── the steps ─────────────────────────────────────────────────────────────
 
-type StepId = 'criteria' | 'agents' | 'lists' | 'boards' | 'dedupe' | 'rank' | 'apply' | 'applied' | 'email' | 'portals'
-const STEP_IDS: StepId[] = ['criteria', 'agents', 'lists', 'boards', 'dedupe', 'rank', 'apply', 'applied', 'email', 'portals']
+type StepId = 'criteria' | 'agents' | 'lists' | 'boards' | 'dedupe' | 'rank' | 'apply' | 'applied' | 'email'
+const STEP_IDS: StepId[] = ['criteria', 'agents', 'lists', 'boards', 'dedupe', 'rank', 'apply', 'applied', 'email']
 /** Older links (#find, #track) still land on a step. */
 const ALIASES: Record<string, StepId> = { find: 'agents', track: 'email' }
 
@@ -346,9 +343,6 @@ function statuses(w: W): Record<StepId, Status> {
       const text = whoAndWhen(w.localReaders.map((x) => x.label), cloudReaders, sched(a.email_check.schedule))
       return text ? { dot: 'on' as const, text } : { dot: 'off' as const, text: 'No agent ticked' }
     })(),
-    portals: !a.portal_check.enabled ? { dot: 'off', text: `Off · ${sched(a.portal_check.schedule)}` }
-      : w.chrome === 'missing' ? { dot: 'needs', text: 'Needs Chrome connected' }
-        : { dot: 'on', text: `${w.portalAgent?.label ?? 'Your agent'} · ${sched(a.portal_check.schedule)}` },
   }
 }
 
@@ -364,7 +358,7 @@ export function WorkflowPage() {
   // Nothing picked: what to look for until there is a search, else the first
   // step that needs the user, else agent search.
   const active: StepId = fromHash
-    ?? (!w.search ? 'criteria' : (['agents', 'apply', 'email', 'portals'] as StepId[]).find((id) => all[id].dot === 'needs') ?? 'agents')
+    ?? (!w.search ? 'criteria' : (['agents', 'apply', 'email'] as StepId[]).find((id) => all[id].dot === 'needs') ?? 'agents')
   const select = (id: StepId) => navigate({ hash: id }, { replace: true })
 
   return (
@@ -432,7 +426,6 @@ function StepsList({ w, all, active, onSelect }: { w: W; all: Record<StepId, Sta
 
       <div style={railLabel}>3 · Keep up to date</div>
       {item('email', 'inbox', 'Check email')}
-      {item('portals', 'external', 'Check candidate portals')}
     </aside>
   )
 }
@@ -471,7 +464,6 @@ function StepPane({ id, w, onSelect }: { id: StepId; w: W; onSelect: (id: StepId
     case 'apply': return <ApplyPane w={w} />
     case 'applied': return <AppliedPane />
     case 'email': return <EmailPane w={w} />
-    case 'portals': return <PortalsPane w={w} />
   }
 }
 
@@ -765,7 +757,7 @@ function AppliedPane() {
       <Settings>
         <Field label="Done by">{LANDED_AI}</Field>
         <Field label="When"><span>When the portal shows its confirmation page, dated then</span></Field>
-        <Field label="No confirmation"><span>It waits as “Submitted · waiting for confirmation” until an email or a portal check confirms it.</span></Field>
+        <Field label="No confirmation"><span>It waits as “Submitted · waiting for confirmation” until an email confirms it.</span></Field>
       </Settings>
     </Pane>
   )
@@ -773,7 +765,7 @@ function AppliedPane() {
 
 /** A scheduled status step's own switch and Run now. */
 function StepControls({ w, kind, label, blocked, agents }: {
-  w: W; kind: 'email_check' | 'portal_check'; label: string; blocked: boolean; agents?: string[]
+  w: W; kind: 'email_check'; label: string; blocked: boolean; agents?: string[]
 }) {
   const a = w.automations[kind]
   const state = useScheduleState(kind)
@@ -860,61 +852,6 @@ function AutoApplyChoice() {
       {option(false, 'Ask me first', 'every change waits in "Needs your input"')}
       <span style={muted}>Unclear ones (which application? how sure?) always wait for you.</span>
     </div>
-  )
-}
-
-function PortalsPane({ w }: { w: W }) {
-  const { store, ready } = useStore()
-  const a = w.automations.portal_check
-  const state = useScheduleState('portal_check')
-  const agent = w.portalAgent
-  const signedOut = w.targets.some((t) => t.runtime.agents.some((x) => x.id === 'claude' && x.auth === 'signed_out'))
-  const quiet = a.quiet_days ?? 14
-  // Which applications qualify right now (the computer also skips ones it
-  // looked at recently).
-  const candidates = useQuery({
-    queryKey: ['applications', 'portal-candidates', quiet],
-    enabled: ready,
-    queryFn: async () => {
-      const ctx = await taskContext(store, null)
-      return { quiet: pickQuietPortals(ctx.portal_apps, quiet, {}, Date.now()), withPortal: ctx.portal_apps.length }
-    },
-  })
-  const names = candidates.data?.quiet.map((x) => x.company) ?? []
-  return (
-    <Pane title="Check candidate portals" help="Opens the portals of applications that went quiet in your Chrome and reads their status. Read-only: it never clicks, types or signs in."
-      controls={<StepControls w={w} kind="portal_check" label="Check portals" blocked={w.chrome !== 'ok'} />}>
-      {state.running && <Needs waiting>Checking candidate portals now{agent ? ` with ${agent.label}` : ''}…</Needs>}
-      {w.chrome === 'checking' && <Needs waiting>Checking whether your agent can use Chrome…</Needs>}
-      {w.chrome === 'missing' && (signedOut
-        ? <Needs>Claude Code is signed out. Run <code>claude auth login</code> in Terminal, finish signing in, then come back here.</Needs>
-        : <Needs>Your agent can't use Chrome yet. Connect the Claude in Chrome extension to Claude Code, then come back to this page: Landed checks again right away.</Needs>)}
-      <Settings>
-        <Field label="Done by" help="Tip: use a Chrome profile that's only signed in to job sites">
-          {agent ? <span style={{ color: agent.browser ? ok : undefined }}>{agent.label}{agent.browser && ` · ${agent.browser}, read-only`}</span> : <span style={muted}>An agent on your computer that can use Chrome</span>}
-        </Field>
-        <Field label="When">
-          <SchedulePicker schedule={a.schedule} presets={[DAILY[2], DAILY[1], DAILY[0]]} disabled={!w.loaded}
-            onChange={(schedule) => w.save({ ...w.automations, portal_check: { ...a, schedule } })} />
-          <span style={muted}>{state.text}</span>
-        </Field>
-        <Field label="Looks at" help="Up to 5 a run, quietest first">
-          <span>
-            Applications with a portal link and no news for{' '}
-            <select aria-label="Days without news" value={quiet} style={{ fontSize: 12.5 }} onChange={(e) => w.save({ ...w.automations, portal_check: { ...a, quiet_days: Number(e.target.value) } })}>
-              {QUIET_DAY_CHOICES.map((d) => <option key={d} value={d}>{d} days</option>)}
-            </select>
-          </span>
-          <span style={muted}>
-            {candidates.data && (names.length
-              ? `Right now: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` and ${names.length - 5} more` : ''}.`
-              : candidates.data.withPortal ? 'Right now none: every application with a portal link has had news recently.' : 'None of your applications has a portal link yet (add one on an application).')}
-          </span>
-        </Field>
-        <Field label="Then"><span>Asks you before changing a stage, except a confirmed submission, which updates on its own. Portals that need you to sign in are listed in the run.</span></Field>
-      </Settings>
-      <RecentRuns kind="portal_check" />
-    </Pane>
   )
 }
 

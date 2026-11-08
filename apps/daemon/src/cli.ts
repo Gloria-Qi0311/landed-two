@@ -41,7 +41,7 @@ const VERSION = '0.10.0'
 const MAX_PARALLEL = 2
 
 const describe = (agents: AgentInfo[]) =>
-  agents.map((a) => `${a.label} ${a.version ?? ''}${a.mail ? `, reads ${a.mail}` : ''}${a.browser ? `, uses ${a.browser}` : ''}`.trim()).join(', ')
+  agents.map((a) => `${a.label} ${a.version ?? ''}${a.mail ? `, reads ${a.mail}` : ''}`.trim()).join(', ')
 
 function log(msg: string) {
   console.log(`[landed ${new Date().toLocaleTimeString()}] ${msg}`)
@@ -134,7 +134,7 @@ async function run(config: Config, opts: { service?: boolean } = {}): Promise<'r
       setupAutomations({
         runtimeId: me.id, runTask, log,
         recheck: () => void redetect(),
-        abilities: () => ({ mail: mailStatus, chrome: agents.some((a) => !!a.browser), checking: detecting !== null, checked_at: checkedAt }),
+        abilities: () => ({ mail: mailStatus, checking: detecting !== null, checked_at: checkedAt }),
         pickAgent: (kind) => agentForKind(agents, kind),
         agentsFor: (kind) => agents.filter((a) => a.kinds.includes(kind)).map((a) => ({ id: a.id, label: a.label })),
       })
@@ -363,9 +363,6 @@ async function main() {
       console.log(a.mail
         ? `${a.label} can read your ${a.mail} (read-only), so Landed can check your email for application updates.`
         : `${a.label} has no mail connector, so email checks are off. To turn them on, connect Gmail in Claude (claude.ai → Settings → Connectors), then open Landed: it checks again right away.`)
-      console.log(a.browser
-        ? `${a.label} can look at candidate portals in ${a.browser} (read-only: it can navigate and read, never click or type).`
-        : `${a.label} can't reach Chrome, so portal checks are off. Open Chrome with the Claude in Chrome extension connected, then open Landed: it checks again right away.`)
     }
     return
   }

@@ -1063,7 +1063,7 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
 
     const hello = await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', version: '2.1.284' }], daemon_version: '0.1.0' } })
     assert.equal(hello.status, 200)
-    assert.deepEqual(hello.body.agents, [{ id: 'claude', label: 'Claude Code', version: '2.1.284', kinds: ['chat'], mail: null, browser: null }], 'old daemons can only chat')
+    assert.deepEqual(hello.body.agents, [{ id: 'claude', label: 'Claude Code', version: '2.1.284', kinds: ['chat'], mail: null }], 'old daemons can only chat')
 
     const send = (token: string, body: Record<string, unknown>) => call('POST', '/api/runtime-jobs', { token, body })
     const chat = { runtime_id: id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), message: 'hi' } }
@@ -1345,43 +1345,6 @@ describe('My Resume: master + versions', () => {
     assert.equal(done.output.entries.length, 1, 'empty entries dropped')
     assert.equal(done.output.hacked, undefined)
     web.cancel().catch(() => {})
-    reader.cancel().catch(() => {})
-    daemonAbort.abort()
-  })
-})
-
-describe('portal_check: read-only look at candidate portals', () => {
-  test('only agents with a browser get it; at most 5 http(s) items; results are cleaned', async () => {
-    const owner = await signup('runtime-portal@example.com', undefined, { cloud: false })
-    const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
-    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat'], browser: null }] } })
-    const item = (ref: string, url = 'https://acme.wd5.myworkdayjobs.com/acme/job/123') => ({ ref, company: 'Acme', role: 'APM', stage: 'applied', url })
-    const check = { runtime_id: runtime.id, agent: 'claude', kind: 'portal_check', input: { items: [item('1')] } }
-    assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: check })).body.code, 'runtime_outdated', 'no browser → kind not offered')
-
-    const hello = await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'portal_check'], browser: 'Chrome' }] } })
-    assert.equal(hello.body.agents[0].browser, 'Chrome')
-    const daemonAbort = new AbortController()
-    const daemon = await app.request('/api/runtime/stream', { headers: { Authorization: `Bearer ${rt}` }, signal: daemonAbort.signal })
-    const reader = daemon.body!.getReader()
-    let buf = ''
-    const until = async (needle: string) => {
-      while (!buf.includes(needle)) buf += new TextDecoder().decode((await reader.read()).value)
-      return buf
-    }
-    await until('event: ready')
-    assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: { ...check, input: { items: [item('1', 'javascript:alert(1)')] } } })).status, 400)
-    const many = { ...check, input: { items: [1, 2, 3, 4, 5, 6, 7].map((n) => item(String(n))) } }
-    assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: many })).status, 202)
-    const job = JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
-    assert.equal(job.input.items.length, 5, 'capped at 5')
-
-    const res = await call('POST', `/api/runtime/jobs/${job.id}/events`, { token: rt, body: { events: [{ type: 'done', text: 'checked', results: [
-      { ref: '1', outcome: 'status_found', status: 'rejected', status_text: 'No longer under consideration', confidence: 0.9 },
-      { ref: '2', outcome: 'status_found', status: 'promoted' },
-      { ref: '3', outcome: 'hacked' },
-    ] }] } })
-    assert.equal(res.status, 200)
     reader.cancel().catch(() => {})
     daemonAbort.abort()
   })

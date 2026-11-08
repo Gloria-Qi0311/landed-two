@@ -13,9 +13,8 @@
 // Task kinds: `chat` (one turn of the Agent page's conversation), `job_search` (search the web for
 // jobs matching a confirmed brief; the result carries `jobs`) and
 // `email_check` (read the user's mailbox through their agent's mail
-// connector; the result carries `findings`) and `portal_check` (look at
-// candidate portals in the user's Chrome, read-only; the result carries
-// `results`), `resume_parse` (a resume file → the canonical shape),
+// connector; the result carries `findings`), `resume_parse` (a resume file
+// → the canonical shape),
 // `resume_merge` (uploaded resumes → one master resume) and
 // `resume_tailor` (master → a version aimed at a role); those two return
 // `output`, validated per kind. `automation_sync` hands the daemon the
@@ -24,7 +23,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { parseEmailCheckInput, parseEmailFindings } from '@landed/schema/email-check'
 import { parseLooseResume, parseMasterResume, parseResumeParseInput, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
-import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'
 import { MAX_CHAT_IMAGES, parseChatContext, parseChatHistory, parseChatImages } from '@landed/schema/conversation'
 import { parseSyncInput, parseSyncOutput } from '@landed/schema/automation'
 import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
@@ -42,7 +40,7 @@ type Row = Record<string, any>
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex')
 const UUID = /^[0-9a-f-]{36}$/i
 const RUNTIME_COLUMNS = ['id', 'name', 'agents', 'daemon_version', 'last_seen_at', 'revoked_at', 'created_at']
-const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'portal_check', 'resume_parse', 'resume_merge', 'resume_tailor', 'automation_sync'])
+const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'resume_parse', 'resume_merge', 'resume_tailor', 'automation_sync'])
 const MAX_SOURCES = 10
 /** Daemons from before agents reported their kinds can only chat. */
 const LEGACY_KINDS = ['chat']
@@ -137,10 +135,6 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
       const target = parseTarget(raw.target)
       if (!master || !target) fail(400, 'input needs a master resume and a target role')
       input = { master, target }
-    } else if (body.kind === 'portal_check') {
-      const check = parsePortalCheckInput(raw)
-      if (!check) fail(400, 'input.items needs 1–5 applications with company, role, stage and an http(s) url')
-      input = check
     } else if (body.kind === 'email_check') {
       const check = parseEmailCheckInput(raw)
       if (!check) fail(400, 'input.since must be an ISO timestamp')
@@ -232,7 +226,6 @@ function cleanAgents(raw: unknown) {
       version: typeof a.version === 'string' ? a.version.slice(0, 80) : null,
       kinds: Array.isArray(a.kinds) ? a.kinds.filter((k: unknown) => typeof k === 'string' && JOB_KINDS.has(k)) : LEGACY_KINDS,
       mail: typeof a.mail === 'string' && a.mail.trim() ? a.mail.trim().slice(0, 40) : null,
-      browser: typeof a.browser === 'string' && a.browser.trim() ? a.browser.trim().slice(0, 40) : null,
       ...(a.auth === 'signed_out' ? { auth: 'signed_out' } : {}),
     }))
 }
@@ -322,7 +315,6 @@ export function runtimeDaemonRoutes(sql: Sql, hub: RuntimeHub) {
             session_id: typeof e.session_id === 'string' ? e.session_id : undefined,
             ...(Array.isArray(e.jobs) ? { jobs: parseFoundJobs(e.jobs) } : {}),
             ...(Array.isArray(e.findings) ? { findings: parseEmailFindings(e.findings) } : {}),
-            ...(Array.isArray(e.results) ? { results: parsePortalResults(e.results) } : {}),
           }
           case 'error': return { type: 'error', message: String(e.message ?? 'Task failed').slice(0, 2000) }
           default: return { type: 'started', agent: String(e.agent ?? '') }

@@ -2,7 +2,6 @@
 // Agent page reads it.
 import { describe, expect, test } from 'vitest'
 import { extractBrief, parseBrief, parseFoundJobs, parseSearchSetup } from '@landed/schema/search-brief'
-import { parsePortalCheckInput, parsePortalResults } from '@landed/schema/portal-check'
 
 const block = (json: string) => '好的，我整理一下：\n\n```landed-brief\n' + json + '\n```\n\n确认的话点下面的按钮。'
 
@@ -46,24 +45,6 @@ describe('parseBrief / parseFoundJobs bound untrusted input', () => {
       'junk',
     ])
     expect(jobs.map((j) => [j.company, j.job_url])).toEqual([['Acme', 'https://jobs.lever.co/acme/1'], ['Evil', null]])
-  })
-})
-
-describe('portal check input/results', () => {
-  test('input: 1–5 items with an http(s) url; refs unique', () => {
-    const item = (ref: string, url = 'https://acme.wd1.myworkdayjobs.com/x') => ({ ref, company: 'Acme', role: 'PM', stage: 'applied', url })
-    expect(parsePortalCheckInput({ items: [] })).toBeNull()
-    expect(parsePortalCheckInput({ items: [item('1', 'file:///etc/passwd')] })).toBeNull()
-    expect(parsePortalCheckInput({ items: [item('1'), item('1'), item('2'), item('3'), item('4'), item('5'), item('6')] })!.items.map((i) => i.ref)).toEqual(['1', '2', '3', '4', '5'])
-  })
-
-  test('results: unknown outcomes dropped; a found status Landed doesn\'t know becomes not_found', () => {
-    expect(parsePortalResults([
-      { ref: '1', outcome: 'status_found', status: 'rejected', status_text: 'Not selected', confidence: 2 },
-      { ref: '2', outcome: 'status_found', status: 'promoted' },
-      { ref: '3', outcome: 'pwned' },
-      { ref: '1', outcome: 'error' },
-    ]).map((r) => [r.ref, r.outcome, r.status, r.confidence])).toEqual([['1', 'status_found', 'rejected', 1], ['2', 'not_found', null, null]])
   })
 })
 

@@ -6,7 +6,7 @@
 // agent proposes a search brief, it shows as a card: confirm it and every
 // connected agent searches; results land in the Leads column. The page also
 // carries Landed's questions ("did you apply?", "no
-// news for 3 weeks" → portal check). ?view=settings shows agent settings.
+// news for 3 weeks"). ?view=settings shows agent settings.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { extractBrief } from '@landed/schema/search-brief'

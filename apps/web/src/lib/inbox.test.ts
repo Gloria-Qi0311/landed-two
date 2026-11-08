@@ -3,7 +3,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, test } from 'vitest'
 import {
-  acceptSuggestion, addLeadToPipeline, approveLeads, canUndo, dismissLead, ingestEmailFindings, flagQuietApplications, ingestFoundJobs, ingestPortalResults, openPanelQuestions, processPending, quietDays,
+  acceptSuggestion, addLeadToPipeline, approveLeads, canUndo, dismissLead, ingestEmailFindings, flagQuietApplications, ingestFoundJobs, openPanelQuestions, processPending, quietDays,
   recordApplyClick, rejectSuggestion, settleQuestions, undoApprovals, undoSuggestion,
 } from './inbox'
 import { createLocalStore, type LocalStore } from './store/local'
@@ -398,7 +398,7 @@ describe('"did you apply?" after opening a posting', () => {
   })
 })
 
-describe('no news for three weeks → ask; portal checks answer', () => {
+describe('no news for three weeks → ask', () => {
   const DAY = 86_400_000
   const now = Date.parse('2026-10-12T12:00:00Z')
   const ago = (days: number) => new Date(now - days * DAY).toISOString()
@@ -436,33 +436,5 @@ describe('no news for three weeks → ask; portal checks answer', () => {
     await store.updateApplication(b.id, { notes: 'Recruiter pinged me' }) // news
     expect(await settleQuestions(store)).toBe(1)
     expect((await quietOf(store)).find((q) => q.application_id === b.id)!.state).toBe('rejected')
-  })
-
-  test('portal results: changes wait for the user, "still in process" puts the question off, sign-in walls are reported', async () => {
-    const store = fresh()
-    const url = 'https://databricks.wd1.myworkdayjobs.com/en-US/careers/job/APM_123'
-    const a = await store.addApplication({ name: 'Databricks' }, { role: 'APM', stage: 'applied', last_activity_at: ago(30), portal_application_url: url })
-    const b = await store.addApplication({ name: 'Stripe' }, { role: 'PM', stage: 'applied', last_activity_at: ago(30) })
-    const c = await store.addApplication({ name: 'TikTok' }, { role: 'PM Grad', stage: 'applied', last_activity_at: ago(30) })
-    await flagQuietApplications(store, now)
-    const items = [{ ref: '1', application_id: a.id }, { ref: '2', application_id: b.id }, { ref: '3', application_id: c.id }]
-    const r = await ingestPortalResults(store, items, [
-      { ref: '1', outcome: 'status_found', status: 'rejected', status_text: 'No longer under consideration', confidence: 0.95, page_url: url, note: null },
-      { ref: '2', outcome: 'status_found', status: 'applied', status_text: 'Under review', confidence: 0.9, page_url: null, note: null },
-      { ref: '3', outcome: 'login_required', status: null, status_text: null, confidence: null, page_url: null, note: null },
-    ], { run_id: 'job-p', runtime_id: 'rt-1', agent: 'claude' })
-    expect(r).toMatchObject({ checked: 3, needs_input: 1, in_process: 1, updated: 0, login_required: ['TikTok'] })
-    // nothing changed on its own
-    expect((await store.listApplications()).every((x) => x.stage === 'applied')).toBe(true)
-    const pending = (await store.listSuggestions()).find((s) => s.evidence?.source === 'portal')!
-    expect(pending).toMatchObject({ state: 'pending', proposed_stage: 'rejected', application_id: a.id, evidence: { sender_domain: 'databricks.wd1.myworkdayjobs.com', subject: 'No longer under consideration' } })
-    expect((await quietOf(store)).find((q) => q.application_id === b.id)!.state).toBe('rejected')
-
-    // the same reading again changes nothing
-    const again = await ingestPortalResults(store, items.slice(0, 1), [
-      { ref: '1', outcome: 'status_found', status: 'rejected', status_text: 'No longer under consideration', confidence: 0.95, page_url: url, note: null },
-    ], { run_id: 'job-q', runtime_id: 'rt-1', agent: 'claude' })
-    expect(again.needs_input).toBe(1)
-    expect((await store.listSuggestions()).filter((s) => s.evidence?.source === 'portal')).toHaveLength(1)
   })
 })
