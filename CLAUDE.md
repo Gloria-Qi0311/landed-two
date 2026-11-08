@@ -6,6 +6,7 @@ it before you change that area.
 
 | Area | Doc |
 |---|---|
+| Landed two's product direction: who it is for, what it does, the target architecture, the roadmap. Where it differs from the docs below, it is the goal the code moves to | [docs/product.md](docs/product.md) |
 | What Landed is, the pipeline every job goes through, the principles, what each agent call sees, how the parts fit, every place a common change touches | [docs/architecture.md](docs/architecture.md) |
 | Local-first data, DataStore, Cloud sync, snapshots, the server | [docs/data-and-sync.md](docs/data-and-sync.md) |
 | External and cloud agents, the daemon, tasks, chat, automations | [docs/agents.md](docs/agents.md) |
