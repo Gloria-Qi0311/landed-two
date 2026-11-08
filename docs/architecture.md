@@ -120,7 +120,6 @@ answered), and the user can change it.
 | `packages/schema` | Shapes and validators shared by web, server and daemon | `src/index.ts` |
 | `packages/observation-processor` | Matching, dedupe and auto-apply rules (pure functions) | `src/index.ts`, [observation-processor.md](observation-processor.md) |
 | `packages/supply` | Job source parsers, hard filters, fit score, priority (pure functions) | `src/index.ts`, [leads-model.md](leads-model.md) |
-| `packages/ai-roundtrip` | Prompt and parse helpers for the paste-to-ChatGPT fallback | `src/index.ts` |
 
 ## Where data lives
 
@@ -436,7 +435,7 @@ needs its own read-only allowlist, which is a security decision. Details: [agent
 | `apps/server` | node:test | Needs `TEST_DATABASE_URL`; the suite wipes and re-creates that database |
 | `apps/daemon` | node:test | Some tests are macOS-only and skip on Linux |
 | `apps/extension` | Jest + jsdom | Whole-page fill tests load the content scripts in manifest order (`tests/helpers/content-scripts.js`). `pnpm --filter ./apps/extension live-check` fills real pages; it isn't in CI |
-| `packages/observation-processor`, `packages/ai-roundtrip`, `packages/supply` | Vitest | `packages/supply` also tests `@landed/schema/lead-queue` |
+| `packages/observation-processor`, `packages/supply` | Vitest | `packages/supply` also tests `@landed/schema/lead-queue` |
 
 ## Releases
 

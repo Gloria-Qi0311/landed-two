@@ -7,8 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../lib/auth'
 import { useResumeTask } from '../lib/resume-tasks'
 import { agentFor, useRuntimes } from './runtimes'
-import { useStore, type DbResume, type ResumeInput } from '../lib/store'
-import type { Resume } from '@landed/schema'
+import { useStore, type DbResume } from '../lib/store'
 
 export type ResumeRow = DbResume
 
@@ -35,21 +34,6 @@ export function useCurrentResume() {
   const { data: all, ...rest } = useResumes()
   const current = all?.find((r) => r.is_current) ?? null
   return { data: current, ...rest }
-}
-
-export function useAddResume() {
-  const qc = useQueryClient()
-  const { store } = useStore()
-  return useMutation({
-    mutationFn: (input: { name: string; parsed: Resume; setCurrent?: boolean } & Pick<ResumeInput, 'kind' | 'master_json' | 'target_json'>) =>
-      store.addResume({
-        name: input.name, parsed_json: input.parsed, set_current: !!input.setCurrent,
-        kind: input.kind, master_json: input.master_json, target_json: input.target_json,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['resumes'] })
-    },
-  })
 }
 
 export function useUpdateResume() {

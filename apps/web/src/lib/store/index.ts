@@ -4,7 +4,6 @@
 // see each other's local data). Hooks call useStore() and include
 // store.kind in their query keys; the query cache is cleared whenever the
 // account or its sync mode changes (App.tsx).
-import type { AiRunInsert } from '@landed/ai-roundtrip'
 import { useAuth, type User } from '../auth'
 import { createCloudStore } from './cloud'
 import { createLocalStore, type LocalStore } from './local'
@@ -31,14 +30,11 @@ export function useStore(): { store: DataStore; ready: boolean } {
   return { store: storeFor(user), ready }
 }
 
-/** Non-hook access for code outside components (e.g. the AI-run sink). */
+/** Non-hook access for code outside components (e.g. the backup download). */
 export function currentStore(): DataStore {
   const user = useAuth.getState().user
   if (!user) throw new Error('not signed in')
   return storeFor(user)
 }
-
-/** Sink for @landed/ai-roundtrip's saveAiRun — persists one ai_runs row. */
-export const insertAiRun: AiRunInsert = (row) => currentStore().addAiRun(row)
 
 export * from './types'

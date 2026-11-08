@@ -308,8 +308,7 @@ upload area stays open and says what happens:
    Extension page in the meantime, it says so and reads nothing.
 
 Photos, text files and files over 3 MB still need the computer: they can't be
-kept as the extension's resume file to read later. Pasting from ChatGPT, Claude
-or Gemini stays as the other way.
+kept as the extension's resume file to read later.
 
 ## Job search
 
