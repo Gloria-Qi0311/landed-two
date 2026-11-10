@@ -1,12 +1,12 @@
-// Landed's own questions on the Agent page: "did you apply?" after opening a posting,
+// Landed's own questions (under "Needs your input" on Applications): "did you apply?" after opening a posting,
 // "no news for three weeks", and closing them when something else answers.
 import { atsJobKey, canonicalUrl, companyKey, titleKey, titleSimilarity, type ApplicationRef, type CompanyRef } from '@landed/observation-processor'
 import type { DataStore, DbApplication, DbJobLead, DbSuggestion } from '../store/types'
 import { toRef } from './process'
 
 // ── "did you apply?" after opening a posting from Landed ──────────────────
-// Opening a lead's posting (or a saved application's) from Landed asks, in
-// the Agent page, whether you applied. Stored as an ordinary pending
+// Opening a lead's posting (or a saved application's) from Landed asks
+// whether you applied. Stored as an ordinary pending
 // suggestion (dedupe key `click:lead:<id>` / `click:app:<id>`), so it syncs
 // and backs up like everything else; email evidence answers it on its own.
 
@@ -16,7 +16,7 @@ export const QUIET = 'quiet:'
 export const isClickQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) =>
   s.dedupe_key.startsWith(CLICK_LEAD) || s.dedupe_key.startsWith(CLICK_APP)
 export const isQuietQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) => s.dedupe_key.startsWith(QUIET)
-/** Asked on the Agent page, not in "Needs your input". */
+/** Landed's own questions (PanelQuestions), not an agent's update. */
 export const isPanelQuestion = (s: Pick<DbSuggestion, 'dedupe_key'>) => isClickQuestion(s) || isQuietQuestion(s)
 
 export type ClickTarget =

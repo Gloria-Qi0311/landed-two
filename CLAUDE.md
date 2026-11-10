@@ -9,7 +9,7 @@ it before you change that area.
 | Landed two's product direction: who it is for, what it does, the target architecture, the roadmap. Where it differs from the docs below, it is the goal the code moves to | [docs/product.md](docs/product.md) |
 | What Landed is, the pipeline every job goes through, the principles, what each agent call sees, how the parts fit, every place a common change touches | [docs/architecture.md](docs/architecture.md) |
 | Local-first data, DataStore, Cloud sync, snapshots, the server | [docs/data-and-sync.md](docs/data-and-sync.md) |
-| Agents on the user's computer, the daemon, tasks, chat, automations | [docs/agents.md](docs/agents.md) |
+| Agents on the user's computer, the daemon (connector), tasks, automations | [docs/agents.md](docs/agents.md) |
 | Extension, Apply Assist, application answers, Landed for Mac | [docs/apply-assist.md](docs/apply-assist.md) |
 | Stages, interview rounds, deadlines, duplicates, My Resume | [docs/pipeline.md](docs/pipeline.md) |
 | Matching and auto-apply rules | [docs/observation-processor.md](docs/observation-processor.md) |
@@ -110,18 +110,18 @@ messages (PR title and a clean body, no trailer).
   auth failures name the exact recovery action, and periodic detection must
   restore capabilities after the user signs back in.
 - Never pair a computer without the native confirm dialog (`apps/daemon/src/mac.ts`).
-- The chat agent is told what Landed knows about the user (resume gist, the answers
-  that shape a search, the search), never contact details, address, date of birth or
-  EEO answers.
-- Agents propose; the user acts. Reported applications, answers read from a form
-  and duplicate application merges happen only when the user clicks.
+- An agent is told what Landed knows about the user only through
+  `lib/agent-context.ts` (resume gist, the answers that shape a search, the
+  search), never contact details, address, date of birth or EEO answers.
+- Agents propose; the user acts. Duplicate application merges and Landed's
+  questions are answered only when the user clicks.
 - Duplicate leads the rules can't call go to the user's own agent (`same_job`)
   only when Remove duplicates is set to it: it sees the two postings' public
   details, never the user's. "Same" hides one lead under the other (never
   deleted; Split undoes it). Unsure or different keeps both, and a pair is asked
   once.
-- Ranking by the user's own agent (`rank_leads`) gets what the chat agent is told
-  and the postings, nothing more. The rules' score always stays. The agent's score
+- Ranking by the user's own agent (`rank_leads`) gets that context and the
+  postings, nothing more. The rules' score always stays. The agent's score
   needs its reasons and counts 60% only while Rank is set to it and its search is
   active. A new lead waits for it 5 minutes at most.
 - Resume tailoring never invents facts.
@@ -227,8 +227,9 @@ messages (PR title and a clean body, no trailer).
 - Cards are grouped by company in every column.
 - Approving leads (one or many) is `addLeadToPipeline(lead, 'saved')`: no
   "approved" state, and it can be undone.
-- The Applications page holds the board, Leads and "Needs your input". The Agent
-  page holds chat (one agent), agent questions and setup. Workflow (`/workflow`)
+- The Applications page holds the board, Leads and "Needs your input" (agents'
+  updates and Landed's own questions). There is no Agent chat (#2); the Connector
+  page (`/connector`) pairs computers and shows their agents. Workflow (`/workflow`)
   is laid out like My Resume: the steps in the middle column, grouped What to look
   for → 1 Find jobs (agent search, job lists, company boards, remove duplicates,
   rank) → 2 Apply (after the user approves in Leads: auto apply, mark as applied) →
@@ -237,11 +238,9 @@ messages (PR title and a clean body, no trailer).
   when, and holds its switch. A step gets a new executor or setting in its own field
   of `users.automations`. Extension content is managed on `/extension`.
 - Searching for jobs is configured in one place, Workflow's Find new jobs:
-  criteria, schedule, and its sources: each agent on the computer and each cloud
-  agent ticked on its own (all unticked means none, never a fallback), the job
-  lists and the company boards.
-  The chat's brief card saves to it and searches now with the same agents; the
-  agent only suggests.
+  criteria, schedule, and its sources: each agent on the computer ticked on its
+  own (all unticked means none, never a fallback), the job lists and the company
+  boards.
 - Check email is read by the ticked agents the same way: the computer's agent that
   can (Claude Code with its mail connector); none ticked means none.
 

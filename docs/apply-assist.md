@@ -183,8 +183,8 @@ the field's own root, and the outline styles are injected there too.
   description), never anything about the user. It answers same, different or
   unsure per pair, with the tokens used
   ([leads-model.md](leads-model.md#remove-duplicates-with-your-agent-146)).
-- **`rank_leads`** sends what the chat agent is told about the user (no contact
-  details, address, date of birth or EEO answers) and a batch of new postings.
+- **`rank_leads`** sends what Landed tells the user's agent about them
+  (`lib/agent-context.ts`; no contact details, address, date of birth or EEO answers) and a batch of new postings.
   Each gets a 0–1 score with 1–3 reasons; one without reasons gets none
   ([leads-model.md](leads-model.md#rank-with-your-agent-147)).
 - Page labels are untrusted prompt text.
@@ -358,7 +358,7 @@ asked once, on the Extension page, and answered by rule on every form after.
    part of the answers row, so it syncs and backs up with them; saving the
    answers form keeps the latest list.
 4. **Asked.** The Extension page lists them (`components/pending-questions.tsx`;
-   the sidebar's Extension item counts them, the Agent page points there). An
+   the sidebar's Extension item counts them, "Needs your input" points there). An
    answer goes to its `key` (a yes/no one takes Yes or No), else "other
    questions" (`answerPending`).
 5. **Answered from then on.** "Other questions" match a field by `sameQuestion`
@@ -454,7 +454,7 @@ search" while it's as written, and has **Undo** (saved at once, like the fill).
 
 Only blanks are filled, never an answer the user gave. Each question is filled
 in **once**: `application_answers.prefilled` notes what was written and from
-where (validated by `parseApplicationAnswers`, kept by `mergeAnswers`), so one the
+where (validated by `parseApplicationAnswers`), so one the
 user cleared, changed or undid isn't filled in again. Never filled in: date of
 birth, street address, work authorization, "18 or older", EEO and consent. The
 never-guessed rules below still hold for everything else.
@@ -529,13 +529,8 @@ an agent's read of a form never saves a Yes for it.
 - EEO left blank → "I don't wish to answer";
 - consent (privacy policy, data processing, "I confirm…") is ticked only when the
   user turns on `agree_to_terms` ("Tick consent boxes for me"). It's the user's own
-  switch: an agent's read never sets it;
+  switch: an agent never sets it;
 - saved answers alone never authorize Submit; only Approve on that lead does.
-
-The agent can read a form the user already filled (screenshot or text) and answer
-with a ```` ```landed-answers ```` block (`extractAnswers`). The chat card saves
-it with `mergeAnswers` (what it read replaces, the rest stays, consent untouched),
-only when the user clicks.
 
 ### Files to upload
 
@@ -623,7 +618,7 @@ on that tab's portal events. Confirmation events (`raw_kind` applied /
 already_applied) become applications in the browser (`ingestPortalConfirmations`
 in `lib/inbox/confirmations.ts`, run by `hooks/extension-bridge.ts` on load, on
 focus and on every new event, one tab at a time via Web Locks): the stamped
-application or lead, else screenshot matching. A forward move is undoable, and
+application or lead, else `matchReported`. A forward move is undoable, and
 each submission is handled once (`portal-applied:` ledger suggestion, so deleting
 the application doesn't bring it back). Events older than 30 days are ignored.
 

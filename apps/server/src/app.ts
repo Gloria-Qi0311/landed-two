@@ -16,7 +16,6 @@ import { accountRoutes } from './routes/account.ts'
 import { dataRoutes } from './routes/data.ts'
 import { inboxRoutes } from './routes/inbox.ts'
 import { searchRoutes } from './routes/searches.ts'
-import { conversationRoutes } from './routes/conversations.ts'
 import { answerRoutes } from './routes/answers.ts'
 import { fileRoutes } from './routes/files.ts'
 import { traceRoutes } from './routes/traces.ts'
@@ -86,7 +85,6 @@ export function createApp(
   cloud.route('/', syncRoutes(sql))
   cloud.route('/', inboxRoutes(sql))
   cloud.route('/', searchRoutes(sql))
-  cloud.route('/', conversationRoutes(sql))
   cloud.route('/', answerRoutes(sql))
   cloud.route('/', fileRoutes(sql))
   cloud.route('/', traceRoutes(sql))

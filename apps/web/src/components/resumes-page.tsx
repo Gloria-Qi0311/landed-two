@@ -599,7 +599,7 @@ function WaitingNote({ reading }: { reading: boolean }) {
           ? 'Your computer is reading the rest of this resume: experience, education and skills. It fills in below when done.'
           : "Only the basics so far: name, email, phone and links. Your experience, education and skills are read when your computer is connected; that starts on its own."}
       </span>
-      {!reading && <button type="button" className="btn-secondary" onClick={() => navigate('/agent')} style={{ fontSize: 12, flexShrink: 0 }}>Connect your computer</button>}
+      {!reading && <button type="button" className="btn-secondary" onClick={() => navigate('/connector')} style={{ fontSize: 12, flexShrink: 0 }}>Connect your computer</button>}
     </div>
   )
 }

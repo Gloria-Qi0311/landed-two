@@ -1,8 +1,8 @@
 // Rank, the agent's part (#147; docs/leads-model.md). The rules' fit score is
 // always there (lib/fit.ts → scoreFit). When Workflow → Rank is set to the
 // user's own agent, new leads go to it in batches, through the extension and
-// Landed for Mac (`rank_leads`), with what the chat agent is told about the
-// user (lib/chat-context.ts: never contact details, address, date of birth
+// Landed for Mac (`rank_leads`), with what Landed tells the user's agent about the
+// user (lib/agent-context.ts: never contact details, address, date of birth
 // or EEO answers). Each comes back with a 0–1 score and 1–3 reasons, kept on
 // the lead for the active search (rank.search_id). While that search is
 // active and Rank stays on the agent, the queue orders by 0.4 × the rules'
@@ -10,7 +10,7 @@
 // for its score at most RANK_WAIT_MS, then shows with the rules' score.
 // Each batch is kept as an ai_run (task rank_leads): the postings, the
 // scores, the tokens.
-import { chatContext } from './chat-context'
+import { agentContext } from './agent-context'
 import type { DataStore, DbJobLead } from './store/types'
 
 export type RankLead = { id: string; title: string; company: string; location: string; description: string }
@@ -71,7 +71,7 @@ export async function rankWithAgent(store: DataStore, ask: AskRank, skip: Set<st
   const batch = rankBatchOf(leads, search.id, skip)
   if (batch.length === 0) return null
   for (const l of batch) skip.add(l.id)
-  const context = chatContext({ resumes, answers: answers?.answers ?? null, search: search.brief }) ?? ''
+  const context = agentContext({ resumes, answers: answers?.answers ?? null, search: search.brief }) ?? ''
   const answer = await ask(context, batch)
   const at = now.toISOString()
   const by = answer.model ?? 'Your agent'

@@ -38,7 +38,7 @@ Two things set it apart:
 | The user | Landed |
 |---|---|
 | Sets up once: uploads resumes and says what each is for; answers the questions forms ask (work authorization, sponsorship, start date…); installs the extension and Landed for Mac; connects their mailbox | Reads the resumes into one master and its versions. Fills in the answers it already knows from the resume and the search. Remembers a fact the user corrects on a form |
-| Says what they're looking for, in chat or on Workflow's What to look for | Finds jobs on a schedule, drops duplicates and jobs the user plainly can't apply to, and ranks the rest |
+| Says what they're looking for on Workflow's What to look for | Finds jobs on a schedule, drops duplicates and jobs the user plainly can't apply to, and ranks the rest |
 | Approves Leads, one or many at a time (undoable) | Applies to each approved job: picks the resume, fills every field, writes the open-ended answers, has the user's agent review the form, and submits |
 | Clears a blocker when one comes up (signing in, a CAPTCHA, a question only they can answer) | Stops only that application and says why. The others go on |
 | Reads updates and answers "Needs your input" | Moves applications forward from email and portals on its own when sure (undoable), and asks when not |
@@ -112,7 +112,7 @@ answered), and the user can change it.
 
 | Part | What it is | Start reading at |
 |---|---|---|
-| `apps/web` | Vite + React app: Applications board, Agent page, Workflow, My Resume, Extension | `src/App.tsx`, `src/lib/store/types.ts` |
+| `apps/web` | Vite + React app: Applications board, Workflow, My Resume, Extension, Connector | `src/App.tsx`, `src/lib/store/types.ts` |
 | `apps/server` | Hono API on Postgres: auth, Cloud data, runtime hub, downloads | `src/app.ts`, `src/routes/` |
 | `apps/daemon` | Node daemon plus the Swift menu bar app, packaged as Landed for Mac. Runs agent tasks and the schedule, and answers the extension's native requests | `src/cli.ts`, `src/agents.ts`, `src/native-host.ts`, `macos/LandedMenuBar.swift` |
 | `apps/extension` | MV3 extension for Chrome, Edge, Brave and Safari: fills and submits applications, detects portal status | `manifest.json`, `background.js`, `content.js`, `lib/fill/` |
@@ -125,7 +125,7 @@ answered), and the user can change it.
 
 | Data | Sync off | Sync on |
 |---|---|---|
-| Applications, leads, suggestions, resumes and their files, answers, files, chats, searches | IndexedDB `landed-<userId>` | Postgres, through `cloud.ts` |
+| Applications, leads, suggestions, resumes and their files, answers, files, searches | IndexedDB `landed-<userId>` | Postgres, through `cloud.ts` |
 | Account, preferences, Workflow settings (`users.automations`) | Postgres `users` row | same |
 | Runtime tasks and their output | Server memory only, never the database | same |
 | Fill traces | The extension keeps the last 20 | also on the server for 30 days |
@@ -164,7 +164,7 @@ remove duplicates (#146), rank (#147). Running every step with the page closed
 is #141. Details: [agents.md](agents.md#workflow).
 
 ```
- ① Find jobs     job lists · platform APIs · wild jobs (agents) · plus manual add, CSV import, screenshots
+ ① Find jobs     job lists · platform APIs · wild jobs (agents) · plus manual add, CSV import, confirmation pages
       ↓
  ② Dedupe        the same job never twice; never two jobs merged into one
       ↓
@@ -186,19 +186,19 @@ is #141. Details: [agents.md](agents.md#workflow).
 | **Job lists**: SimplifyJobs New Grad and Internships | Landed's code reads the list, in the browser while Landed is open: 30 seconds after the search changes, then every 6 hours; no tokens | Shipped (#90). Planned: more lists, especially product / data / business (#138) |
 | **Platform APIs**: Greenhouse, Lever, Ashby boards of up to 25 followed companies | Landed's code, in the browser like the lists | Shipped (#91). Planned: more platforms (#138) |
 | **Wild jobs**: postings on no list (company sites, posts, referrals) | Agent search (`job_search`, web tools only): each agent on the computer ticked on its own (#151), every 3, 6 or 12 hours, daily, on weekdays or weekly (#152) | Shipped. Planned: the playbook and measurement (#138) |
-| **The user**: Add, a spreadsheet import, screenshots in chat | The user, and Landed reads them | Shipped (#120; chat blocks) |
+| **The user**: Add, a spreadsheet import, a confirmation page the extension saw | The user, and Landed reads them | Shipped (#120) |
 
 ```
-Agent chat → landed-brief block → user confirms → active job_searches row
-   └─► job_search task on every online computer's agents (daemon)
+Workflow → What to look for → active job_searches row
+   └─► job_search on the computer's ticked agents, on the schedule (daemon)
 SimplifyJobs lists, Greenhouse / Lever / Ashby boards (fetched by the browser)
    └─► the same path
               ▼
 lib/inbox/leads.ts → ingestFoundJobs → ② → ③ → Leads column
 ```
 
-What to look for comes from the active search: a brief the user confirms in
-chat, or edits on Workflow's What to look for (roles, places, level, companies
+What to look for comes from the active search, which the user edits on
+Workflow's What to look for (roles, places, level, companies
 to look at first, sponsorship). Public postings are fetched by the browser,
 never through the server, and which companies the user follows never leaves the
 browser.
@@ -349,11 +349,11 @@ whether to call an application ghosted. Planned (#144): other computer agents
   search, each answer once and marked with Undo. It ticks consent only when the
   user's own switch is on.
   Details: [apply-assist.md](apply-assist.md#application-answers-and-the-extension-page).
-- **The chat agent** (Agent page): one agent. It knows the resume gist, the
-  answers that shape a search, and the search, but never contact details. It
-  proposes through cards the user clicks: a search brief, applications read
-  from screenshots, answers read from a filled form, duplicates to merge.
-  Details: [agents.md](agents.md#agent-page-and-chat).
+- **Landed's questions** ("did you apply?", no news for three weeks, these
+  look like the same application) wait under "Needs your input" on
+  Applications and close on their own when something else answers them. There
+  is no Agent chat (#2); computers are paired on the Connector page.
+  Details: [agents.md](agents.md#connector-page-and-landeds-questions).
 - **Accounts and data**: an account's data lives on this device unless the user
   turns on Cloud sync (and back off). The account menu also exports and
   restores a backup and shows recovery codes. A new account gets a short tour
@@ -372,7 +372,6 @@ whether to call an application ghosted. Planned (#144): other computer agents
 | `pick_resume` | Same | The posting; each candidate resume's directions, titles, skills | Name, contact details, address | Name one candidate (confidence ≥ 0.7) |
 | `draft_answers` | Same (writing uses `sonnet`) | The posting; the resume's experience, projects, education, skills, summary; the user's edited answers | Name, contact details, address | Write answers that a second call checks against the resume |
 | `classify_statuses` | Same | Status words from an imported sheet | Companies, roles, notes | Name a stage, or "unknown" |
-| Chat | The user's chosen agent, with web tools | Resume gist, the answers that shape a search, the search | Contact details, address, date of birth, EEO | Answer, and propose cards |
 | `job_search` | The user's agents, with WebSearch / WebFetch | The search brief | — | Report found jobs |
 | `email_check` | The ticked reader, with the mailbox's read tools | The mailbox | — | Report status updates |
 | Resume parse / merge / tailor | The user's agent | The resume | — | Read the resume; tailoring never invents |
@@ -393,10 +392,10 @@ whether to call an application ghosted. Planned (#144): other computer agents
 | Surface | Holds |
 |---|---|
 | **Applications** | The board (Leads → Applied → OA / Test → Interview → Offer → Rejected, cards grouped by company), Leads with Approve, "Needs your input", the agents' updates |
-| **Agent** | Chat, the agent's questions, setup (pairing a computer, choosing which agents to use) |
 | **Workflow** | The pipeline as steps (What to look for, Find jobs, Apply, Keep up to date): each step's status, who does it, when, its switch, Run now and recent runs |
 | **My Resume** | Uploads, the master, versions, what each is for, each one's file |
 | **Extension** | Application answers, files, questions waiting for an answer, answers remembered from forms |
+| **Connector** | Pairing a computer, the agents each one found, disconnecting one |
 | Extension popup / Landed for Mac menu bar | Fill the page in front of the user (never submit), the fields left and why |
 
 ## Common changes, and every place they touch

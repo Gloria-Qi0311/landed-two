@@ -29,7 +29,7 @@ which produces job leads and review-queue suggestions
   集团/有限公司 dropped) and character pairs for titles. An earlier version kept
   only a–z/0–9, so every Chinese company became "" and matched every other.
   Bracketed text is noise when matching an email to an application, but it tells
-  rows of one list apart (产品管培生（上海） vs （广东省）), so screenshot matching
+  rows of one list apart (产品管培生（上海） vs （广东省）), so confirmation-page matching
   uses `keepBrackets` and a 0.8 bar. Dexie v8 recomputes stored lead keys.
 - Ingesting is idempotent: one stable observation id per run and item, so a
   result stored twice changes nothing.
@@ -55,13 +55,13 @@ not sessions.
 
 ### Task kinds
 
-Tasks are a fixed set of kinds (`chat`, `job_search`, `email_check`,
-`resume_parse`, `resume_merge`, `resume_tailor`, `automation_sync`), validated on both ends. The server forwards only the
+Tasks are a fixed set of kinds (`job_search`, `email_check`, `resume_parse`, `resume_merge`, `resume_tailor`, `automation_sync`), validated on both ends. The server forwards only the
 validated fields. **Never forward arbitrary commands, prompts-as-shell, or file
 paths to the daemon.** A new kind gets explicit input validation in
 `routes/runtime.ts`, a runner in `apps/daemon/src/agents.ts`, and an entry in that
 agent's `kinds`. Daemons report what they can run; older ones get
-`409 runtime_outdated`.
+`409 runtime_outdated`. The Agent chat and its `chat` kind were removed in
+Landed two (#2).
 
 ### Any agent, three runners
 
@@ -95,8 +95,8 @@ first).
 ### The agent is sandboxed by flags, not trust
 
 Empty workspace dir, `--setting-sources ""` (ignore the user's own settings and
-hooks), and an explicit tool allowlist (`--tools` / `--allowedTools`). Chat and
-search also pass `--strict-mcp-config` so none of the user's MCP connectors load.
+hooks), and an explicit tool allowlist (`--tools` / `--allowedTools`). Search
+also passes `--strict-mcp-config` so none of the user's MCP connectors load.
 Email checks get `ToolSearch` (connector tools are deferred behind it) and the
 mailbox's read tools, never write tools. **Widening the allowlist is a
 product and security decision, not a convenience.**
@@ -139,71 +139,40 @@ the user the concrete recovery command, `claude auth login`. The 30-minute
 capability pass restores the cached Gmail capability after login. CI keeps a
 signed-out-with-cached-Gmail regression and runs it on every change and weekly.
 
-## Agent page and chat
+## Connector page and Landed's questions
 
-The Agent UI is its own page (`/agent`, sidebar: Applications → Agent → My
-Resume; `components/agent-page.tsx`; product decision after acceptance review,
-replacing the earlier side panel): chat when a computer is online, setup when
-not, settings via `?view=settings`. Old `/applications?agent=…` and `/agents`
+There is no Agent chat in Landed two (#2; [product.md](product.md) section 6).
+Pairing a computer is the **Connector** page (`/connector`, last in the sidebar;
+`components/connector-page.tsx` → `RuntimePanel`): connect this computer, see
+which agents each computer found, disconnect one. Old `/agent` and `/agents`
 links redirect there. Agent work that belongs to a page stays there: the board
-keeps only its own updates, and My Resume runs its own tasks.
+keeps its own updates, My Resume runs its own tasks, and the search criteria are
+set on Workflow's What to look for.
 
-Chat needs one agent (product decision, 2026-10-19): the header names it, and
-Settings has "Chat with" when the computer has several (remembered on this
-device). Which agents search for jobs is not chosen here; it's Find new jobs →
-Search with (below).
-
-- **What the agent knows about the user** (fix, 2026-10-19: asked to set up a
-  search, the agent asked the user to paste their resume). Each chat message
-  carries `context`, plain text built in the browser (`lib/chat-context.ts`):
-  the master resume's gist (else the current resume's): where they live,
-  education, jobs and internships with their first two bullets, projects,
-  skills, languages; the saved answers that shape a search (work authorization,
-  sponsorship, preferred places, other places, relocation, onsite, start date);
-  and the active search. Never contact details, address, date of birth or EEO
-  answers. The server bounds it (`parseChatContext`, 8,000 characters); the
-  daemon puts it ahead of the message when a session starts, and again only
-  when it changed (`contextToSend`), and the chat prompt says to propose from
-  it and ask only what it leaves open. It goes to the user's own agent, like
-  resume parsing and tailoring.
-- **Chat history**: conversations live in the data store (`agent_conversations`;
-  Dexie v7, migration 0014), and the Agent page lists them on its left. A
-  conversation's id doubles as its Claude Code session id, so continuing a chat
-  resumes that session on the same computer. Every chat task also carries the
-  recent turns (`history`, bounded by `parseChatHistory`); a daemon that doesn't
-  have the session prepends them to the message. `lib/agent-chat.ts` saves the
-  whole conversation after each turn, and keeps a streaming reply alive across
-  chat or page switches.
-- **Blocks the agent can end a reply with**, each shown as a card that only acts
-  when the user clicks:
-
-  | Block | Card | Shape |
-  |---|---|---|
-  | `landed-brief` | Confirm a job search direction (`components/search-brief.tsx`) | `packages/schema/src/search-brief.ts` |
-  | `landed-applications` | Add applications read from screenshots (`components/reported-applications.tsx`) | `packages/schema/src/reported-application.ts` |
-  | `landed-answers` | Save application answers read from a filled form (`components/reported-answers.tsx`) | `packages/schema/src/application-answers.ts` |
-  | `landed-dedupe` | Review duplicate applications (`components/duplicates.tsx`) | empty |
-
-- **Screenshots → applications** (sites that send no confirmation email): the
-  chat takes up to 4 images (paperclip, paste, drop; `lib/chat-images.ts` scales
-  big ones down). They go to the agent once with the message (task input
-  `images`, `parseChatImages`). Claude Code gets them inline through
-  `--input-format stream-json` (no file access), Codex/ACP as files in the task
-  folder, removed afterwards. Conversations keep only small previews
-  (`ChatTurn.images[].thumb`). **The user adds them; the agent never does.**
-  Matching (`matchReported` in `lib/inbox/reported.ts`) is stricter than email
-  matching: same employer plus the same link or a close role (another role at the
-  same company is a new application). An existing one is only moved forward, and
-  a matching lead goes into the pipeline instead of a duplicate.
-- **Panel questions** are ordinary pending suggestions with Landed-made dedupe
-  keys, asked on the Agent page (badge on the sidebar's Agent item) instead of
-  "Needs your input", and closed automatically when something else answers them
+- **What the agent knows about the user**: when the user's agent ranks new leads
+  (`rank_leads`), it gets plain text built in the browser
+  (`lib/agent-context.ts`, at most 8,000 characters): the master resume's gist
+  (else the current resume's): where they live, education, jobs and internships
+  with their first two bullets, projects, skills, languages; the saved answers
+  that shape a search (work authorization, sponsorship, preferred places, other
+  places, relocation, onsite, start date); and the active search. Never contact
+  details, address, date of birth or EEO answers.
+- **Landed's questions** are ordinary pending suggestions with Landed-made dedupe
+  keys, asked under "Needs your input" on Applications as their own cards
+  (`components/panel-questions.tsx`, counted in the sidebar's Applications
+  badge), and closed automatically when something else answers them
   (`settleQuestions` in `lib/inbox/questions.ts`):
   - `click:lead:<id>` / `click:app:<id>`: "did you apply?" after opening a posting
     from Landed (`recordApplyClick`);
   - `quiet:<app id>`: no signal for 21 days on an in-progress application
     (`flagQuietApplications`). Answers: ghosted (undoable) or wait (asks again
-    in 21 days).
+    in 21 days);
+  - duplicate applications, one card per group (`components/duplicates.tsx`).
+- **Confirmation pages → applications**: a "thanks for applying" page the
+  extension saw is matched by `matchReported` (`lib/inbox/reported.ts`), stricter
+  than email matching: same employer plus the same link or a close role (another
+  role at the same company is a new application). An existing one is only moved
+  forward, and a matching lead goes into the pipeline instead of a duplicate.
 
 ## Resume upload
 
@@ -224,7 +193,7 @@ upload area stays open and says what happens:
 2. **It waits.** `resumes.file_path` holds the kept file's name
    (`parseWaitingFile`: text up to 255 characters or null; the column existed
    and was never used). My Resume says "Waiting for your computer" in the list
-   and on the resume, with "Connect your computer" (→ Agent page), and a
+   and on the resume, with "Connect your computer" (→ Connector page), and a
    "what happens next" card after the upload. A resume still waiting isn't
    merged into the master.
 3. **Read in full on its own.** Once an agent that can run `resume_parse` is
@@ -245,27 +214,19 @@ one entry per posting, its budget) is the shared playbook in
 [agent-sourcing.md](agent-sourcing.md): the daemon's `job_search` sends it to
 whichever agent searches (`packages/schema/src/agent-sourcing.ts`).
 
-The chat agent ends a reply with a ```` ```landed-brief ```` JSON block once the
-direction is clear; when the user said which agents should search or how often,
-the same JSON may carry `search_with` (agent ids) and `schedule` ("daily 09:00",
-"every 4 hours"), parsed by `parseSearchSetup`. The card (`components/search-brief.tsx`)
-shows Search with, ticked from the current setting or the agent's suggestion, and
-one button, **Save to Find new jobs & search now** (product decision,
-2026-10-19: search is configured in one place). It stores the brief as the active
-`job_searches` row (data store, one active per account), turns Find new jobs on
-with that schedule and sources, and runs `job_search` now with the chosen agents
-on the computer that runs the schedule (`chosenSearchTargets` in
-`hooks/search.ts`, `lib/job-search.ts`), so a search now and the scheduled one
-use the same agents. Nothing is set until the user clicks. The daemon returns schema-bound results
+The search criteria (the brief) are set in one place, Workflow's What to look
+for, and stored as the active `job_searches` row (data store, one active per
+account). Run now and the schedule run `job_search` with the agents ticked under
+Find new jobs, on the computer that runs the schedule (`chosenSearchTargets` in
+`hooks/search.ts`, `lib/job-search.ts`). The daemon returns schema-bound results
 (`claude --json-schema`). The browser feeds each job through the observation
 processor (`ingestFoundJobs` in `lib/inbox/leads.ts`) so they dedupe into the
-**Leads** column like external agents' finds. The brief and result shapes and
-validators live in one place, `packages/schema/src/search-brief.ts`; web, server,
-and the chat prompt's block format in `apps/daemon/src/agents.ts` must agree.
+**Leads** column. The brief and result shapes and validators live in one place,
+`packages/schema/src/search-brief.ts`; web, server and daemon must agree.
 
 ## Workflow
 
-`/workflow` (sidebar between Agent and My Resume; `/automation` redirects there)
+`/workflow` (sidebar between Applications and My Resume; `/automation` redirects there)
 shows Landed's work as steps, laid out like My Resume (product decision
 2026-10-22, #140, overview #148): the middle column lists the steps grouped by
 stage, each with a status line and a dot (green on, grey off, red needs the

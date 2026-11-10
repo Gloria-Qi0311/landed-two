@@ -1,5 +1,5 @@
 // ~/.landed — the daemon's config (server URL + runtime token), its agent
-// workspace, and which conversations already have an agent session.
+// workspace, and the mailbox it last found.
 // LANDED_HOME overrides the location (tests).
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -9,7 +9,6 @@ export type Config = { server: string; token: string; name?: string }
 
 export const home = () => process.env.LANDED_HOME ?? join(homedir(), '.landed')
 const configPath = () => join(home(), 'config.json')
-const sessionsPath = () => join(home(), 'sessions.json')
 const capabilitiesPath = () => join(home(), 'capabilities.json')
 
 function ensureHome() {
@@ -56,20 +55,4 @@ export function loadMailCache(): MailCache | null {
 export function saveMailCache(mail: MailCache | null) {
   ensureHome()
   writeFileSync(capabilitiesPath(), JSON.stringify({ mail }, null, 2) + '\n')
-}
-
-/** Conversation ids that already have an agent session (so the next turn resumes it). */
-export function knownSessions(): Set<string> {
-  try {
-    return new Set(JSON.parse(readFileSync(sessionsPath(), 'utf8')))
-  } catch {
-    return new Set()
-  }
-}
-
-export function rememberSession(id: string) {
-  ensureHome()
-  const s = knownSessions()
-  s.add(id)
-  writeFileSync(sessionsPath(), JSON.stringify([...s].slice(-1000)))
 }

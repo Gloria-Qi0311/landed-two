@@ -35,7 +35,7 @@ function AgentLine({ kind }: { kind: TaskKind }) {
         ? <>Runs on {a.agent.label} on {a.runtime.name}, with your own subscription.</>
         : a.outdated
           ? <>The Landed daemon on your computer needs an update: stop it and run <code>pnpm landed start</code> again.</>
-          : <>Needs your computer online: run <code>pnpm landed start</code> (or connect it on the Agent page).</>}
+          : <>Needs your computer online: run <code>pnpm landed start</code> (or connect it on the Connector page).</>}
     </div>
   )
 }
@@ -67,7 +67,7 @@ function ConnectLater() {
         the extension. Your experience, education and skills are read by your own AI on your computer: connect it once and that
         happens on its own, nothing to upload again.
       </span>
-      <button type="button" className="btn-secondary" onClick={() => navigate('/agent')} style={{ flexShrink: 0, fontSize: 12 }}>
+      <button type="button" className="btn-secondary" onClick={() => navigate('/connector')} style={{ flexShrink: 0, fontSize: 12 }}>
         Connect your computer
       </button>
     </div>
@@ -100,7 +100,7 @@ function WhatsNext({ item }: { item: { name: string; result_id?: string } }) {
           Experience, education and skills: read when your computer is connected.{' '}
           <span style={muted}>It starts on its own, wherever you are in Landed.</span>
         </span>
-        <button type="button" className="btn-primary" onClick={() => navigate('/agent')} style={{ fontSize: 12 }}>Connect your computer</button>
+        <button type="button" className="btn-primary" onClick={() => navigate('/connector')} style={{ fontSize: 12 }}>Connect your computer</button>
       </div>
     </div>
   )

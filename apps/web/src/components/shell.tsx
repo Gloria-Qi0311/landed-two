@@ -10,7 +10,7 @@ export type ShellAccount = { mode: 'cloud' | 'local'; email: string };
 type SidebarProps = {
   account: ShellAccount;
   onProfileClick: () => void;
-  navCounts?: { applications?: number; agent?: number; extension?: number };
+  navCounts?: { applications?: number; extension?: number };
 };
 
 export const Sidebar = ({ account, onProfileClick, navCounts = {} }: SidebarProps) => {
@@ -56,10 +56,10 @@ export const Sidebar = ({ account, onProfileClick, navCounts = {} }: SidebarProp
       {/* Nav */}
       <div style={{ padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
         <NavItem to="/applications" icon={<Icon name="inbox" size={14} />} label="Applications" count={navCounts.applications} />
-        <NavItem to="/agent" icon={<Icon name="sparkle" size={14} />} label="Agent" count={navCounts.agent} />
         <NavItem to="/workflow" icon={<Icon name="calendar" size={14} />} label="Workflow" />
         <NavItem to="/resumes" icon={<Icon name="doc" size={14} />} label="My Resume" />
         <NavItem to="/extension" icon={<Icon name="puzzle" size={14} />} label="Extension" count={navCounts.extension} />
+        <NavItem to="/connector" icon={<Icon name="device" size={14} />} label="Connector" />
       </div>
 
       <div style={{ flex: 1 }} />

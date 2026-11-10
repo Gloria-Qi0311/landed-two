@@ -1,6 +1,5 @@
-// "These look like the same application" — on the Agent page (with
-// Landed's other questions) and in the chat when the user asks their agent
-// to clean up duplicates (```landed-dedupe). One card per group: pick the
+// "These look like the same application" — under "Needs your input" on
+// Applications, with Landed's other questions. One card per group: pick the
 // one to keep (the furthest along by default) and merge, or say they're
 // different. Rules: lib/duplicates.ts.
 import { useState } from 'react'

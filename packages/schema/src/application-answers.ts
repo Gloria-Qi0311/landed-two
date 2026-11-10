@@ -1,8 +1,7 @@
 // Answers to the questions application forms ask that aren't on a resume —
 // legal and preferred names, address, work authorization, sponsorship, start
 // date, location preferences, "how did you hear about us", the voluntary EEO
-// questions. The user fills them in once on My Resume (or has their agent
-// read a form they already filled, ```landed-answers); the extension uses
+// questions. The user fills them in once on My Resume; the extension uses
 // them when it fills a form, radio buttons and dropdowns included
 // (apps/extension/lib/choice-answers.js). Saving an answer is the opt-in: a
 // blank one is never guessed. One row per account, local-first like the
@@ -186,56 +185,10 @@ function learnedValue(key: Learnable, v: unknown): string | null {
   return (YES_NO_FIELDS as readonly string[]).includes(key) ? yesNo(v) : text(v, TEXT_FIELDS[key as keyof typeof TEXT_FIELDS])
 }
 
-/** `next` on top of `base`: what `next` answers replaces, blanks keep
- *  `base`'s, custom questions merge by question, the consent switch stays
- *  as it was. For an agent's read of a filled form, saved over what the
- *  user already had. */
-export function mergeAnswers(base: ApplicationAnswers, next: ApplicationAnswers): ApplicationAnswers {
-  const out: ApplicationAnswers = { ...base }
-  for (const [key, value] of Object.entries(next) as [keyof ApplicationAnswers, unknown][]) {
-    if (['custom', 'preferred_locations', 'agree_to_terms', 'unanswered', 'skipped', 'prefilled', 'learned'].includes(key)) continue
-    if (value !== null) (out as Record<string, unknown>)[key] = value
-  }
-  if (next.preferred_locations.length) out.preferred_locations = next.preferred_locations
-  // Ticking consent is the user's own switch, never something an agent read.
-  out.agree_to_terms = base.agree_to_terms
-  const custom = new Map(base.custom.map((c) => [c.question.toLowerCase(), c]))
-  for (const c of next.custom) custom.set(c.question.toLowerCase(), c)
-  out.custom = [...custom.values()].slice(0, MAX_CUSTOM_ANSWERS)
-  return prunePending(out)
-}
-
 /** How many questions are answered, for "18 answered". */
 export function answeredCount(a: ApplicationAnswers): number {
   const { custom, preferred_locations, agree_to_terms: _, unanswered: _u, skipped: _s, prefilled: _p, learned: _l, ...rest } = a
   return Object.values(rest).filter((v) => v !== null).length + (preferred_locations.length ? 1 : 0) + custom.length
-}
-
-// ── ```landed-answers: the agent reads a form the user already filled ────
-
-export const ANSWERS_FENCE = 'landed-answers'
-
-/** An agent reply → its text without the block, and the answers it read
- *  (null when it read none). `drafting` while the block is still streaming. */
-export function extractAnswers(reply: string): { text: string; answers: ApplicationAnswers | null; drafting: boolean } {
-  const start = reply.search(new RegExp('```' + ANSWERS_FENCE + '[^\\n]*\\n'))
-  if (start === -1) return { text: reply, answers: null, drafting: false }
-  const bodyStart = reply.indexOf('\n', start) + 1
-  const end = reply.indexOf('```', bodyStart)
-  const before = reply.slice(0, start).trimEnd()
-  if (end === -1) return { text: before, answers: null, drafting: true }
-  const after = reply.slice(end + 3).trim()
-  let answers: ApplicationAnswers | null = null
-  try {
-    // An agent's read never turns on the consent switch, and a "worked here
-    // before: yes" it read is about that one company, not every company.
-    const read = parseApplicationAnswers(JSON.parse(reply.slice(bodyStart, end)))
-    answers = { ...read, agree_to_terms: false, previously_employed: read.previously_employed === 'yes' ? null : read.previously_employed }
-  } catch {
-    answers = null
-  }
-  if (answers && answeredCount(answers) === 0) answers = null
-  return { text: after ? `${before}\n\n${after}` : before, answers, drafting: false }
 }
 
 // ── questions forms asked that nothing answered yet ──────────────────────

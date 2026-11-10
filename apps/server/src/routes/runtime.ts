@@ -10,7 +10,7 @@
 // Both work whether or not Cloud sync is on: tasks and output are relayed in
 // memory, never stored.
 //
-// Task kinds: `chat` (one turn of the Agent page's conversation), `job_search` (search the web for
+// Task kinds: `job_search` (search the web for
 // jobs matching a confirmed brief; the result carries `jobs`) and
 // `email_check` (read the user's mailbox through their agent's mail
 // connector; the result carries `findings`), `resume_parse` (a resume file
@@ -23,7 +23,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { parseEmailCheckInput, parseEmailFindings } from '@landed/schema/email-check'
 import { parseLooseResume, parseMasterResume, parseResumeParseInput, parseTailorNotes, parseTarget } from '@landed/schema/master-resume'
-import { MAX_CHAT_IMAGES, parseChatContext, parseChatHistory, parseChatImages } from '@landed/schema/conversation'
 import { parseSyncInput, parseSyncOutput } from '@landed/schema/automation'
 import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 import { Hono, type Context } from 'hono'
@@ -40,11 +39,8 @@ type Row = Record<string, any>
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex')
 const UUID = /^[0-9a-f-]{36}$/i
 const RUNTIME_COLUMNS = ['id', 'name', 'agents', 'daemon_version', 'last_seen_at', 'revoked_at', 'created_at']
-const JOB_KINDS = new Set(['chat', 'job_search', 'email_check', 'resume_parse', 'resume_merge', 'resume_tailor', 'automation_sync'])
+const JOB_KINDS = new Set(['job_search', 'email_check', 'resume_parse', 'resume_merge', 'resume_tailor', 'automation_sync'])
 const MAX_SOURCES = 10
-/** Daemons from before agents reported their kinds can only chat. */
-const LEGACY_KINDS = ['chat']
-const MAX_MESSAGE = 20_000
 const MAX_RUNTIMES = 10
 const HEARTBEAT_MS = 25_000
 
@@ -101,22 +97,7 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
     const raw = body.input && typeof body.input === 'object' ? body.input : {}
     // Only validated fields reach the daemon — never the raw body.
     let input: Record<string, unknown>
-    if (body.kind === 'chat') {
-      // Screenshots (e.g. an application with no confirmation email) go to the agent once, with the message.
-      const images = parseChatImages(raw.images)
-      if (Array.isArray(raw.images) && raw.images.length && images.length !== Math.min(raw.images.length, MAX_CHAT_IMAGES)) {
-        fail(400, `input.images: PNG, JPEG, WebP or GIF, at most ${MAX_CHAT_IMAGES}, about 3 MB each`)
-      }
-      if (typeof raw.message !== 'string' || (!raw.message.trim() && images.length === 0)) fail(400, 'input.message is required')
-      if (raw.message.length > MAX_MESSAGE) fail(400, `input.message is too long (max ${MAX_MESSAGE})`)
-      if (typeof raw.conversation_id !== 'string' || !UUID.test(raw.conversation_id)) {
-        fail(400, 'input.conversation_id must be a uuid')
-      }
-      // Recent turns, for a computer that doesn't have this conversation's session.
-      // What Landed knows about the user (resume gist, saved answers, the search), as text.
-      const context = parseChatContext(raw.context)
-      input = { message: raw.message, conversation_id: raw.conversation_id, history: parseChatHistory(raw.history), ...(images.length ? { images } : {}), ...(context ? { context } : {}) }
-    } else if (body.kind === 'automation_sync') {
+    if (body.kind === 'automation_sync') {
       const sync = parseSyncInput(raw)
       if (!sync) fail(400, 'input needs runtime_id, automations and context')
       input = sync
@@ -150,7 +131,7 @@ export function runtimeAccountRoutes(sql: Sql, hub: RuntimeHub) {
     if (!runtime || runtime.revoked_at) fail(404, 'computer not found')
     const agent = runtime.agents.find((a) => a.id === body.agent)
     if (!agent) fail(400, `that computer doesn't have ${String(body.agent)} installed`)
-    if (!(agent.kinds ?? LEGACY_KINDS).includes(body.kind)) {
+    if (!(agent.kinds ?? []).includes(body.kind)) {
       fail(409, "The Landed daemon on that computer is out of date. Stop it and run `pnpm landed start` again.", { code: 'runtime_outdated' })
     }
 
@@ -224,7 +205,7 @@ function cleanAgents(raw: unknown) {
       id: String(a.id).slice(0, 40),
       label: typeof a.label === 'string' ? a.label.slice(0, 80) : String(a.id),
       version: typeof a.version === 'string' ? a.version.slice(0, 80) : null,
-      kinds: Array.isArray(a.kinds) ? a.kinds.filter((k: unknown) => typeof k === 'string' && JOB_KINDS.has(k)) : LEGACY_KINDS,
+      kinds: Array.isArray(a.kinds) ? a.kinds.filter((k: unknown) => typeof k === 'string' && JOB_KINDS.has(k)) : [],
       mail: typeof a.mail === 'string' && a.mail.trim() ? a.mail.trim().slice(0, 40) : null,
       ...(a.auth === 'signed_out' ? { auth: 'signed_out' } : {}),
     }))

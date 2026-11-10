@@ -7,7 +7,7 @@ The Landed daemon connects your computer to Landed and runs Landed's AI tasks wi
 
 **Supported agents:**
 - **Claude Code** — every task, including email checks (through the Gmail connector you gave Claude).
-- **Codex** — chat, job search and My Resume, run with `codex exec` in its read-only sandbox with the shell switched off.
+- **Codex** — job search and My Resume, run with `codex exec` in its read-only sandbox with the shell switched off.
 - **Any agent that speaks [ACP](https://agentclientprotocol.com)** — Gemini CLI, GitHub Copilot CLI, Cursor, Goose, OpenCode, Qwen Code, Kimi, Kilo, Auggie, Cline, Devin, Factory Droid, Mistral Vibe, Qoder, Grok — the same tasks as Codex. Landed answers every permission request itself: web search and page reads when a task needs them, never editing files or running commands. An agent that runs a command anyway is stopped.
 
 An agent is used when it is installed and signed in; `landed status` says why one isn't. To add an ACP agent that isn't on the list, put it in `~/.landed/agents.json`:
@@ -56,8 +56,7 @@ You need Node 23.6+ and at least one supported agent CLI, installed and signed i
 ## What an agent can do here
 
 - Tasks come from a fixed set of kinds:
-  - `chat`: one turn of the conversation on Landed's Agent page. Once your direction is clear, the agent proposes a search brief, which Landed shows as a card.
-  - `job_search`: after you confirm a brief, the agent searches the web for open postings that match it. It returns them as schema-checked JSON, and they land in your Leads column.
+  - `job_search`: on the Workflow schedule (or Run now), the agent searches the web for open postings that match what you set under What to look for. It returns them as schema-checked JSON, and they land in your Leads column.
   - `email_check`: only offered if your agent can read email, and only once you turn on email watching in Landed. To give Claude Code email access, connect Gmail in Claude (claude.ai → Settings → Connectors). The daemon allows only the mailbox's read tools, never send, draft, label or delete.
   - `resume_parse`: reads a resume you uploaded in Landed. PDFs and images are saved to a temporary folder in `~/.landed/workspace/uploads`. Claude Code may read that one file and nothing else; other agents get the PDF's text (read by macOS) or the image itself, and no file access. The folder is deleted when it's done.
   - `resume_merge` / `resume_tailor`: My Resume. These merge your uploaded resumes into one master resume, keeping every phrasing of every bullet, and tailor versions from it for a role. Both are text work only, with no tools or connectors; tailoring may read the job posting when it only has a link.
@@ -72,8 +71,8 @@ You need Node 23.6+ and at least one supported agent CLI, installed and signed i
   next check still cannot load Gmail, reconnect Gmail in Claude → Settings →
   Connectors. Come back to Landed and it re-checks right away (and every 30
   minutes); no failed check advances the email window.
-- Your message reaches the agent on stdin and never passes through a shell.
+- The task reaches the agent on stdin and never passes through a shell.
 - The agent runs in an empty `~/.landed/workspace`. It ignores your own Claude Code settings and hooks (`--setting-sources ""`).
-- Chat and search only get read-only web tools (WebSearch, WebFetch), and none of your MCP connectors load. Email checks only get your mailbox's read tools. The agent never gets file access or a shell.
+- Search only gets read-only web tools (WebSearch, WebFetch), and none of your MCP connectors load. Email checks only get your mailbox's read tools. The agent never gets file access or a shell.
 
 `~/.landed/config.json` holds the server URL and this computer's key (mode 600). `LANDED_HOME` moves the whole folder somewhere else.

@@ -47,11 +47,6 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       say(s, 'Here you go:\n```json\n{"summary": "found one", "jobs": [{"company": "Blorp", "title": "Engineer", "job_url": "https://blorp.example/jobs/1"}]}\n```')
       return send({ id, result: { stopReason: 'end_turn' } })
     }
-    if (mode === 'chat') {
-      say(s, 'Hello ')
-      say(s, 'there.')
-      return send({ id, result: { stopReason: 'end_turn' } })
-    }
     if (mode === 'ask') {
       update(s, { sessionUpdate: 'tool_call', toolCallId: 'x1', title: 'ls ~', kind: 'execute', status: 'pending' })
       const answer = await ask('session/request_permission', {
@@ -59,7 +54,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
         options: [{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }, { optionId: 'no', name: 'Reject', kind: 'reject_once' }],
       })
       update(s, { sessionUpdate: 'tool_call_update', toolCallId: 'x1', status: 'failed' })
-      say(s, `told: ${answer?.outcome?.optionId ?? answer?.outcome?.outcome}`)
+      say(s, '```json\n' + JSON.stringify({ summary: `told: ${answer?.outcome?.optionId ?? answer?.outcome?.outcome}` }) + '\n```')
       return send({ id, result: { stopReason: 'end_turn' } })
     }
     if (mode === 'rogue') {

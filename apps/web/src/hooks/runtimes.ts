@@ -4,10 +4,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { EmailFinding } from '@landed/schema/email-check'
 import type { FoundJob } from '@landed/schema/search-brief'
-import { ApiError, api } from '../lib/api'
+import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
-export type TaskKind = 'chat' | 'job_search' | 'email_check' | 'resume_parse' | 'resume_merge' | 'resume_tailor' | 'automation_sync'
+export type TaskKind = 'job_search' | 'email_check' | 'resume_parse' | 'resume_merge' | 'resume_tailor' | 'automation_sync'
 /** `kinds`: the tasks this agent's daemon can run (older daemons: chat only).
  *  `mail`: the mailbox it can read through a connector (e.g. "Gmail"). */
 export type RuntimeAgent = {
@@ -32,7 +32,7 @@ export type JobEvent =
   | { type: 'done'; text: string; session_id?: string; jobs?: FoundJob[]; findings?: EmailFinding[]; output?: unknown }
   | { type: 'error'; message: string }
 
-export const canRun = (a: RuntimeAgent, kind: TaskKind) => (a.kinds ?? ['chat']).includes(kind)
+export const canRun = (a: RuntimeAgent, kind: TaskKind) => (a.kinds ?? []).includes(kind)
 
 /** The first online agent that can run `kind`; `outdated` when computers
  *  are online but their daemons predate it (restart to update). */
@@ -93,20 +93,4 @@ export function followJob(jobId: string, onEvent: (e: JobEvent) => void): () => 
     if (source.readyState === EventSource.CLOSED) onEvent({ type: 'error', message: 'Lost the connection to Landed.' })
   }
   return () => source.close()
-}
-
-/** Start a task on a computer and follow its output. Returns a stop function. */
-export async function runOnComputer(
-  runtimeId: string,
-  agent: string,
-  kind: TaskKind,
-  input: Record<string, unknown>,
-  onEvent: (e: JobEvent) => void,
-): Promise<() => void> {
-  try {
-    return followJob(await startJob(runtimeId, agent, kind, input), onEvent)
-  } catch (e) {
-    onEvent({ type: 'error', message: e instanceof ApiError ? e.message : String(e) })
-    return () => {}
-  }
 }

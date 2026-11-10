@@ -19,8 +19,8 @@ export type Spec = {
   system: string
   /** the user's message */
   prompt: string
-  /** JSON Schema of the result; null for chat (free text) */
-  schema: Record<string, unknown> | null
+  /** JSON Schema of the result */
+  schema: Record<string, unknown>
   /** none: no tools at all; fetch: read one page; search: search the web and read pages */
   web: 'none' | 'fetch' | 'search'
   /** images to look at (absolute paths), e.g. a resume photo */

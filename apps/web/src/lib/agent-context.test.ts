@@ -1,10 +1,10 @@
-// What the chat agent is told about the user: the resume's gist, the
+// What the user's agent is told about the user: the resume's gist, the
 // answers that shape a search, the current search; never contact details,
 // address, date of birth or EEO answers.
 import { describe, expect, test } from 'vitest'
 import { EMPTY_ANSWERS } from '@landed/schema/application-answers'
 import { normalizeResume } from '@landed/schema'
-import { chatContext } from './chat-context'
+import { agentContext } from './agent-context'
 import type { DbResume } from './store/types'
 
 // A made-up person.
@@ -22,9 +22,9 @@ const row = (over: Partial<DbResume>): DbResume => ({
   created_at: '2026-10-01T00:00:00Z', kind: 'source', master_json: null, target_json: null, directions: [], ...over,
 })
 
-describe('chatContext', () => {
+describe('agentContext', () => {
   test('the master resume, the search-shaping answers and the search', () => {
-    const text = chatContext({
+    const text = agentContext({
       resumes: [row({ name: 'Old upload' }), row({ kind: 'master', name: 'Master' })],
       answers: { ...EMPTY_ANSWERS, work_authorized: 'yes', needs_sponsorship: 'yes', preferred_locations: ['Seattle, WA', 'San Francisco, CA'], earliest_start: 'June 2026' },
       search: { summary: 'PM roles', roles: ['Product Manager'], seniority: 'new grad', locations: ['Seattle, WA'], remote: 'any', needs_sponsorship: true, salary_min: null, industries: [], include_companies: [], exclude_companies: [], notes: null },
@@ -41,7 +41,7 @@ describe('chatContext', () => {
   })
 
   test('never contact details, address, date of birth or EEO answers', () => {
-    const text = chatContext({
+    const text = agentContext({
       resumes: [row({ kind: 'master' })],
       answers: { ...EMPTY_ANSWERS, date_of_birth: 'March 3', address_line1: '100 Main St', postal_code: '98105', gender: 'Male', race: 'Asian', veteran: 'no', legal_first_name: 'Alexander' },
       search: null,
@@ -50,6 +50,6 @@ describe('chatContext', () => {
   })
 
   test('nothing known: no context', () => {
-    expect(chatContext({ resumes: [], answers: null, search: null })).toBeNull()
+    expect(agentContext({ resumes: [], answers: null, search: null })).toBeNull()
   })
 })

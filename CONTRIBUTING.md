@@ -53,8 +53,8 @@ Sign up on http://localhost:5173 with any email — it's your local server.
 
 Optional, depending on what you work on:
 
-- **Agents** (chat, job search, resume parsing): install [Claude Code](https://claude.com/claude-code)
-  and pair your computer from the Agent page, or run `pnpm landed connect '<link from the Agent page>'`.
+- **Agents** (job search, resume parsing, email): install [Claude Code](https://claude.com/claude-code)
+  and pair your computer from the Connector page, or run the `pnpm landed connect …` command it shows.
   The native installer puts `claude` in `~/.local/bin`; add that to your PATH too, and run `claude`
   once to sign in before pairing.
 - **Extension**: `pnpm --filter @landed/extension build`, then in Chrome → Extensions → Developer mode →

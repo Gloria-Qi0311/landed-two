@@ -42,7 +42,7 @@ export const KNOWN_ACP_AGENTS: AcpAgent[] = [
   { id: 'grok', label: 'Grok', command: 'grok', args: ['agent', 'stdio'] },
 ]
 
-export const ACP_KINDS = ['chat', 'job_search', 'resume_parse', 'resume_merge', 'resume_tailor']
+export const ACP_KINDS = ['job_search', 'resume_parse', 'resume_merge', 'resume_tailor']
 
 const ID = /^[a-z0-9][a-z0-9_-]{0,30}$/
 
@@ -239,11 +239,9 @@ export function acpPrompt(spec: Spec): string {
     '</instructions>',
     '',
     spec.prompt,
-    ...(spec.schema ? [
-      '',
-      'When you are done, reply with only the result as JSON in one ```json code block, following this JSON Schema:',
-      JSON.stringify(spec.schema),
-    ] : []),
+    '',
+    'When you are done, reply with only the result as JSON in one ```json code block, following this JSON Schema:',
+    JSON.stringify(spec.schema),
   ].join('\n')
 }
 
@@ -296,7 +294,6 @@ export async function runAcp(agent: AcpAgent, spec: Spec, emit: (e: TaskEvent) =
           const chunk = String(u.content.text ?? '')
           text += chunk
           afterTool += chunk
-          if (!spec.schema && !finished) emit({ type: 'delta', text: chunk })
         }
         if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') {
           const id = String(u.toolCallId ?? '')
@@ -336,7 +333,6 @@ export async function runAcp(agent: AcpAgent, spec: Spec, emit: (e: TaskEvent) =
 
       if (spec.requireWeb && !usedWeb) throw new Error(`${agent.label} didn't search the web this time, so its results would be made up. Nothing was saved.`)
       const answer = afterTool.trim() || text.trim()
-      if (!spec.schema) return finish({ type: 'done', text: answer })
       let out = jsonFromText(answer) ?? jsonFromText(text)
       if (!out || typeof out !== 'object') {
         // One more turn in the same session: just the JSON, please.

@@ -1,15 +1,11 @@
-// Applications the user showed their agent (screenshots) → added or moved forward.
+// Applications Landed learned about outside the pipeline (a confirmation page
+// the extension saw, lib/inbox/confirmations.ts) → added or moved forward.
 import { atsJobKey, canonicalUrl, companyKey, titleSimilarity } from '@landed/observation-processor'
 import type { ReportedApplication } from '@landed/schema/reported-application'
 import type { DataStore, DbApplication, DbJobLead } from '../store/types'
 import { addLeadToPipeline } from './leads'
 import { settleQuestions } from './questions'
 
-// ── applications the user showed their agent (screenshots) ────────────────
-// Some sites send no confirmation email: the user shares a screenshot in the
-// Agent chat, the agent reads it (```landed-applications block,
-// packages/schema/src/reported-application.ts), and the card on the Agent
-// page adds it here — only when the user clicks.
 
 export type ReportedMatch =
   | { kind: 'new' }
@@ -53,7 +49,7 @@ export function matchReported(
 }
 
 /** Add it (or move the existing one along, or take its lead into the pipeline). */
-export async function addReportedApplication(store: DataStore, r: ReportedApplication, source = 'Screenshot (Agent)'): Promise<DbApplication> {
+export async function addReportedApplication(store: DataStore, r: ReportedApplication, source = 'Portal (extension)'): Promise<DbApplication> {
   const [apps, companies, leads] = await Promise.all([store.listApplications(), store.listCompanies(), store.listJobLeads()])
   const match = matchReported(r, apps, companies, leads)
   const appliedAt = r.stage === 'saved' ? null : r.applied_on ? `${r.applied_on}T12:00:00.000Z` : new Date().toISOString()

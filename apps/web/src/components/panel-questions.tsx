@@ -1,5 +1,5 @@
-// Questions Landed asks on the Agent page (the badge on the sidebar's Agent item
-// counts them):
+// Questions Landed asks, under "Needs your input" on Applications
+// (components/agent-updates.tsx; the sidebar's Applications badge counts them):
 //   - "Did you apply?" after you open a posting from Landed;
 //   - "No news for 3+ weeks" for applications in progress: mark ghosted or
 //     keep waiting;

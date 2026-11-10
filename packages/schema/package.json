@@ -12,7 +12,6 @@
     "./email-check": "./src/email-check.ts",
     "./pipeline": "./src/pipeline.ts",
     "./master-resume": "./src/master-resume.ts",
-    "./conversation": "./src/conversation.ts",
     "./automation": "./src/automation.ts",
     "./reported-application": "./src/reported-application.ts",
     "./application-answers": "./src/application-answers.ts",

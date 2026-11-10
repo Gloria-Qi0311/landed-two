@@ -8,8 +8,6 @@ import { usePanelQuestions } from './components/panel-questions';
 import { usePendingQuestions } from './components/pending-questions';
 import { useResumeTaskRunner } from './hooks/resumes';
 import { useKnownAnswers } from './hooks/answers';
-import { useAgentChatRunner } from './hooks/conversations';
-import { useSearchRunner } from './hooks/search';
 import { useAutoSupply, useLeadScreening, usePutBack, useSupplyRefresh } from './hooks/supply';
 import { useLeadDedupe } from './hooks/dedupe';
 import { useLeadRanking, useRankHold } from './hooks/rank';
@@ -48,7 +46,7 @@ import { COMPANIES as COMPANY_CATALOG } from './data';
 // Keep the applications board as the fast default route. The three heavier
 // workspaces are only downloaded when the user opens them; Resume in
 // particular brings document parsing code that the board never needs.
-const AgentPage = lazy(() => import('./components/agent-page').then((m) => ({ default: m.AgentPage })));
+const ConnectorPage = lazy(() => import('./components/connector-page').then((m) => ({ default: m.ConnectorPage })));
 const WorkflowPage = lazy(() => import('./components/workflow-page').then((m) => ({ default: m.WorkflowPage })));
 const ResumesPage = lazy(() => import('./components/resumes-page').then((m) => ({ default: m.ResumesPage })));
 const ExtensionPage = lazy(() => import('./components/extension-page').then((m) => ({ default: m.ExtensionPage })));
@@ -135,7 +133,6 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   const appsQuery = useApplications();
   useExtensionBridge();
   useQuestionUpkeep();
-  useSearchRunner();
   useAutoSupply();
   useLeadScreening();
   useLeadDedupe();
@@ -144,9 +141,8 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
   useAutoApplyRunner();
   useResumeTaskRunner();
   useKnownAnswers();
-  useAgentChatRunner();
-  // Badges: updates waiting on Applications; Landed's questions on the Agent page.
-  const sidebarCounts = { applications: usePendingUpdateCount(), agent: usePanelQuestions().count, extension: usePendingQuestions().length };
+  // Badges: updates and Landed's own questions wait on Applications.
+  const sidebarCounts = { applications: usePendingUpdateCount() + usePanelQuestions().count, extension: usePendingQuestions().length };
   const recordApplyClick = useRecordApplyClick();
   const companiesQuery = useCompanies();
   const updateApp = useUpdateApplication();
@@ -288,10 +284,11 @@ function SignedInApp({ theme, setTheme }: { theme: string; setTheme: (t: string)
             <Route path="/resume-match" element={<Navigate to="/resumes" replace />} />
             <Route path="/sync" element={<Navigate to="/applications" replace />} />
             <Route path="/jd-breakdown" element={<Navigate to="/applications" replace />} />
-            <Route path="/agent" element={<AgentPage />} />
+            <Route path="/connector" element={<ConnectorPage />} />
+            <Route path="/agent" element={<Navigate to="/connector" replace />} />
             <Route path="/workflow" element={<WorkflowPage />} />
             <Route path="/automation" element={<Navigate to="/workflow" replace />} />
-            <Route path="/agents" element={<Navigate to="/agent?view=settings" replace />} />
+            <Route path="/agents" element={<Navigate to="/connector" replace />} />
             <Route path="*" element={<Navigate to="/applications" replace />} />
           </Routes>
         </Suspense>
@@ -345,9 +342,6 @@ function ApplicationsPage({
   onImportDemo: () => void;
   importing: boolean;
 }) {
-  const [searchParams] = useSearchParams();
-  // Old links to the agent side panel (?agent=chat|settings) → the Agent page.
-  const legacyAgent = searchParams.get('agent');
   const navigate = useNavigate();
   const page = (content: ReactNode) => (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{content}</div>
@@ -377,14 +371,13 @@ function ApplicationsPage({
   const recordApplyClick = useRecordApplyClick();
 
   const showEmpty = usePreviewEmpty() || (!isLoading && apps.length === 0 && open.length === 0);
-  if (legacyAgent) return <Navigate to={legacyAgent === 'settings' ? '/agent?view=settings' : '/agent'} replace />;
 
   if (showEmpty) {
     return page(
       <>
         <PageHeader
           title="Applications"
-          subtitle="No applications yet — add one, import demo data, or ask your agent to help you start"
+          subtitle="No applications yet — add one, import one, or try demo data"
           actions={
             <>
               <button
@@ -394,9 +387,6 @@ function ApplicationsPage({
                 style={{ opacity: importing ? 0.6 : 1 }}
               >
                 <Icon name="sparkle" size={13} /> {importing ? 'Importing…' : 'Try with demo data'}
-              </button>
-              <button className="btn-primary" onClick={() => navigate('/agent')}>
-                <Icon name="sparkle" size={13} /> Ask your agent
               </button>
             </>
           }

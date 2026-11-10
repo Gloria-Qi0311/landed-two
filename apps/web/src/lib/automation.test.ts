@@ -10,7 +10,7 @@ import { createLocalStore } from './store/local'
 const syncs: Record<string, unknown>[] = []
 let answer: unknown = null
 vi.mock('../hooks/runtimes', () => ({
-  canRun: (a: { kinds?: string[] }, kind: string) => (a.kinds ?? ['chat']).includes(kind),
+  canRun: (a: { kinds?: string[] }, kind: string) => (a.kinds ?? []).includes(kind),
   startJob: async (_rt: string, _agent: string, _kind: string, input: Record<string, unknown>) => { syncs.push(input); return 'job-1' },
   followJob: (_id: string, onEvent: (e: unknown) => void) => { setTimeout(() => onEvent({ type: 'done', text: '', output: answer }), 0); return () => {} },
 }))

@@ -30,7 +30,7 @@ export function findCodex(path = process.env.PATH ?? ''): string | null {
     .find((candidate) => existsSync(candidate)) ?? null
 }
 
-export const CODEX_KINDS = ['chat', 'job_search', 'resume_parse', 'resume_merge', 'resume_tailor']
+export const CODEX_KINDS = ['job_search', 'resume_parse', 'resume_merge', 'resume_tailor']
 
 /** Installed and signed in → its version; otherwise why not (for the log). */
 /** The Codex CLI: on the PATH, or the one inside ChatGPT.app / Codex.app,
@@ -87,7 +87,7 @@ export function dropNulls(v: unknown): unknown {
  *  escapes are valid TOML basic-string escapes). */
 const toml = (s: string) => JSON.stringify(s)
 
-export function codexArgs(spec: Spec, schemaFile: string | null): string[] {
+export function codexArgs(spec: Spec, schemaFile: string): string[] {
   return [
     'exec', '--json',
     '--skip-git-repo-check', '--ephemeral',
@@ -98,7 +98,7 @@ export function codexArgs(spec: Spec, schemaFile: string | null): string[] {
     '-c', `web_search="${spec.web === 'none' ? 'disabled' : 'live'}"`,
     '-c', `developer_instructions=${toml(spec.system)}`,
     '-C', workspace(),
-    ...(schemaFile ? ['--output-schema', schemaFile] : []),
+    '--output-schema', schemaFile,
     // The prompt comes on stdin (no PROMPT argument), so images can go last.
     ...(spec.images ?? []).flatMap((file) => ['-i', file]),
   ]
@@ -136,12 +136,9 @@ export function runCodex(spec: Spec, emit: (e: TaskEvent) => void): Promise<void
     emit({ type: 'started', agent: 'codex' })
     // The schema goes in a file of its own, removed afterwards.
     const dir = join(workspace(), '.codex-task', String(process.pid) + '-' + Math.random().toString(36).slice(2))
-    let schemaFile: string | null = null
-    if (spec.schema) {
-      mkdirSync(dir, { recursive: true, mode: 0o700 })
-      schemaFile = join(dir, 'schema.json')
-      writeFileSync(schemaFile, JSON.stringify(strictSchema(spec.schema)), { mode: 0o600 })
-    }
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const schemaFile = join(dir, 'schema.json')
+    writeFileSync(schemaFile, JSON.stringify(strictSchema(spec.schema)), { mode: 0o600 })
     const child = spawn(codexBin(), codexArgs(spec, schemaFile), { cwd: workspace(), stdio: ['pipe', 'pipe', 'pipe'] })
     const timer = setTimeout(() => {
       child.kill('SIGTERM')
@@ -191,8 +188,6 @@ export function runCodex(spec: Spec, emit: (e: TaskEvent) => void): Promise<void
         finish({ type: 'error', message: /401|unauthori[sz]ed|not logged in/i.test(why) ? 'Codex on this computer is signed out — run `codex login` once.' : `Codex: ${why}` })
       } else if (spec.requireWeb && !usedWeb) {
         finish({ type: 'error', message: "Codex didn't search the web this time, so its results would be made up. Nothing was saved." })
-      } else if (!spec.schema) {
-        finish({ type: 'done', text: message })
       } else {
         const out = jsonFromText(message)
         finish(out && typeof out === 'object'

@@ -359,7 +359,7 @@ export function WorkflowPage() {
         subtitle={w.designated
           ? `How new jobs reach you and what happens after you approve · scheduled steps run on ${w.designated.runtime.name}, even with Landed closed`
           : w.anyPaired ? 'How new jobs reach you and what happens after you approve · your computer is offline'
-            : 'How new jobs reach you and what happens after you approve · connect your computer on the Agent page for the scheduled steps'}
+            : 'How new jobs reach you and what happens after you approve · connect your computer on the Connector page for the scheduled steps'}
       />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <StepsList w={w} all={all} active={active} onSelect={select} />
@@ -502,10 +502,8 @@ function FindControls({ w }: { w: W }) {
 }
 
 function CriteriaPane() {
-  const navigate = useNavigate()
   return (
-    <Pane title="What to look for" help="Find jobs searches for these: your agents, the job lists and the company boards alike. Click a line to change it."
-      controls={<button type="button" className="btn-secondary" onClick={() => navigate('/agent')} style={smallBtn}>Work them out with your agent</button>}>
+    <Pane title="What to look for" help="Find jobs searches for these: your agents, the job lists and the company boards alike. Click a line to change it.">
       <section style={card}><Criteria /></section>
     </Pane>
   )
@@ -526,7 +524,7 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
         <Field label="Done by" help="Each ticked agent searches. Untick them all and only the job lists and company boards look.">
           {w.choices.length
             ? <AgentSourcesPicker agents={w.choices} sources={a.sources!} disabled={w.set.isPending} onChange={setSources} />
-            : <span style={muted}>No agent online that can search. Connect your computer on the Agent page.</span>}
+            : <span style={muted}>No agent online that can search. Connect your computer on the Connector page.</span>}
         </Field>
         <Field label="When" help="For the agents on your computer.">
           <SchedulePicker schedule={a.schedule} presets={[...INTERVALS.filter((p) => ['h3', 'h6', 'h12'].includes(p.key)), ...DAILY]} disabled={!w.loaded}
