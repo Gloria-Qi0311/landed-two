@@ -8,7 +8,6 @@ The Landed backend: a Hono API on Node + PostgreSQL. It replaced Supabase. Lande
 - **Realtime**: an insert on `portal_events` fires a Postgres `NOTIFY`, which the server sends to that user over SSE at `GET /api/portal-events/stream`.
 - **portal-ingest**: `POST /api/portal-ingest`, ported from the former Edge Function.
 - **AI provider keys**: encrypted at rest with AES-256-GCM using `SECRETS_KEY`.
-- **Agent inbox**: external agents report observations with narrow tokens. For sync-off accounts the server only relays them to the browser. See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md).
 - **Web app**: in production it serves the built `apps/web/dist` at `/`.
 
 ## Local development
@@ -40,7 +39,7 @@ pnpm --filter @landed/server test
 | `COOKIE_SECURE` | `true` in production (the browser connects over https). |
 | `SIGNUP` | `first-only` (default) allows sign-up only while there are no users. `open` lets anyone sign up. |
 | `WEB_DIST` | Built web app to serve. Default `../web/dist`. Set it to an empty value to disable. |
-| `PUBLIC_URL` | Public origin used in OAuth metadata and password-reset links. |
+| `PUBLIC_URL` | Public origin used in password-reset links. |
 | `EMAIL_TRANSPORT` | `smtp` (portable default) or `cloudflare`. Leave unset to disable email recovery; offline recovery codes still work. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | Standard SMTP relay. Port defaults to `587`; `SMTP_SECURE` defaults to `true` only on port `465`. This can point at a self-hosted mail server. |
 | `SMTP_USER` / `SMTP_PASS` | Optional SMTP credentials. Set both or neither (for a trusted local relay). |
@@ -69,8 +68,6 @@ All routes are under `/api`. Every route except `/api/auth/*` and `/api/health` 
 | `GET /export`, `POST /sync/upload` | Whole-account snapshot (`landed-backup` v1) for download, and idempotent upload from a device (merges companies by name) |
 | `DELETE /me` | `{ password }`: delete the account and all its rows (works with sync off) |
 | `GET /ai-keys`, `PUT /ai-keys/:provider`, `DELETE /ai-keys/:id` | Write-only provider keys |
-| `POST /agent/observations` | External agents (agent token, not a session). See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) |
-| `GET/POST /agent-connections`, `POST /agent-connections/:id/revoke`, `GET /agent-observations`, `GET /agent-inbox`, `POST /agent-inbox/ack` | Manage agents, review reports, relay pull for sync-off accounts. These work with sync off. |
 | `GET/POST /runtimes`, `POST /runtimes/:id/revoke`, `POST /runtime-jobs`, `GET /runtime-jobs/:id/stream` | Pair the user's computers (Landed daemon), run a task on one, stream its output. Relayed in memory, never stored. |
 | `POST /runtime/hello`, `GET /runtime/stream`, `POST /runtime/jobs/:id/events` | Daemon side (runtime token, not a session). See [apps/daemon](../daemon/README.md). |
 | `GET /job-leads`, `PUT/PATCH /job-leads/:id`, `GET /status-suggestions`, `PUT/PATCH /status-suggestions/:id`, `GET /agent-observations/pending`, `PATCH /agent-observations/:id` | Cloud storage for the observation processor's output (it runs in the browser) |
@@ -87,7 +84,7 @@ Scripted in `deploy/mac-mini/` — from your own computer, with SSH key access t
    - backs up the database every night at 03:30 (`dev.landed.backup`, keeping 14 days in `~/Landed-backups`);
    - checks `/api/health`.
 2. Make Landed public, on the mini: `deploy/mac-mini/tunnel.sh cloudflare <hostname>` (Cloudflare Tunnel on your domain; `dev.landed.tunnel`) or `deploy/mac-mini/tunnel.sh funnel` (Tailscale Funnel, no domain needed).
-3. Set the public address: `PUBLIC_URL=https://<hostname> deploy/mac-mini/deploy.sh`. Cloud agents' OAuth and MCP metadata use it.
+3. Set the public address: `PUBLIC_URL=https://<hostname> deploy/mac-mini/deploy.sh`. Password-reset links use it.
 4. Add the origin to the extension's `WEB_ORIGINS` / `API_URL` (`apps/extension/lib/config.js`) and to `manifest.json`, then reload the extension.
 
 LaunchAgents only run while the mini's user is logged in, so turn on automatic login and turn off sleep on the mini.

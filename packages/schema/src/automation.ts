@@ -23,10 +23,8 @@ export type Schedule =
 
 /** Who does a step: `agents`, ids of the agents on the user's computer
  *  (claude, codex, an ACP agent…; none means none: the user unticked them
- *  all), and the cloud agents, which pull the task themselves (get_tasks):
- *  all of them while `cloud_agents` is on, except the connections in
- *  `cloud_skip`. */
-export type AgentSources = { agents: string[]; cloud_agents: boolean; cloud_skip: string[] }
+ *  all). */
+export type AgentSources = { agents: string[] }
 
 /** The public sources the browser reads itself (apps/web/src/lib/supply.ts):
  *  job lists (SimplifyJobs…) and followed companies' boards (Greenhouse,
@@ -58,9 +56,9 @@ export type StepExecutor = typeof STEP_EXECUTORS[number]
 export type AutomationConfig = {
   enabled: boolean; schedule: Schedule; sources?: SearchSources; dedupe_by?: StepExecutor; rank_by?: StepExecutor; readers?: AgentSources
 }
-/** Who drives an approved application. `extension` is Landed's browser
- * extension; a UUID names one connected personal agent (Muse, Today, …). */
-export type AutoApplyConfig = { enabled: boolean; max_concurrent: number; executor: 'extension' | string }
+/** Approved applications run in the browser extension, at most
+ *  `max_concurrent` at a time. */
+export type AutoApplyConfig = { enabled: boolean; max_concurrent: number }
 export type Automations = Record<AutomationKind, AutomationConfig> & { auto_apply: AutoApplyConfig }
 
 export const INTERVAL_HOURS = [1, 2, 3, 4, 6, 8, 12]
@@ -72,13 +70,11 @@ export const AUTO_APPLY_CONCURRENCY = [1, 2, 3, 4, 5]
 export const DEFAULT_SOURCE_SCHEDULE: Schedule = { kind: 'daily', time: '09:00', days: ALL_DAYS }
 /** Claude Code, plus the public sources, which cost no tokens. */
 export const DEFAULT_SEARCH_SOURCES: SearchSources = {
-  agents: ['claude'], job_lists: true, company_boards: true, cloud_agents: true, cloud_skip: [],
+  agents: ['claude'], job_lists: true, company_boards: true,
   schedules: { job_lists: DEFAULT_SOURCE_SCHEDULE, company_boards: DEFAULT_SOURCE_SCHEDULE },
 }
-/** Claude Code with its mail connector, and every cloud agent (they read email with their own connectors). */
-export const DEFAULT_EMAIL_READERS: AgentSources = { agents: ['claude'], cloud_agents: true, cloud_skip: [] }
-const CONNECTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const MAX_CLOUD_SKIP = 20
+/** Claude Code with its mail connector. */
+export const DEFAULT_EMAIL_READERS: AgentSources = { agents: ['claude'] }
 export const MAX_SEARCH_AGENTS = 6
 
 export const DEFAULT_AUTOMATIONS: Automations = {
@@ -86,7 +82,7 @@ export const DEFAULT_AUTOMATIONS: Automations = {
   job_search: { enabled: false, schedule: { kind: 'daily', time: '09:00', days: ALL_DAYS }, sources: DEFAULT_SEARCH_SOURCES, dedupe_by: 'landed', rank_by: 'landed' },
   // Preserve #99's shipped behavior: approved leads execute automatically
   // unless the user turns this off on Automation.
-  auto_apply: { enabled: true, max_concurrent: 5, executor: 'extension' },
+  auto_apply: { enabled: true, max_concurrent: 5 },
 }
 
 function parseSchedule(raw: unknown, fallback: Schedule): Schedule {
@@ -121,24 +117,18 @@ export function parseAutomations(raw: unknown): Automations {
     max_concurrent: AUTO_APPLY_CONCURRENCY.includes(auto?.max_concurrent as number)
       ? auto!.max_concurrent as number
       : DEFAULT_AUTOMATIONS.auto_apply.max_concurrent,
-    executor: auto?.executor === 'extension' || (typeof auto?.executor === 'string' && CONNECTION_ID.test(auto.executor))
-      ? auto.executor
-      : DEFAULT_AUTOMATIONS.auto_apply.executor,
   }
   return out
 }
 
 /** Stored agent choices → valid ones; missing → `defaults`. */
 export function parseAgentSources(raw: unknown, defaults: AgentSources): AgentSources {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { agents: [...defaults.agents], cloud_agents: defaults.cloud_agents, cloud_skip: [...defaults.cloud_skip] }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { agents: [...defaults.agents] }
   const r = raw as Record<string, unknown>
   const agents = Array.isArray(r.agents)
     ? [...new Set(r.agents.filter((a): a is string => typeof a === 'string' && /^[a-z0-9][a-z0-9:._-]{0,39}$/.test(a)))].slice(0, MAX_SEARCH_AGENTS)
     : [...defaults.agents]
-  const cloud_skip = Array.isArray(r.cloud_skip)
-    ? [...new Set(r.cloud_skip.filter((id): id is string => typeof id === 'string' && CONNECTION_ID.test(id)))].slice(0, MAX_CLOUD_SKIP)
-    : []
-  return { agents, cloud_agents: typeof r.cloud_agents === 'boolean' ? r.cloud_agents : defaults.cloud_agents, cloud_skip }
+  return { agents }
 }
 
 /** Stored search sources → valid ones; missing → the defaults. */
@@ -149,7 +139,7 @@ export function parseSearchSources(raw: unknown): SearchSources {
   const s = (r.schedules && typeof r.schedules === 'object' ? r.schedules : {}) as Record<string, unknown>
   const schedule = (k: PublicSource) => parseSchedule(s[k], DEFAULT_SEARCH_SOURCES.schedules[k])
   return {
-    agents: who.agents, job_lists: flag('job_lists'), company_boards: flag('company_boards'), cloud_agents: who.cloud_agents, cloud_skip: who.cloud_skip,
+    agents: who.agents, job_lists: flag('job_lists'), company_boards: flag('company_boards'),
     schedules: { job_lists: schedule('job_lists'), company_boards: schedule('company_boards') },
   }
 }
@@ -186,8 +176,8 @@ export function dueSources(sources: SearchSources, runs: SourceRuns | null | und
 }
 
 /** The agents here a search runs with: the chosen ones that are here. None
- *  chosen (the user unticked them all) is none: the lists, boards and cloud
- *  agents still search. Chosen ones that aren't on this computer: the first
+ *  chosen (the user unticked them all) is none: the lists and boards still
+ *  search. Chosen ones that aren't on this computer: the first
  *  that can search, so it still searches. Shared by the daemon's schedule and
  *  the browser's Run now. */
 export function pickSearchAgents<A extends { id: string }>(available: A[], sources: Pick<AgentSources, 'agents'> | undefined): A[] {
@@ -199,13 +189,6 @@ export function pickSearchAgents<A extends { id: string }>(available: A[], sourc
 
 /** The same pick for any step a few agents can do (email: who reads it). */
 export const pickAgents = pickSearchAgents
-
-/** Does this cloud agent connection do the step (get_tasks gives it the task)? */
-export function cloudAgentSearches(sources: Omit<AgentSources, 'agents'> | undefined, connectionId: string): boolean {
-  const s = sources ?? DEFAULT_SEARCH_SOURCES
-  return s.cloud_agents !== false && !(s.cloud_skip ?? []).includes(connectionId)
-}
-export const cloudAgentOn = cloudAgentSearches
 
 /** When a schedule next fires after the last run (local time). Never run → now. */
 export function nextRun(schedule: Schedule, lastRunAt: string | null | undefined, now = new Date()): Date {
@@ -255,7 +238,7 @@ export type SyncInput = {
   run_now: AutomationKind[]
   /** One-time executor override for Run now. This does not change who runs
    * the recurring schedule; it lets an explicit click use an available
-   * computer agent even when only connected agents are ticked. */
+   * computer agent even when none is ticked. */
   run_now_agents: Partial<Record<AutomationKind, string[]>>
   /** results the browser has stored — the daemon can drop them */
   ack: string[]

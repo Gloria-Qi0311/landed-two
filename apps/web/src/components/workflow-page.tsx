@@ -12,15 +12,14 @@
 // pages link straight to one. The settings stay users.automations
 // (packages/schema/src/automation.ts); a step gains its own executor or
 // schedule as a field there when it gets one. Scheduled steps run on the
-// user's computer (even with Landed closed — lib/automation-sync.ts);
-// connected cloud agents also search and read email on their own schedule.
+// user's computer (even with Landed closed — lib/automation-sync.ts).
 // Auto apply runs event-first in the open browser; already-open application
 // tabs continue if Landed closes.
 import { Children, useEffect, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  AUTO_APPLY_CONCURRENCY, cloudAgentOn, cloudAgentSearches, DEFAULT_EMAIL_READERS, describeSchedule, INTERVAL_HOURS, nextSourceRun, pickAgents, WEEKDAYS,
+  AUTO_APPLY_CONCURRENCY, DEFAULT_EMAIL_READERS, describeSchedule, INTERVAL_HOURS, nextSourceRun, pickAgents, WEEKDAYS,
   type Abilities, type AutomationKind, type AutomationRun, type Automations, type PublicSource, type Schedule,
 } from '@landed/schema/automation'
 import { parseBrief, type RemotePreference, type SearchBrief } from '@landed/schema/search-brief'
@@ -35,7 +34,6 @@ import { useAutomations, useSetAutomations } from '../hooks/automation'
 import { useAccountPrefs, useSetAutoApply } from '../hooks/inbox'
 import { searchComputer, chosenSearchTargets, useActiveSearch, useEditBrief } from '../hooks/search'
 import { useFollowedBoards, useSupplyRefresh } from '../hooks/supply'
-import { useAgentConnections } from '../hooks/agents'
 import { useRuntimes } from '../hooks/runtimes'
 import { requestAutoApplyRun, useAutoApplyControl, useExtension } from '../hooks/auto-apply'
 import { useDedupeState } from '../hooks/dedupe'
@@ -255,7 +253,6 @@ function useWorkflow() {
   const sync = useAutomationSync()
   const targets = syncTargets(runtimes ?? [])
   const designated = designate(targets, automations)
-  const cloud = (useAgentConnections().data ?? []).filter((c) => !c.revoked_at && c.scopes.includes('tasks:read'))
   const search = useActiveSearch()
   const boards = useFollowedBoards().data ?? []
   const supply = useSupplyRefresh()
@@ -266,8 +263,7 @@ function useWorkflow() {
   const searchers = chosenSearchers.map((agent) => agent.label)
   const anyAgent = targets.some((t) => computerCan(t, 'job_search'))
   // Who reads email: the computer's agents that can (Claude Code once its
-  // mail connector is found; listed before that so it can be ticked) and the
-  // cloud agents, each ticked on its own.
+  // mail connector is found; listed before that so it can be ticked).
   const readers = automations.email_check.readers ?? DEFAULT_EMAIL_READERS
   const mailAgents = designated ? designated.runtime.agents.filter((a) => a.kinds?.includes('email_check') || a.id === 'claude') : []
   const localReaders = pickAgents(mailAgents, readers)
@@ -286,7 +282,7 @@ function useWorkflow() {
   }
   const save = (next: Automations) => set.mutate(next)
   return {
-    automations, loaded, set, save, sync, targets, designated, cloud, search, boards, supply, choices, chosenSearchers, searchers, anyAgent, findNote, setFindNote,
+    automations, loaded, set, save, sync, targets, designated, search, boards, supply, choices, chosenSearchers, searchers, anyAgent, findNote, setFindNote,
     emailAgent, mail, readers, mailAgents, localReaders, auto,
     anyPaired: (runtimes ?? []).some((r) => !r.revoked_at && r.last_seen_at),
     outdated: (runtimes ?? []).some((r) => r.online && r.agents.length && !r.agents.some((a) => a.kinds?.includes('automation_sync'))),
@@ -304,12 +300,9 @@ const ALIASES: Record<string, StepId> = { find: 'agents', track: 'email' }
 type Dot = 'on' | 'off' | 'needs'
 type Status = { dot: Dot; text: string }
 
-/** "Claude Code every 3 hours · ChatGPT on its own": the schedule is only
- *  for the computer's agents; cloud agents run when they run. */
-function whoAndWhen(local: string[], cloud: string[], schedule: string): string {
-  const mine = local.length ? `${local.join(', ')} ${schedule}` : ''
-  const theirs = cloud.length ? `${cloud.join(', ')} on ${cloud.length === 1 ? 'its' : 'their'} own` : ''
-  return [mine, theirs].filter(Boolean).join(' · ')
+/** "Claude Code, Codex every 3 hours"; empty when no agent is ticked. */
+function whoAndWhen(local: string[], schedule: string): string {
+  return local.length ? `${local.join(', ')} ${schedule}` : ''
 }
 
 function statuses(w: W): Record<StepId, Status> {
@@ -322,8 +315,7 @@ function statuses(w: W): Record<StepId, Status> {
     criteria: w.search ? { dot: 'on', text: w.search.brief.roles.join(' · ') || 'Set' } : { dot: 'needs', text: 'Not set yet' },
     agents: (() => {
       if (!find.enabled) return findOff
-      const cloud = w.cloud.filter((c) => cloudAgentSearches(sources, c.id)).map((c) => c.display_name)
-      const text = whoAndWhen(w.searchers, cloud, sched(find.schedule))
+      const text = whoAndWhen(w.searchers, sched(find.schedule))
       if (text) return { dot: 'on' as const, text }
       return sources.agents.length === 0 ? { dot: 'off' as const, text: 'No agent ticked' } : { dot: 'needs' as const, text: 'No agent online' }
     })(),
@@ -332,15 +324,14 @@ function statuses(w: W): Record<StepId, Status> {
     dedupe: !find.enabled ? findOff : { dot: 'on', text: find.dedupe_by === 'agent' ? 'Landed rules + your agent · each batch' : 'Landed rules · each batch' },
     rank: !find.enabled ? findOff : { dot: 'on', text: find.rank_by === 'agent' ? 'Landed rules + your agent · each batch' : 'Landed rules · each batch' },
     apply: !a.auto_apply.enabled ? { dot: 'off', text: 'Off' }
-      : !w.auto.ready ? { dot: 'needs', text: a.auto_apply.executor === 'extension' ? 'Needs the extension here' : 'Needs the selected agent connected' }
+      : !w.auto.ready ? { dot: 'needs', text: 'Needs the extension here' }
         : w.auto.blocked > 0 ? { dot: 'needs', text: `${w.auto.blocked} ${w.auto.blocked === 1 ? 'needs' : 'need'} you` }
           : { dot: 'on', text: `When you approve · up to ${a.auto_apply.max_concurrent}` },
     applied: { dot: 'on', text: 'When the portal confirms' },
     email: (() => {
       if (!a.email_check.enabled) return { dot: 'off' as const, text: `Off · ${sched(a.email_check.schedule)}` }
-      const cloudReaders = w.cloud.filter((c) => cloudAgentOn(w.readers, c.id)).map((c) => c.display_name)
       if (w.localReaders.length && w.mail === 'missing') return { dot: 'needs' as const, text: 'Needs your email connected' }
-      const text = whoAndWhen(w.localReaders.map((x) => x.label), cloudReaders, sched(a.email_check.schedule))
+      const text = whoAndWhen(w.localReaders.map((x) => x.label), sched(a.email_check.schedule))
       return text ? { dot: 'on' as const, text } : { dot: 'off' as const, text: 'No agent ticked' }
     })(),
   }
@@ -502,7 +493,7 @@ function FindControls({ w }: { w: W }) {
             : `Run now is using ${once[0].label} once; your scheduled agent choices stay unchanged.`
           : 'No computer agent is available for this run.'
         const publicText = canRunPublicSources ? ' Checking the job lists and company boards too.' : ''
-        w.setFindNote(`${agentText}${publicText} Connected agents still run on their own.`)
+        w.setFindNote(`${agentText}${publicText}`)
       }} />
       <LabeledSwitch on={a.job_search.enabled} label="Find jobs" disabled={!w.loaded || w.set.isPending}
         onChange={(enabled) => w.save({ ...a, job_search: { ...a.job_search, enabled } })} />
@@ -525,7 +516,7 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
   const state = useScheduleState('job_search')
   const setSources = (sources: typeof a.sources) => w.save({ ...w.automations, job_search: { ...a, sources } })
   return (
-    <Pane title="Agent search" help="Your agents search the web for postings that fit what you're looking for, including ones no list has yet: the ones on your computer on the schedule below, connected agents whenever they run. Each uses your own subscription, and what they find is merged."
+    <Pane title="Agent search" help="Your agents search the web for postings that fit what you're looking for, including ones no list has yet, on the schedule below. Each uses your own subscription, and what they find is merged."
       controls={<FindControls w={w} />}>
       <FindNotes w={w} />
       {!w.search && <Needs>Add the roles to look for first. <button type="button" className="btn-secondary" style={smallBtn} onClick={() => onSelect('criteria')}>What to look for</button></Needs>}
@@ -533,14 +524,14 @@ function AgentsPane({ w, onSelect }: { w: W; onSelect: (id: StepId) => void }) {
 
       <Settings>
         <Field label="Done by" help="Each ticked agent searches. Untick them all and only the job lists and company boards look.">
-          {w.choices.length || w.cloud.length
-            ? <AgentSourcesPicker agents={w.choices} sources={a.sources!} cloud={w.cloud.map((c) => ({ id: c.id, name: c.display_name, lastSeen: c.last_seen_at }))} disabled={w.set.isPending} onChange={setSources} />
+          {w.choices.length
+            ? <AgentSourcesPicker agents={w.choices} sources={a.sources!} disabled={w.set.isPending} onChange={setSources} />
             : <span style={muted}>No agent online that can search. Connect your computer on the Agent page.</span>}
         </Field>
-        <Field label="When" help="For the agents on your computer. Connected agents search when they run, on their own schedule.">
+        <Field label="When" help="For the agents on your computer.">
           <SchedulePicker schedule={a.schedule} presets={[...INTERVALS.filter((p) => ['h3', 'h6', 'h12'].includes(p.key)), ...DAILY]} disabled={!w.loaded}
             onChange={(schedule) => w.save({ ...w.automations, job_search: { ...a, schedule } })} />
-          <span style={muted}>{w.searchers.length ? state.text : 'Not used: no agent on your computer is ticked. Connected agents search when they run.'}</span>
+          <span style={muted}>{w.searchers.length ? state.text : 'Not used: no agent on your computer is ticked.'}</span>
         </Field>
       </Settings>
       <RecentRuns kind="job_search" />
@@ -702,7 +693,6 @@ function ApplyPane({ w }: { w: W }) {
   const a = w.automations.auto_apply
   const save = (next: Partial<typeof a>) => w.save({ ...w.automations, auto_apply: { ...a, ...next } })
   const { auto } = w
-  const selectedAgent = a.executor === 'extension' ? null : w.cloud.find((c) => c.id === a.executor) ?? null
   const status = auto.active ? `Applying to ${auto.active} now`
     : auto.queued ? `${auto.queued} approved ${auto.queued === 1 ? 'job is' : 'jobs are'} ready`
       : auto.awaiting ? `${auto.awaiting} waiting for the portal's confirmation`
@@ -714,9 +704,7 @@ function ApplyPane({ w }: { w: W }) {
         <LabeledSwitch on={a.enabled} label="Auto apply" disabled={!w.loaded || w.set.isPending} onChange={(enabled) => save({ enabled })} />
       </>}>
       {auto.note && <div role="status" style={mutedLarge}>{auto.note}</div>}
-      {!auto.ready && <Needs>{a.executor === 'extension'
-        ? 'Install or reload the Landed browser extension in this browser before approved jobs can start.'
-        : 'The selected personal agent is no longer connected. Reconnect it or choose another executor.'}</Needs>}
+      {!auto.ready && <Needs>Install or reload the Landed browser extension in this browser before approved jobs can start.</Needs>}
       {auto.blocked > 0 && (
         <Needs>
           {auto.blocked} approved {auto.blocked === 1 ? 'application needs' : 'applications need'} you.{' '}
@@ -724,18 +712,9 @@ function ApplyPane({ w }: { w: W }) {
         </Needs>
       )}
       <Settings>
-        <Field label="Done by" help={a.executor === 'extension'
-          ? 'The extension uses this signed-in browser; once a tab is open, it keeps going if you leave Landed.'
-          : 'The selected personal agent receives one approved job, its resume and your shared Landed context.'}>
-          <select aria-label="Auto apply executor" value={a.executor} disabled={!w.loaded || w.set.isPending} style={{ fontSize: 12.5, alignSelf: 'flex-start' }}
-            onChange={(event) => save({ executor: event.target.value })}>
-            <option value="extension">Landed extension</option>
-            {w.cloud.map((connection) => <option key={connection.id} value={connection.id}>{connection.display_name}</option>)}
-            {!selectedAgent && a.executor !== 'extension' && <option value={a.executor}>Disconnected agent</option>}
-          </select>
-          <span style={muted}>{a.executor === 'extension'
-            ? 'Fills in this browser; your local agent reviews the form.'
-            : `${selectedAgent?.display_name ?? 'This agent'} uses your resume and saved answers. Missing questions come back to Needs your input and become shared answers after you reply.`}</span>
+        <Field label="Done by" help="The extension uses this signed-in browser; once a tab is open, it keeps going if you leave Landed.">
+          <span>The Landed extension</span>
+          <span style={muted}>Fills in this browser; your local agent reviews the form.</span>
         </Field>
         <Field label="When"><span>When you approve a job in Leads, highest priority first</span></Field>
         <Field label="At most">
@@ -795,7 +774,7 @@ function EmailPane({ w }: { w: W }) {
       controls={<StepControls w={w} kind="email_check" label="Check email" blocked={w.mail !== 'ok'} agents={runAgents} />}>
       {state.running && <Needs waiting>Checking email now{runAgent ? ` with ${runAgent.label}` : ''}…</Needs>}
       {!state.running && scheduledMailAgents.length === 0 && runAgent && (
-        <Needs waiting>Run now uses {runAgent.label} once. Your scheduled choices stay unchanged; connected agents still run on their own.</Needs>
+        <Needs waiting>Run now uses {runAgent.label} once. Your scheduled choices stay unchanged.</Needs>
       )}
       {!state.running && runAgents.length === 0 && signedOut && (
         <Needs>Run now can't read email because Claude Code is signed out. Run <code>claude auth login</code> in Terminal, finish signing in, then come back here.</Needs>
@@ -803,21 +782,18 @@ function EmailPane({ w }: { w: W }) {
       {!state.running && runAgents.length === 0 && !signedOut && w.mailAgents.some((item) => item.id === 'claude') && (
         <Needs>Run now needs Claude Code's Gmail connector. Connect Gmail in Claude (Settings → Connectors), then come back here.</Needs>
       )}
-      {!state.running && runAgents.length === 0 && !w.mailAgents.some((item) => item.id === 'claude') && w.cloud.some((c) => cloudAgentOn(w.readers, c.id)) && (
-        <Needs>Run now needs an email-capable agent on your computer. Connected agents cannot be started from Landed.</Needs>
-      )}
       {w.mail === 'checking' && <Needs waiting>Checking whether your agent can read your email…</Needs>}
       {w.mail === 'confirming' && <Needs waiting>Your email is connected in Claude. Making sure your agent can read it: this takes a moment.</Needs>}
 
       <Settings>
         <Field label="Done by" help="Each ticked agent reads it. Untick them all and nobody checks email.">
-          {w.mailAgents.length || w.cloud.length
-            ? <AgentSourcesPicker agents={w.mailAgents} sources={w.readers} cloud={w.cloud.map((c) => ({ id: c.id, name: c.display_name, lastSeen: c.last_seen_at }))} doing="Reads your email"
+          {w.mailAgents.length
+            ? <AgentSourcesPicker agents={w.mailAgents} sources={w.readers} doing="Reads your email"
                 disabled={w.set.isPending} onChange={(readers) => w.save({ ...w.automations, email_check: { ...a, readers } })} />
-            : <span style={muted}>An agent on your computer that can read your email, or a connected agent</span>}
+            : <span style={muted}>An agent on your computer that can read your email</span>}
           {agent?.mail && <span style={{ ...muted, color: ok }}>{agent.label} reads {agent.mail}, read-only</span>}
         </Field>
-        <Field label="When" help="For the agent on your computer. Connected agents read it when they run, on their own schedule.">
+        <Field label="When" help="For the agent on your computer.">
           <SchedulePicker schedule={a.schedule} presets={[...INTERVALS, ...DAILY.slice(0, 2)]} disabled={!w.loaded}
             onChange={(schedule) => w.save({ ...w.automations, email_check: { ...a, schedule } })} />
           <span style={muted}>{w.localReaders.length ? state.text : 'Not used: no agent on your computer is ticked'}</span>

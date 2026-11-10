@@ -159,7 +159,7 @@ test('Find new jobs searches with each agent chosen on the Workflow page that is
   const withBrief = { ...context, brief: { roles: ['APM'] }, search_id: '11111111-2222-4333-8444-555555555555' }
   const search = (agents: string[]) => ({
     ...automations, email_check: { ...automations.email_check, enabled: false },
-    job_search: { ...automations.job_search, enabled: true, sources: { agents, job_lists: true, company_boards: true, cloud_agents: true } },
+    job_search: { ...automations.job_search, enabled: true, sources: { agents, job_lists: true, company_boards: true } },
   })
   sync({ automations: search(['claude', 'codex', 'copilot']), context: withBrief, run_now: ['job_search'] })
   await settle()
@@ -193,7 +193,7 @@ test('Find new jobs searches with each agent chosen on the Workflow page that is
   assert.deepEqual(calls, ['codex'])
 })
 
-test('Check email is read by the agent ticked here; none ticked leaves it to the cloud agents', async () => {
+test('Check email is read by the agent ticked here; none ticked means nobody reads it', async () => {
   resetAutomationsForTests()
   const calls: string[] = []
   setupAutomations({
@@ -201,7 +201,7 @@ test('Check email is read by the agent ticked here; none ticked leaves it to the
     agentsFor: (kind) => (kind === 'email_check' ? [{ id: 'claude', label: 'Claude Code' }] : []),
     runTask: async (task, emit) => { calls.push(task.agent); emit({ type: 'done', text: '', findings: [] }) },
   })
-  const readBy = (agents: string[]) => ({ ...automations, email_check: { ...automations.email_check, readers: { agents, cloud_agents: true, cloud_skip: [] } } })
+  const readBy = (agents: string[]) => ({ ...automations, email_check: { ...automations.email_check, readers: { agents } } })
   sync({ automations: readBy(['claude']), run_now: ['email_check'] })
   await settle()
   assert.deepEqual(calls, ['claude'])

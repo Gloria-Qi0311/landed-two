@@ -13,7 +13,6 @@ import { createPasswordResetSender, type PasswordResetSender } from './email.ts'
 import { pgErrorStatus } from './http.ts'
 import type { PortalEventsHub } from './realtime.ts'
 import { accountRoutes } from './routes/account.ts'
-import { agentAccountRoutes, agentIngestRoutes } from './routes/agent.ts'
 import { dataRoutes } from './routes/data.ts'
 import { inboxRoutes } from './routes/inbox.ts'
 import { searchRoutes } from './routes/searches.ts'
@@ -22,9 +21,6 @@ import { answerRoutes } from './routes/answers.ts'
 import { fileRoutes } from './routes/files.ts'
 import { traceRoutes } from './routes/traces.ts'
 import { downloadRoutes } from './routes/downloads.ts'
-import { agentTaskRoutes, mcpRoutes } from './routes/mcp.ts'
-import { agentApplyAccountRoutes, agentApplyDownloadRoutes } from './routes/agent-apply.ts'
-import { oauthAccountRoutes, oauthRoutes } from './routes/oauth.ts'
 import { portalRoutes } from './routes/portal.ts'
 import { syncRoutes } from './routes/sync.ts'
 import { runtimeAccountRoutes, runtimeDaemonRoutes } from './routes/runtime.ts'
@@ -38,10 +34,6 @@ const uploadBody = bodyLimit({ maxSize: 50 * 1024 * 1024, onError: tooLarge })
 const taskBody = bodyLimit({ maxSize: 12 * 1024 * 1024, onError: tooLarge })
 // A resume or cover letter for the extension to upload (base64, ≤ 3 MB).
 const fileBody = bodyLimit({ maxSize: 5 * 1024 * 1024, onError: tooLarge })
-// One agent observation is small; a large body is a misbehaving agent.
-const agentBody = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge })
-// A run's worth of results at once (up to 60 jobs / 100 email updates).
-const agentBatchBody = bodyLimit({ maxSize: 512 * 1024, onError: tooLarge })
 
 export function createApp(
   sql: Sql,
@@ -69,37 +61,14 @@ export function createApp(
     const limit = c.req.path === '/api/sync/upload' || c.req.path === '/api/cloud/enable'
       ? uploadBody
       : c.req.path === '/api/runtime-jobs' ? taskBody
-      : c.req.path.startsWith('/api/application-files/') || c.req.path === '/api/agent-apply-tasks' ? fileBody
-      : c.req.path === '/api/agent/jobs' || c.req.path === '/api/agent/email-updates' ? agentBatchBody
-      : c.req.path.startsWith('/api/agent/') ? agentBody : smallBody
+      : c.req.path.startsWith('/api/application-files/') ? fileBody
+      : smallBody
     return limit(c, next)
   })
-
-  // Cloud agents (ChatGPT, Claude.ai, Gemini…): Landed's MCP server and the
-  // OAuth endpoints that connect it. Called by the agents' servers or by
-  // browser-based MCP clients with a Bearer token — never a cookie.
-  for (const path of ['/mcp', '/oauth/*', '/.well-known/*']) {
-    app.use(path, cors({
-      origin: '*',
-      allowHeaders: ['Authorization', 'Content-Type', 'Mcp-Protocol-Version', 'Mcp-Session-Id'],
-      allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-      exposeHeaders: ['WWW-Authenticate'],
-      maxAge: 86400,
-    }))
-  }
-  app.use('/mcp', bodyLimit({ maxSize: 512 * 1024, onError: tooLarge }))
-  app.use('/oauth/*', bodyLimit({ maxSize: 16 * 1024, onError: tooLarge }))
-  app.route('/', oauthRoutes(sql, config))
-  app.route('/', mcpRoutes(sql, config))
 
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.route('/api/auth', authRoutes(sql, config, passwordResetSender))
   app.route('/api/downloads', downloadRoutes())
-  // External agents authenticate with a narrow connection token, never a
-  // browser/extension session token.
-  app.route('/api/agent', agentIngestRoutes(sql))
-  app.route('/api/agent', agentTaskRoutes(sql))
-  app.route('/api', agentApplyDownloadRoutes(sql))
   // The user's own computers (Landed daemon) authenticate with a runtime
   // token, never a session.
   app.route('/api/runtime', runtimeDaemonRoutes(sql, runtimes))
@@ -109,10 +78,7 @@ export function createApp(
   const api = new Hono<AppEnv>()
   api.use('*', requireUser(sql))
   api.route('/', accountRoutes(sql))
-  api.route('/', agentAccountRoutes(sql))
-  api.route('/', agentApplyAccountRoutes(sql))
   api.route('/', runtimeAccountRoutes(sql, runtimes))
-  api.route('/', oauthAccountRoutes(sql, config))
   const cloud = new Hono<AppEnv>()
   cloud.use('*', requireCloud)
   cloud.route('/', dataRoutes(sql, config))

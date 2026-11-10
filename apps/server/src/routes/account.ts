@@ -3,7 +3,6 @@
 //   GET/PATCH /me        profile (onboarding flag, auto_apply_updates, email_watch) + cloud_sync state
 //   GET/POST /recovery-codes status / replace the account's offline recovery codes
 //   POST /cloud/enable   upload this device's snapshot and turn sync on, atomically
-//                        (held agent observations become Cloud data)
 //   POST /cloud/disable  { password } — delete every data row and turn sync off;
 //                        the account stays (the client has already saved the
 //                        data to the device via GET /export)
@@ -103,8 +102,6 @@ export function accountRoutes(sql: Sql) {
     const uploaded = await sql.begin(async (txRaw) => {
       const tx = txRaw as unknown as Sql
       const counts = await uploadSnapshot(tx, userId, snap)
-      // Agent observations still held for pickup become ordinary Cloud data.
-      await tx`update agent_observations set expires_at = null where user_id = ${userId} and payload_json is not null`
       await tx`update users set cloud_sync = true where id = ${userId}`
       return counts
     })
@@ -129,10 +126,6 @@ export function accountRoutes(sql: Sql) {
       await tx`delete from application_answers where user_id = ${userId}`
       await tx`delete from application_files where user_id = ${userId}`
       await tx`delete from fill_traces where user_id = ${userId}`
-      // Observations moved to the device with the export; keep payload-free
-      // receipts so agent retries stay idempotent.
-      await tx`update agent_observations set payload_json = null, delivered_at = now(), expires_at = null
-               where user_id = ${userId} and payload_json is not null`
       await tx`update users set cloud_sync = false where id = ${userId}`
     })
     return c.json({ cloud_sync: false })

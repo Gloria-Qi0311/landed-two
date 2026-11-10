@@ -1,13 +1,13 @@
 // Hooks for the observation processor's output: job leads (the Leads
 // column), agent updates (applied automatically by default, plus the few
-// that need the user), the auto-apply preference, and the background runner
-// that turns new agent reports into those.
+// that need the user), the auto-apply preference, and the background upkeep
+// of Landed's questions.
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import {
-  acceptSuggestion, addLeadToPipeline, approveLeads, dismissLead, flagQuietApplications, processPending, recordApplyClick, rejectSuggestion,
+  acceptSuggestion, addLeadToPipeline, approveLeads, dismissLead, flagQuietApplications, recordApplyClick, rejectSuggestion,
   repairRoundOrder, restoreLead, settleQuestions, undoApprovals, undoSuggestion, type Approval, type ClickTarget,
 } from '../lib/inbox'
 import { useStore, type DbJobLead, type DbSuggestion } from '../lib/store'
@@ -16,10 +16,8 @@ import type { Stage } from '@landed/observation-processor'
 const RUN_INTERVAL_MS = 30_000
 const QUIET_SCAN_MS = 10 * 60_000
 let lastQuietScan = 0
-/** Fired by useAgentRelay when new observations land in this browser. */
-export const OBSERVATIONS_ARRIVED = 'landed:observations-arrived'
 
-const AFFECTED = ['job_leads', 'suggestions', 'applications', 'companies', 'portal_events', 'agent_observations']
+const AFFECTED = ['job_leads', 'suggestions', 'applications', 'companies', 'portal_events']
 
 export function useJobLeads() {
   const { store, ready } = useStore()
@@ -54,14 +52,14 @@ export function useSetAutoApply() {
   })
 }
 
-/** Process new agent reports in the background while Landed is open. */
+/** Keep Landed's questions current in the background while Landed is open:
+ *  close the ones an email or a manual move answered, and ask about
+ *  applications that went quiet. */
 let roundsRepaired = false
 
-export function useObservationProcessor() {
+export function useQuestionUpkeep() {
   const qc = useQueryClient()
   const { store, ready } = useStore()
-  // On by default; offline (no /me) keeps the default too.
-  const autoApply = useAccountPrefs().data?.auto_apply_updates ?? true
 
   useEffect(() => {
     if (!ready) return
@@ -75,9 +73,8 @@ export function useObservationProcessor() {
           roundsRepaired = true
           if (await repairRoundOrder(store)) qc.invalidateQueries({ queryKey: ['applications'] })
         }
-        const handled = await processPending(store, { autoApply })
         // Panel questions an email or a manual move already answered.
-        let changed = handled + (await settleQuestions(store))
+        let changed = await settleQuestions(store)
         // Applications that went quiet (checked every few minutes, not every run).
         if (Date.now() - lastQuietScan > QUIET_SCAN_MS) {
           lastQuietScan = Date.now()
@@ -85,21 +82,19 @@ export function useObservationProcessor() {
         }
         if (changed > 0) for (const key of AFFECTED) qc.invalidateQueries({ queryKey: [key] })
       } catch (e) {
-        console.warn('[landed] processing agent reports failed', e)
+        console.warn('[landed] updating Landed\'s questions failed', e)
       } finally {
         running = false
       }
     }
     void run()
     const timer = setInterval(run, RUN_INTERVAL_MS)
-    window.addEventListener(OBSERVATIONS_ARRIVED, run)
     window.addEventListener('focus', run)
     return () => {
       clearInterval(timer)
-      window.removeEventListener(OBSERVATIONS_ARRIVED, run)
       window.removeEventListener('focus', run)
     }
-  }, [store, ready, autoApply, qc])
+  }, [store, ready, qc])
 }
 
 function useInvalidating<T, R>(fn: (input: T) => Promise<R>) {

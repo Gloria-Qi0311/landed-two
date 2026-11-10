@@ -7,7 +7,6 @@
 // (docs/observation-processor.md).
 //
 // One file per flow; this index keeps `lib/inbox` imports working.
-export { processPending } from './process'
 export { ingestEmailFindings, type EmailIngestResult } from './email'
 export { ingestFoundJobs, addLeadToPipeline, approveLeads, undoApprovals, dismissLead, restoreLead, type Approval, type IngestResult } from './leads'
 export { isClickQuestion, isQuietQuestion, isPanelQuestion, recordApplyClick, QUIET_DAYS, quietDays, flagQuietApplications, openPanelQuestions, settleQuestions, type ClickTarget } from './questions'

@@ -11,11 +11,9 @@ why (#138).
 `packages/schema/src/agent-sourcing.ts` (`SEARCH_PLAYBOOK`, `searchQueries`):
 
 - the daemon's `job_search` system prompt (`apps/daemon/src/agents.ts`) sends
-  them;
-- cloud agents' `get_tasks` job-search instructions
-  (`apps/server/src/routes/mcp.ts`) send the same lines.
+  them to whichever agent searches.
 
-Change the playbook there, and both follow.
+Change the playbook there, and every agent follows.
 
 ## Where to look
 

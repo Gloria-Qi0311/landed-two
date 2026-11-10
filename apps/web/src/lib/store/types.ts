@@ -142,28 +142,6 @@ export type DbAiRun = {
   created_at: string
 }
 
-/** Raw report from an external agent (Muse, Claude, Codex…). Stored as
- *  received; a processor decides later what it means for the pipeline.
- *  payload_json is the agent's whole request body (envelope + payload). */
-export type DbAgentObservation = {
-  id: string
-  user_id: string
-  connection_id: string
-  idempotency_key: string
-  schema_version: string
-  run_id: string
-  observation_type: 'job_discovered' | 'application_status' | 'sync_error' | string
-  payload_json: { payload?: Record<string, unknown> } & Record<string, unknown>
-  payload_sha256: string
-  observed_at: string
-  processing_status: 'pending' | 'processed' | 'needs-review' | 'rejected'
-  processing_result?: Record<string, unknown> | null
-  created_at: string
-  // joined from agent_connections when read from the server
-  provider?: string
-  display_name?: string
-}
-
 /** Processor output (packages/observation-processor): the "to apply" list
  *  and the review queue. */
 export type DbJobLead = JobLead & { user_id: string }
@@ -277,7 +255,6 @@ export type Snapshot = {
   portal_connections: Owned<DbPortalConnection>[]
   portal_events: Owned<DbPortalEvent>[]
   ai_runs: Owned<DbAiRun>[]
-  agent_observations?: Owned<DbAgentObservation>[] // absent in pre-agent backups
   job_leads?: Owned<DbJobLead>[]
   status_suggestions?: Owned<DbSuggestion>[]
   job_searches?: Owned<DbJobSearch>[]
@@ -290,7 +267,7 @@ export type Snapshot = {
 }
 
 export const SNAPSHOT_TABLES = [
-  'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs', 'agent_observations',
+  'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs',
   'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers', 'application_files',
   'resume_files',
 ] as const
@@ -334,12 +311,6 @@ export interface DataStore {
   subscribePortalEvents(onInsert: (row: DbPortalEvent) => void): () => void
 
   addAiRun(row: AiRunInput): Promise<{ id: string }>
-
-  /** Newest first. Local: pulled from the server's relay inbox. Cloud: kept server-side. */
-  listAgentObservations(limit: number): Promise<DbAgentObservation[]>
-  /** Oldest first — the processor's queue. */
-  listPendingObservations(limit: number): Promise<DbAgentObservation[]>
-  markObservation(id: string, status: DbAgentObservation['processing_status'], result: Record<string, unknown>): Promise<void>
 
   listJobLeads(): Promise<DbJobLead[]> // last_seen_at desc
   /** Insert or replace by id; a second lead with the same fingerprint is a 409. */

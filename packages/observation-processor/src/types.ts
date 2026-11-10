@@ -3,7 +3,7 @@ import type { InterviewRound } from '@landed/schema/pipeline'
 
 // Shapes the processor reads and writes. Mirrors the job_leads /
 // status_suggestions tables (apps/server/migrations/0005, local Dexie v3) and
-// the parts of applications/companies/agent_observations it needs.
+// the parts of applications/companies it needs.
 
 /** Pipeline stages (packages/schema/src/pipeline.ts): `saved` shows as a
  *  lead, one `interview` stage replaced phone + onsite. */

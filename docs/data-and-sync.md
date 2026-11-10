@@ -20,7 +20,7 @@ Every data route sits behind `requireCloud` and answers
 `409 { code: 'cloud_off' }` for accounts with sync off. Only account-level routes
 (`/auth/*`, `/me`, `/cloud/*`) work for everyone. Never add a data route outside
 the `requireCloud` group, and never store user data server-side for a sync-off
-account. The one exception is the cloud-agent briefing ([agents.md](agents.md#the-briefing)).
+account.
 
 The signed-in account (`{id, email, cloud_sync}`, no secrets) is cached in
 `localStorage['landed:account']`, so a sync-off account keeps working offline when

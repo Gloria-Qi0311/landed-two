@@ -13,7 +13,7 @@ through and how the parts fit together are in
 | Path | What it is |
 |---|---|
 | `apps/web` | The Landed web app (Vite + React). Data lives in the browser (IndexedDB) unless the account turns on Cloud sync. |
-| `apps/server` | API + Postgres (Hono). Accounts, Cloud data, the agent relay, MCP for cloud agents. Also serves the built web app. |
+| `apps/server` | API + Postgres (Hono). Accounts, Cloud data, the relay for tasks on the user's computer. Also serves the built web app. |
 | `apps/daemon` | Runs on the user's computer: agent tasks with their own Claude Code / Codex / ACP agents, scheduled automations, and Landed for Mac (menu bar app, self-updating). |
 | `apps/extension` | Browser extension: Apply Assist autofill, portal status detection. Chrome/Edge/Brave, and Safari through Landed for Mac. |
 | `packages/schema` | Shapes and validators shared by web, server, daemon. |

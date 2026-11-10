@@ -99,7 +99,7 @@ never go through the Landed server.
 - The server never learns which companies an account follows, so the
   local-first rule holds without a cache keyed carefully by board.
 - It works for every account, with or without a paired computer.
-- The cost: it only refreshes while Landed is open (like the agent relay pull).
+- The cost: it only refreshes while Landed is open.
   The parsers in `packages/supply` are pure, so the daemon can run the same fetch
   on the Workflow schedule later (Landed closed). That is a follow-up, not part
   of this decision. A server-side cache stays out unless a source stops allowing

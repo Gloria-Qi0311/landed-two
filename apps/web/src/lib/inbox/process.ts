@@ -1,5 +1,6 @@
-// Run the observation processor and apply its outcomes to the store.
-import { applyToContext, processObservation, type ApplicationRef, type Context, type Effect, type Outcome, type Settings } from '@landed/observation-processor'
+// Apply the observation processor's outcomes to the store (shared by the
+// email, lead and review flows).
+import { applyToContext, type ApplicationRef, type Context, type Effect, type Outcome, type Settings } from '@landed/observation-processor'
 import type { DataStore, DbApplication, DbSuggestion } from '../store/types'
 
 export const strip = <T extends { user_id: string }>({ user_id: _, ...rest }: T) => rest
@@ -80,28 +81,4 @@ export async function loadContext(store: DataStore, settings: Settings): Promise
     suggestions: suggestions.map(strip),
     settings,
   }
-}
-
-/**
- * Process up to `limit` pending observations. Returns how many were handled.
- * A 409 (another tab saved the same lead/suggestion first) leaves that
- * observation pending; the next run sees the other tab's record and merges.
- */
-export async function processPending(store: DataStore, settings: Settings, limit = 100): Promise<number> {
-  const pending = await store.listPendingObservations(limit)
-  if (pending.length === 0) return 0
-  let ctx = await loadContext(store, settings)
-  let handled = 0
-  for (const o of pending) {
-    const outcome = processObservation(o, ctx, { now: new Date().toISOString(), newId: () => crypto.randomUUID() })
-    try {
-      ctx = await applyOutcome(store, outcome, ctx)
-    } catch (err) {
-      if (isConflict(err)) continue
-      throw err
-    }
-    await store.markObservation(o.id, outcome.status, outcome.result)
-    handled++
-  }
-  return handled
 }

@@ -12,7 +12,7 @@
 >
 > **"你投了吗？"**：用户从 Landed 点开一个 Lead 或 Saved 状态投递的岗位链接后，会生成一条待确认建议（dedupe key 为 `click:lead:<id>` / `click:app:<id>`）。它不进"Needs your input"，而是在 Agent 页面里问，侧边栏的 Agent 上有数字角标。回答"是"就把它加入或移到 Applied，回答"还没有"就关掉，下次再点开时再问。如果收到"已收到申请"的邮件，或者用户手动把它拖到后面的阶段，这个问题会自动关闭，并把对应的 Lead 关联到那条投递（`settleClickQuestions`）。
 
-外部 Agent（Muse、Claude、Codex）通过 [Agent 协议](../apps/server/AGENT_PROTOCOL.md) 把 observation 交给 Landed。目前这些数据只是原样存着。处理程序负责把它们变成用户能直接用的两样东西：
+用户电脑上的 agent（Claude Code、Codex 等）找到的职位和读到的邮件，由浏览器包装成 observation 交给处理程序（外部 agent 和 cloud agent 的上报接口已在 #3 删除）。处理程序负责把它们变成用户能直接用的两样东西：
 
 1. **待投递清单**：Agent 找到的职位，去重后列出来，由用户决定投不投。
 2. **状态更新**：从邮件里判断出的申请进展。有把握的直接生效，没把握的先放进确认队列，等用户确认。
@@ -172,15 +172,13 @@
 - `confidence`、`evidence`（来自 observation）
 - `state`：`pending` | `accepted` | `rejected` | `auto_applied`
 
-**`agent_observations` 增加** `processing_result`（jsonb）：处理结果指向哪个职位、哪条建议或哪条投递，方便调试和撤销。
-
 ---
 
 ## 9. 界面
 
 - **待投递**（新页面，或者放在 Applications 上方）：按发现时间列出状态为 `new` 的职位，显示来源 Agent。操作有"加入投递（Saved）""已投递（Applied）""忽略"。
 - **确认队列**：侧边栏显示一个数字角标。每条建议展示证据（邮件主题、发件方、时间、Agent 的置信度），操作有"接受""拒绝"；有歧义的会让用户在候选投递里选一条。
-- **投递详情抽屉**：活动记录里能看到"由 Muse 根据邮件更新：Interview invitation（10/9）"，并可以撤销。
+- **投递详情抽屉**：活动记录里能看到"由 Claude Code 根据邮件更新：Interview invitation（10/9）"，并可以撤销。
 
 ---
 
@@ -199,4 +197,4 @@
 2. 两张新表和 migration，加入备份格式。
 3. 在浏览器里跑处理程序：本地账号在取件之后处理；云端账号在打开页面时处理 `pending` 的 observation。
 4. 待投递页面和确认队列界面。
-5. 用真实的 Muse 数据（部署之后）检查去重和匹配的准确率，再决定要不要放开自动生效的范围。
+5. 用真实的邮件数据（部署之后）检查去重和匹配的准确率，再决定要不要放开自动生效的范围。

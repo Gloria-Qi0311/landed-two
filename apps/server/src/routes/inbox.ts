@@ -26,7 +26,6 @@ export const SUGGESTION_COLUMNS = [
 ] as const
 
 const JSON_COLUMNS = new Set(['sources', 'candidate_ids', 'evidence', 'observation_ids', 'processing_result', 'screen', 'fit', 'dedupe', 'rank'])
-const PROCESSING_STATUSES = ['pending', 'processed', 'needs-review', 'rejected']
 
 /** Pick the given columns from a request body (null when absent), wrapping
  *  jsonb columns. `id` and `created_at` come from the URL / defaults. */
@@ -121,32 +120,6 @@ export function inboxRoutes(sql: Sql) {
       update status_suggestions set ${sql(patch)} where id = ${c.req.param('id')} and user_id = ${c.get('user').id}
       returning ${sql(SUGGESTION_COLUMNS as unknown as string[])}`
     if (!row) fail(404, 'suggestion not found')
-    return c.json(row)
-  })
-
-  // Cloud processing queue: pending observations, oldest first.
-  app.get('/agent-observations/pending', async (c) => {
-    const limit = Math.min(Math.max(Number(c.req.query('limit')) || 100, 1), 500)
-    return c.json(await sql`
-      select o.*, c.provider, c.display_name
-      from agent_observations o
-      join agent_connections c on c.id = o.connection_id and c.user_id = o.user_id
-      where o.user_id = ${c.get('user').id} and o.processing_status = 'pending' and o.payload_json is not null
-      order by o.created_at limit ${limit}`)
-  })
-
-  app.patch('/agent-observations/:id', async (c) => {
-    const body = await jsonBody<Row>(c)
-    if (!PROCESSING_STATUSES.includes(body.processing_status)) {
-      fail(400, `processing_status must be one of: ${PROCESSING_STATUSES.join(', ')}`)
-    }
-    const [row] = await sql`
-      update agent_observations
-      set processing_status = ${body.processing_status},
-          processing_result = ${body.processing_result == null ? null : sql.json(body.processing_result)}
-      where id = ${c.req.param('id')} and user_id = ${c.get('user').id}
-      returning id, processing_status, processing_result`
-    if (!row) fail(404, 'observation not found')
     return c.json(row)
   })
 

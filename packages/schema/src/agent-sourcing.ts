@@ -1,9 +1,8 @@
 // How an agent finds "wild" jobs: postings on no list Landed reads itself
 // (#138; docs/agent-sourcing.md). One playbook for every agent that searches:
-// the daemon's job_search (apps/daemon/src/agents.ts) and cloud agents'
-// get_tasks (apps/server/src/routes/mcp.ts) both send these lines, so the two
-// never drift. Plain TS, no dependencies: the server runs it with Node's type
-// stripping, the daemon bundles it.
+// the daemon's job_search (apps/daemon/src/agents.ts) sends these lines to
+// whichever agent runs the search. Plain TS, no dependencies: the daemon
+// bundles it.
 
 import type { SearchBrief } from './search-brief.ts'
 

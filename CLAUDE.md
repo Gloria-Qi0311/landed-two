@@ -9,12 +9,11 @@ it before you change that area.
 | Landed two's product direction: who it is for, what it does, the target architecture, the roadmap. Where it differs from the docs below, it is the goal the code moves to | [docs/product.md](docs/product.md) |
 | What Landed is, the pipeline every job goes through, the principles, what each agent call sees, how the parts fit, every place a common change touches | [docs/architecture.md](docs/architecture.md) |
 | Local-first data, DataStore, Cloud sync, snapshots, the server | [docs/data-and-sync.md](docs/data-and-sync.md) |
-| External and cloud agents, the daemon, tasks, chat, automations | [docs/agents.md](docs/agents.md) |
+| Agents on the user's computer, the daemon, tasks, chat, automations | [docs/agents.md](docs/agents.md) |
 | Extension, Apply Assist, application answers, Landed for Mac | [docs/apply-assist.md](docs/apply-assist.md) |
 | Stages, interview rounds, deadlines, duplicates, My Resume | [docs/pipeline.md](docs/pipeline.md) |
 | Matching and auto-apply rules | [docs/observation-processor.md](docs/observation-processor.md) |
 | Visual style | [docs/ui.md](docs/ui.md) |
-| Agent HTTP protocol | [apps/server/AGENT_PROTOCOL.md](apps/server/AGENT_PROTOCOL.md) |
 | Server setup and deployment | [apps/server/README.md](apps/server/README.md) |
 | Leads as the apply queue: fields, priority, where postings are fetched | [docs/leads-model.md](docs/leads-model.md) |
 
@@ -50,8 +49,7 @@ messages (PR title and a clean body, no trailer).
   `SNAPSHOT_TABLES` and types (web), `COLUMNS` in `routes/sync.ts`, and deletion in
   `/api/cloud/disable`.
 - Every data route sits behind `requireCloud`. The server never stores user data
-  for a sync-off account. The cloud-agent briefing is the one exception; don't
-  widen it.
+  for a sync-off account.
 - Every query filters by `c.get('user').id`. Child tables use composite FKs
   `(parent_id, user_id) references parent (id, user_id)`.
 - Account-level preferences go in the `users` row through `/api/me`
@@ -69,8 +67,7 @@ messages (PR title and a clean body, no trailer).
 - A listing site's own page (jobright.ai) is never the application: a posting
   takes its company's board link only for the very same title, else auto apply
   skips it and says so.
-- Every searching agent (the daemon's `job_search`, cloud agents' `get_tasks`)
-  gets the one playbook in `packages/schema/src/agent-sourcing.ts`: report only
+- Every searching agent (the daemon's `job_search`) gets the one playbook in `packages/schema/src/agent-sourcing.ts`: report only
   postings whose own page it opened, the company's or job board's link, never a
   social post; never sign in, pass a CAPTCHA or scrape LinkedIn / Indeed.
 - Which companies an account follows (for their job boards) is worked out in the
@@ -93,13 +90,11 @@ messages (PR title and a clean body, no trailer).
   live) turns them into leads and suggestions, in the browser.
 - Confident email updates apply on their own and are undoable. Ambiguous ones,
   low confidence and re-opening a closed application always ask.
-- Agent writes are idempotent on `(connection_id, Idempotency-Key)`. Never assume
-  an agent calls once.
-- A new observation type or field changes the validators in `routes/agent.ts`,
-  `AGENT_PROTOCOL.md` and `lib/agent-prompt.ts` together.
-- For sync-off accounts the server only relays observations (purged after the
-  browser acks, hash kept, 7-day expiry). Runtime tasks live in server memory only,
-  never in the database.
+- Storing an agent's results is idempotent (one stable observation id per run
+  and item). Never assume a result arrives once.
+- Agents run only on the user's own computer (the daemon). No external, cloud or
+  personal agent connects to Landed (removed in #3). Runtime tasks live in server
+  memory only, never in the database.
 - Task kinds are a fixed set validated on both ends. Never forward commands,
   shell, prompts-as-shell or file paths to the daemon.
 - The daemon sandboxes every agent by flags: empty workspace,
@@ -248,8 +243,7 @@ messages (PR title and a clean body, no trailer).
   The chat's brief card saves to it and searches now with the same agents; the
   agent only suggests.
 - Check email is read by the ticked agents the same way: the computer's agent that
-  can (Claude Code with its mail connector) and each cloud agent on its own; none
-  ticked means none.
+  can (Claude Code with its mail connector); none ticked means none.
 
 ## UI
 
