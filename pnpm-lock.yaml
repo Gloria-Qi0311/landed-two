@@ -112,9 +112,6 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.6)
-      '@landed/ai-roundtrip':
-        specifier: workspace:*
-        version: link:../../packages/ai-roundtrip
       '@landed/observation-processor':
         specifier: workspace:*
         version: link:../../packages/observation-processor
@@ -191,21 +188,6 @@ importers:
       vitest:
         specifier: 4.1.6
         version: 4.1.6(@types/node@25.8.0)(jsdom@27.4.0)(vite@8.0.13(@types/node@25.8.0)(jiti@1.21.7))
-
-  packages/ai-roundtrip:
-    devDependencies:
-      '@types/node':
-        specifier: ^25.8.0
-        version: 25.8.0
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^4.1.6
-        version: 4.1.6(@types/node@25.8.0)(jsdom@27.4.0)(vite@8.0.13(@types/node@25.8.0)(jiti@1.21.7))
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
 
   packages/observation-processor:
     dependencies:

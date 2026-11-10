@@ -106,7 +106,7 @@ function WhatsNext({ item }: { item: { name: string; result_id?: string } }) {
   )
 }
 
-export function UploadPane({ manual, onOpenMaster, pick = false, onPicked }: { manual: ReactNode; onOpenMaster: () => void; pick?: boolean; onPicked?: () => void }) {
+export function UploadPane({ onOpenMaster, pick = false, onPicked }: { onOpenMaster: () => void; pick?: boolean; onPicked?: () => void }) {
   const target = agentFor(useRuntimes().data, 'resume_parse')
   const uploads = useResumeTask((s) => s.uploads)
   const upload = useResumeTask((s) => s.upload)
@@ -114,7 +114,6 @@ export function UploadPane({ manual, onOpenMaster, pick = false, onPicked }: { m
   const clear = useResumeTask((s) => s.clearUploads)
   const task = useResumeTask((s) => s.task)
   const [over, setOver] = useState(false)
-  const [showManual, setShowManual] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
   // The header's Upload resume asks for the file chooser (still within the click's user activation).
   useEffect(() => {
@@ -191,12 +190,6 @@ export function UploadPane({ manual, onOpenMaster, pick = false, onPicked }: { m
         </div>
       )}
 
-      <div>
-        <button type="button" className="btn-secondary" style={{ fontSize: 11.5 }} onClick={() => setShowManual(!showManual)}>
-          {showManual ? 'Hide' : target.agent ? 'Or paste it from ChatGPT, Claude or Gemini' : 'Or have ChatGPT, Claude or Gemini read it all now, and paste it back'}
-        </button>
-      </div>
-      {showManual && manual}
     </div>
   )
 }

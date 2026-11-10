@@ -135,8 +135,8 @@ runs in the browser, like the export.
   actually read (otherwise the result would be invented), and deletes the folder
   afterwards. Word files become text in the browser (mammoth). The newest PDF or
   Word upload is also kept as the file the extension uploads (`keepResumeFile` in
-  `lib/resume-tasks.ts`). The paste-from-ChatGPT flow (`packages/ai-roundtrip`) is
-  only a fallback for when no computer is connected.
+  `lib/resume-tasks.ts`). Without a computer, the browser reads only a resume's
+  basics and the rest waits for the agent ([agents.md](agents.md#resume-upload)).
 - **The master** (one per account) is merged from every upload by the user's
   agent (`resume_merge`). It is the most complete record: each experience is split
   into bullets, and each bullet keeps **every phrasing** (`variants`, with the

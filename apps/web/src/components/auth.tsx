@@ -526,11 +526,6 @@ const ONBOARDING_STEPS = [
     body: 'Our browser extension watches Greenhouse, Lever, Workday, Ashby and more. Stage changes show up here without you refreshing.',
     art: 'sync',
   },
-  {
-    title: 'AI without paying for an API',
-    body: "Generate a prompt, send it to your existing ChatGPT / Claude / Gemini, paste the reply back. We parse the structured answer and visualize the comparison.",
-    art: 'ai',
-  },
 ];
 
 export function OnboardingTour({ onClose }: { onClose: () => void }) {
@@ -639,29 +634,6 @@ function TourArt({ kind }: { kind: string }) {
             <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{p.state}</span>
           </div>
         ))}
-      </div>
-    );
-  }
-  if (kind === 'ai') {
-    return (
-      <div style={{ position: 'absolute', inset: 0, padding: 18, display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'center' }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-muted)', lineHeight: 1.6, padding: 10, background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 5 }}>
-          # Generated prompt<br/>
-          Compare resume against 4 JDs. Return JSON…
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {[
-            { name: 'ChatGPT', color: 'oklch(0.55 0.13 155)' },
-            { name: 'Claude',  color: 'oklch(0.58 0.14 40)' },
-            { name: 'Gemini',  color: 'oklch(0.55 0.13 255)' },
-          ].map(p => (
-            <div key={p.name} style={{ flex: 1, padding: 8, background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 4, background: p.color }} />
-              <span style={{ fontSize: 11, fontWeight: 500 }}>{p.name}</span>
-              <Icon name="external" size={10} />
-            </div>
-          ))}
-        </div>
       </div>
     );
   }
