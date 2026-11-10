@@ -352,8 +352,8 @@ The rules' fit score (`scoreFit`, above) is always computed. When Workflow → R
 is set to "Landed rules and your agent" (`users.automations.job_search.rank_by`,
 `'landed'` by default), new leads also go to the user's own agent:
 
-- **What it gets** (`lib/rank.ts`, `hooks/rank.ts`): the same context the chat
-  agent gets (`chatContext`: the resume gist, the answers that shape a search, the
+- **What it gets** (`lib/rank.ts`, `hooks/rank.ts`): what Landed tells the
+  user's agent about them (`agentContext` in `lib/agent-context.ts`: the resume gist, the answers that shape a search, the
   search; never contact details, address, date of birth or EEO answers). With it
   go the batch's postings: title, company, place and the first 2,500 characters of
   the description. It goes through the extension (bridge `rank-leads`) and Landed

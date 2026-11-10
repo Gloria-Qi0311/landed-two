@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  chatImages, chatWithContext, chatWithHistory, contextToSend, claudeImageMessage, claudeChatArgs, claudeEmailArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
+  claudeEmailArgs, claudeParseArgs, claudeResumeArgs, claudeSearchArgs, emailPrompt, mailServer, mergePrompt, tailorPrompt,
   initHasServer, isReadOnlyTool, mailFromInit, parseClaudeAuthStatus, parseClaudeLine, readOnlyMailTools, searchPrompt,
 } from '../src/agents.ts'
 import { coalesce, createSseParser } from '../src/connection.ts'
@@ -26,14 +26,11 @@ test('parses Claude Code stream-json into task events', () => {
   ])
 })
 
-test('chat args: new sessions are created, later turns resume; only web tools', () => {
-  const id = '11111111-2222-4333-8444-555555555555'
-  const first = claudeChatArgs(id, false)
-  assert.deepEqual(first.slice(first.indexOf('--session-id'), first.indexOf('--session-id') + 2), ['--session-id', id])
-  assert.ok(claudeChatArgs(id, true).includes('--resume'))
-  const tools = first.slice(first.indexOf('--tools') + 1, first.indexOf('--allowedTools'))
+test('search args: only web tools, none of the user\'s own settings', () => {
+  const args = claudeSearchArgs()
+  const tools = args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools'))
   assert.deepEqual(tools, ['WebSearch', 'WebFetch'])
-  assert.equal(first[first.indexOf('--setting-sources') + 1], '', "ignores the user's own settings and hooks")
+  assert.equal(args[args.indexOf('--setting-sources') + 1], '', "ignores the user's own settings and hooks")
 })
 
 test('job search: structured result becomes done + jobs; the result tool is not a step', () => {
@@ -92,8 +89,7 @@ test('searchQueries: the first roles on the job boards, Workday first, with the 
   assert.equal(many[0], 'site:myworkdayjobs.com "Data Analyst" "new grad"')
 })
 
-test('chat and search switch off every MCP server', () => {
-  assert.ok(claudeChatArgs('11111111-2222-4333-8444-555555555555', false).includes('--strict-mcp-config'))
+test('search switches off every MCP server', () => {
   assert.ok(claudeSearchArgs().includes('--strict-mcp-config'))
 })
 
@@ -179,12 +175,6 @@ test('resume parse: the agent may read that one file and nothing else', () => {
   assert.ok(!text.includes('--allowedTools'))
 })
 
-test('chat: an old conversation on a computer without its session gets the history', () => {
-  assert.equal(chatWithHistory([], 'hi'), 'hi')
-  const text = chatWithHistory([{ role: 'user', text: 'AI PM roles in the US?' }, { role: 'agent', text: 'Do you need sponsorship?' }], 'Yes, H-1B')
-  assert.match(text, /User: AI PM roles in the US\?[\s\S]*You \(the assistant\): Do you need sponsorship\?[\s\S]*Yes, H-1B$/)
-})
-
 test('init event: did the needed MCP server load?', () => {
   const init = (servers: string[]) => JSON.stringify({ type: 'system', subtype: 'init', mcp_servers: servers.map((name) => ({ name, status: 'pending' })) })
   assert.equal(initHasServer(init(['claude.ai Gmail', 'claude.ai Google Drive']), 'claude.ai Gmail'), true)
@@ -205,31 +195,3 @@ test('coalesce merges consecutive deltas only', () => {
   ]), [{ type: 'started', agent: 'claude' }, { type: 'delta', text: 'ab' }, { type: 'tool', name: 'WebSearch' }, { type: 'delta', text: 'c' }])
 })
 
-test('screenshots in a chat: one stream-json user message with image blocks; no file tools needed', () => {
-  const images = chatImages([{ type: 'image/png', data_base64: 'aGk=' }, { type: 'text/html', data_base64: 'eA==' }, null])
-  assert.deepEqual(images, [{ type: 'image/png', data_base64: 'aGk=' }])
-  const line = claudeImageMessage('add this application', images)
-  assert.ok(line.endsWith('\n'))
-  assert.deepEqual(JSON.parse(line), {
-    type: 'user',
-    message: { role: 'user', content: [
-      { type: 'text', text: 'add this application' },
-      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGk=' } },
-    ] },
-  })
-  // The chat's tools stay the web ones: images arrive in the message, not as files.
-  assert.ok(!claudeChatArgs(crypto.randomUUID(), false).includes('Read'))
-})
-
-test('chat: what Landed knows about the user goes to a new session, and again only when it changes', () => {
-  const ctx = 'From their master resume:\n- Education: MS, Information Management — University of Washington'
-  assert.equal(contextToSend('c-1', ctx, true), ctx, 'a new session gets it')
-  assert.equal(contextToSend('c-1', ctx, false), null, 'a resumed session already has it')
-  assert.equal(contextToSend('c-1', `${ctx}\n- Skills: SQL`, false), `${ctx}\n- Skills: SQL`, 'changed: sent again')
-  assert.equal(contextToSend('c-2', '   ', true), null)
-  assert.equal(contextToSend('c-3', { not: 'text' }, true), null)
-  const text = chatWithContext(ctx, 'set up a search for me')
-  assert.match(text, /^\(What Landed knows about the user/)
-  assert.ok(text.endsWith('set up a search for me'))
-  assert.equal(chatWithContext(null, 'hi'), 'hi')
-})

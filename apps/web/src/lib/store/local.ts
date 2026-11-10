@@ -7,7 +7,6 @@
 // device's data always uploads cleanly when the user turns Cloud on.
 import Dexie, { type Table } from 'dexie'
 import { parseSourceRuns } from '@landed/schema/automation'
-import { parseConversation } from '@landed/schema/conversation'
 import { parseApplicationAnswers } from '@landed/schema/application-answers'
 import { parseApplicationFile, parseResumeFile } from '@landed/schema/application-files'
 import { MAX_DIRECTIONS, parseDirections, parseMasterResume, parseResumeChoice, type ResumeChoice, parseTailorNotes, parseTarget, parseWaitingFile } from '@landed/schema/master-resume'
@@ -18,7 +17,7 @@ import { parseBrief } from '@landed/schema/search-brief'
 import { companyKey, titleKey } from '@landed/observation-processor'
 import {
   APPLICATION_PATCH_FIELDS, BACKUP_FORMAT, BACKUP_VERSION, SNAPSHOT_TABLES,
-  type AiRunInput, type ApplicationInput, type DbApplicationAnswers, type DbApplicationFile, type DbResumeFile, type DbConversation, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
+  type AiRunInput, type ApplicationInput, type DbApplicationAnswers, type DbApplicationFile, type DbResumeFile, type DbJobLead, type DbJobSearch, type DbSuggestion, type ApplicationPatch, type CompanyInput, type ConnectionInput,
   type DataStore, type DbAiRun, type DbApplication, type DbCompany, type DbPortalConnection,
   type DbPortalEvent, type DbResume, type ApplicationsImport, type PortalEventInput, type Snapshot,
 } from './types'
@@ -78,7 +77,6 @@ class LandedDB extends Dexie {
   job_leads!: Table<DbJobLead, string>
   status_suggestions!: Table<DbSuggestion, string>
   job_searches!: Table<DbJobSearch, string>
-  agent_conversations!: Table<DbConversation, string>
   application_answers!: Table<DbApplicationAnswers, string>
   application_files!: Table<DbApplicationFile & { data: string }, string>
   resume_files!: Table<DbResumeFile & { data: string }, string>
@@ -196,6 +194,8 @@ class LandedDB extends Dexie {
     })
     // v19: external agents and their observation relay are gone (#3).
     this.version(19).stores({ agent_observations: null })
+    // v20: no Agent chat in Landed two (#2); its history goes.
+    this.version(20).stores({ agent_conversations: null })
   }
 }
 
@@ -621,29 +621,6 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
       })
     },
 
-    async listConversations() {
-      return (await db.agent_conversations.toArray()).sort(byDesc('updated_at'))
-    },
-    async saveConversation(input) {
-      const conv = parseConversation(input)
-      if (!conv) throw new LocalStoreError(400, 'not a conversation')
-      askPersist()
-      return db.transaction('rw', db.agent_conversations, async () => {
-        const existing = await db.agent_conversations.get(conv.id)
-        const at = now()
-        const row: DbConversation = {
-          id: conv.id, user_id: LOCAL_USER, title: conv.title, turns: conv.turns,
-          created_at: existing?.created_at ?? conv.created_at ?? at, updated_at: at,
-        }
-        await db.agent_conversations.put(row)
-        return row
-      })
-    },
-    async deleteConversation(id) {
-      if (!(await db.agent_conversations.get(id))) throw new LocalStoreError(404, 'conversation not found')
-      await db.agent_conversations.delete(id)
-    },
-
     async getApplicationAnswers() {
       return (await db.application_answers.toArray())[0] ?? null
     },
@@ -721,7 +698,6 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         job_leads: (await db.job_leads.toArray()).map(strip),
         status_suggestions: (await db.status_suggestions.toArray()).map(strip),
         job_searches: (await db.job_searches.toArray()).map(strip),
-        agent_conversations: (await db.agent_conversations.toArray()).map(strip),
         application_answers: (await db.application_answers.toArray()).map(strip),
         application_files: (await db.application_files.toArray()).map(strip),
         resume_files: (await db.resume_files.toArray()).map(strip),
@@ -754,7 +730,6 @@ export function createLocalStore(dbName = 'landed'): LocalStore {
         await db.job_leads.bulkAdd((own(snapshot.job_leads) as DbJobLead[]).map((l) => ({ ...l, ...leadQueueDefaults(l) })))
         await db.status_suggestions.bulkAdd(own(snapshot.status_suggestions) as DbSuggestion[])
         await db.job_searches.bulkAdd(own(snapshot.job_searches) as DbJobSearch[])
-        await db.agent_conversations.bulkAdd(own(snapshot.agent_conversations) as DbConversation[])
         // One per account: the first row of a backup, validated.
         await db.application_answers.bulkAdd((own(snapshot.application_answers) as DbApplicationAnswers[]).slice(0, 1)
           .map((r) => ({ ...r, answers: parseApplicationAnswers(r.answers) })))

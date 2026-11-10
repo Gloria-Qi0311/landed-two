@@ -2,7 +2,7 @@
 // server (apps/server). Active for accounts with Landed Cloud sync on.
 import { api } from '../api'
 import type {
-  DataStore, DbApplication, DbApplicationAnswers, DbApplicationFile, DbResumeFile, DbConversation, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
+  DataStore, DbApplication, DbApplicationAnswers, DbApplicationFile, DbResumeFile, DbJobLead, DbJobSearch, DbSuggestion, DbCompany, DbPortalConnection, DbPortalEvent, DbResume, Snapshot,
 } from './types'
 
 export function createCloudStore(): DataStore {
@@ -54,9 +54,6 @@ export function createCloudStore(): DataStore {
     addJobSearch: (brief) => api.post<DbJobSearch>('/job-searches', { brief }),
     updateJobSearch: (id, patch) => api.patch<DbJobSearch>(`/job-searches/${id}`, patch),
 
-    listConversations: () => api.get<DbConversation[]>('/agent-conversations'),
-    saveConversation: (c) => api.put<DbConversation>(`/agent-conversations/${c.id}`, c),
-    deleteConversation: (id) => api.del(`/agent-conversations/${id}`),
 
     getApplicationAnswers: () => api.get<DbApplicationAnswers | null>('/application-answers'),
     // The server keeps the account's first id; a fresh one is only used once.

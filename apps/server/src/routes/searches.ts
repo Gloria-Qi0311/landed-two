@@ -1,4 +1,4 @@
-// Job searches: the direction the user confirmed in the Agent chat (a
+// Job searches: the direction the user set in Workflow → Find new jobs (a
 // brief) and how its last run went: the agents' (last_run_*), and each
 // public source's (source_runs). Mounted behind requireCloud — sync-off
 // accounts keep these in their browser. Runs happen on the user's computer

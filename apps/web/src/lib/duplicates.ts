@@ -3,7 +3,7 @@
 // the processor's matching (same employer by company key — 蚂蚁集团 = 蚂蚁 —
 // and the same posting link or a nearly identical title, brackets included,
 // so 产品管培生（上海） and （广东省） stay two). It never merges on its own:
-// the Agent page asks, group by group (components/duplicates.tsx). "Not
+// "Needs your input" asks, group by group (components/duplicates.tsx). "Not
 // duplicates" is remembered as a resolved suggestion with a Landed-made key
 // (`dup:<ids>`), like the other panel questions.
 import { atsJobKey, canonicalUrl, companyKey, titleSimilarity } from '@landed/observation-processor'

@@ -13,7 +13,7 @@ Landed Cloud sync.
 
 | | |
 |---|---|
-| `apps/web` | The web app: applications board, agent chat, automations, resumes, extension settings |
+| `apps/web` | The web app: applications board, Workflow, resumes, extension settings, the Connector page |
 | `apps/server` | Accounts, Cloud data, the relay for tasks on your computer; serves the web app |
 | `apps/daemon` | Landed for Mac and the background service that runs agent tasks and schedules |
 | `apps/extension` | Browser extension: autofill (Apply Assist) and portal status detection |

@@ -1,5 +1,5 @@
 // Questions forms asked that nothing answered yet (Extension page; the
-// sidebar's Extension item counts them, the Agent page points here). The
+// sidebar's Extension item counts them, "Needs your input" points here). The
 // extension reports the fields a fill had to leave empty, the page bridge
 // keeps them with the application answers (hooks/extension-bridge.ts), and
 // the user answers each once: the answer goes to the field the question is
@@ -100,7 +100,7 @@ function PendingRow({ q, first, busy, onAnswer, onSkip }: {
   )
 }
 
-/** On the Agent page: a pointer to the Extension page while questions wait. */
+/** Under "Needs your input": a pointer to the Extension page while questions wait. */
 export function PendingQuestionsNotice({ style }: { style?: React.CSSProperties }) {
   const pending = usePendingQuestions()
   if (pending.length === 0) return null

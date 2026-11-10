@@ -119,7 +119,7 @@ export function useLeadActions() {
   }
 }
 
-/** Opening a posting from Landed → "did you apply?" on the Agent page. */
+/** Opening a posting from Landed → "did you apply?" under Needs your input. */
 export function useRecordApplyClick() {
   const { store } = useStore()
   const qc = useQueryClient()

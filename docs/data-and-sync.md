@@ -44,8 +44,7 @@ as they are. Rows carry client-generated UUIDs, which is what makes upload
 idempotent.
 
 `POST /api/cloud/disable` deletes every data table for the account. A new table
-must be added there too (`job_searches` and `agent_conversations` once stayed
-behind).
+must be added there too (`job_searches` once stayed behind).
 
 ### Local schema changes
 

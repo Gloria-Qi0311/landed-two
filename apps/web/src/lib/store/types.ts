@@ -6,7 +6,6 @@
 // snake_case shape in both places — the server's JSON shape — so hooks and
 // components never care which backend they're talking to.
 import type { Resume } from '@landed/schema'
-import type { Conversation } from '@landed/schema/conversation'
 import type { ApplicationAnswers } from '@landed/schema/application-answers'
 import type { ApplicationFile, FileKind, ResumeFile } from '@landed/schema/application-files'
 import type { ResumeChoice } from '@landed/schema/master-resume'
@@ -158,7 +157,7 @@ export type SearchRunResult = {
   failed?: string[]
 }
 
-/** The job search direction the user confirmed in the Agent chat. One
+/** The job search direction the user set in Workflow → Find new jobs. One
  *  is active at a time; confirming a new brief archives the previous one. */
 export type DbJobSearch = {
   id: string
@@ -172,9 +171,6 @@ export type DbJobSearch = {
   created_at: string
   updated_at: string
 }
-
-/** A conversation on the Agent page (id = its Claude Code session id). */
-export type DbConversation = Conversation & { user_id: string }
 
 /** A file the extension uploads into forms (metadata; the bytes come from
  *  getApplicationFileData). One per kind per account. */
@@ -258,7 +254,6 @@ export type Snapshot = {
   job_leads?: Owned<DbJobLead>[]
   status_suggestions?: Owned<DbSuggestion>[]
   job_searches?: Owned<DbJobSearch>[]
-  agent_conversations?: Owned<DbConversation>[]
   application_answers?: Owned<DbApplicationAnswers>[]
   /** with `data` (base64) */
   application_files?: (Owned<DbApplicationFile> & { data: string })[]
@@ -268,7 +263,7 @@ export type Snapshot = {
 
 export const SNAPSHOT_TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs',
-  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers', 'application_files',
+  'job_leads', 'status_suggestions', 'job_searches', 'application_answers', 'application_files',
   'resume_files',
 ] as const
 
@@ -335,11 +330,6 @@ export interface DataStore {
     id: string,
     patch: Partial<Pick<DbJobSearch, 'status' | 'last_run_at' | 'last_run_result'>> & { source_runs?: SourceRuns },
   ): Promise<DbJobSearch>
-
-  listConversations(): Promise<DbConversation[]> // updated_at desc
-  /** Insert or replace the whole conversation (title + turns); bumps updated_at. */
-  saveConversation(c: Pick<Conversation, 'id' | 'title' | 'turns'> & Partial<Pick<Conversation, 'created_at'>>): Promise<DbConversation>
-  deleteConversation(id: string): Promise<void>
 
   /** null until the user saves them once. */
   getApplicationAnswers(): Promise<DbApplicationAnswers | null>

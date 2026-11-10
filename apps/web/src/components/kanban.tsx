@@ -80,7 +80,7 @@ function CardContent({ app, comp, c, isDuplicate, onSetDeadline, grouped }: Card
       {app.stage === 'saved' && onSetDeadline && <DeadlineChip compact deadline={app.deadline} onSave={(d) => onSetDeadline(app.id, d)} />}
       {isDuplicate && (
         <div
-          title="Looks like another application here (same company, same role or link). Merge them on the Agent page."
+          title="Looks like another application here (same company, same role or link). Merge them under Needs your input."
           style={{
             fontSize: 10, color: 'oklch(0.42 0.12 60)',
             background: 'oklch(0.97 0.04 60)',
@@ -551,7 +551,7 @@ export const KanbanView = ({ apps, companies, onOpen, onMoveCard, leads = [], qu
   const getCompany = (id: string): MarkCompany => companies.find(c => c.id === id) ?? UNKNOWN_COMPANY;
 
   // Applications that look like the same one (lib/duplicates.ts): badged
-  // here, merged from the Agent page.
+  // here, merged from Needs your input (components/agent-updates.tsx).
   const duplicateIds = useMemo(() => findDuplicateAppIds(apps, companies), [apps, companies]);
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {

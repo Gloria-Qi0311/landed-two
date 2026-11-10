@@ -26,8 +26,6 @@ import type { Sql } from '../db.ts'
 import { fail, jsonBody } from '../http.ts'
 import { LEAD_COLUMNS, SUGGESTION_COLUMNS } from './inbox.ts'
 import { SEARCH_COLUMNS } from './searches.ts'
-import { CONVERSATION_COLUMNS } from './conversations.ts'
-import { parseConversation } from '@landed/schema/conversation'
 import { parseApplicationAnswers } from '@landed/schema/application-answers'
 import { ANSWER_COLUMNS } from './answers.ts'
 import { FILE_COLUMNS, RESUME_FILE_COLUMNS } from './files.ts'
@@ -42,7 +40,7 @@ export const BACKUP_VERSION = 1
 
 const TABLES = [
   'companies', 'applications', 'resumes', 'portal_connections', 'portal_events', 'ai_runs',
-  'job_leads', 'status_suggestions', 'job_searches', 'agent_conversations', 'application_answers', 'application_files',
+  'job_leads', 'status_suggestions', 'job_searches', 'application_answers', 'application_files',
   'resume_files',
 ] as const
 const MAX_ROWS_PER_TABLE = 20_000
@@ -65,7 +63,6 @@ const COLUMNS = {
   job_leads: LEAD_COLUMNS,
   status_suggestions: SUGGESTION_COLUMNS,
   job_searches: SEARCH_COLUMNS,
-  agent_conversations: CONVERSATION_COLUMNS,
   application_answers: ANSWER_COLUMNS,
   application_files: FILE_COLUMNS,
   resume_files: RESUME_FILE_COLUMNS,
@@ -237,12 +234,6 @@ export async function uploadSnapshot(tx: Sql, userId: string, snap: Row): Promis
         brief: parseBrief(r.brief), status: active ? 'active' : 'archived', source_runs: Object.keys(runs).length ? runs : null,
       })
     }), true)
-
-  // chat history — validated like a PUT; an id the account already has is kept as is
-  counts.agent_conversations = await insertRows('agent_conversations', list('agent_conversations')
-    .map((r) => parseConversation(r))
-    .filter((c): c is NonNullable<typeof c> => !!c)
-    .map((c) => normalize('agent_conversations', c, { turns: c.turns, updated_at: c.updated_at ?? base.created_at })))
 
   // application answers — one per account; the account's own copy wins
   counts.application_answers = await insertRows('application_answers', list('application_answers').slice(0, 1)

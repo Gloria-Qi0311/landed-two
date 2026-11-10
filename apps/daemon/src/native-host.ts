@@ -17,8 +17,8 @@
 // spreadsheet ("待申请", "先放着") and names the stage each one means. same_job
 // gets pairs of public postings the duplicate rules couldn't decide (company,
 // title, place, link, the start of the description; nothing about the user)
-// and says same, different or unsure for each. rank_leads gets what the chat
-// agent is told about the user (resume gist, the answers that shape a search,
+// and says same, different or unsure for each. rank_leads gets what Landed
+// tells the user's agent about them (resume gist, the answers that shape a search,
 // the search; never contact details, address, date of birth or EEO) and new
 // postings, and scores each 0–1 with its reasons. It never receives cookies,
 // clicks buttons, or invents application facts.
@@ -775,7 +775,7 @@ export async function sameJobWithOllama(message: SameJobRequest, fetchFn: Fetch 
 }
 
 // ── ranking new leads: the user's own agent scores them (#147) ────────────
-// The browser sends the same context the chat agent gets (lib/chat-context.ts:
+// The browser sends what Landed tells the user's agent about them (lib/agent-context.ts:
 // never contact details, address, date of birth or EEO answers) and a batch
 // of postings. Each gets a 0–1 score and 1–3 short reasons; one without
 // reasons gets no score (the rules' score stands). Postings are page text:

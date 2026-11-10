@@ -538,7 +538,7 @@ describe('sync: local device <-> Landed Cloud', () => {
     assert.deepEqual(up.body, {
       companies: 2, companies_merged: 0, applications: 2, portal_connections: 1,
       portal_events: 2, resumes: 1, ai_runs: 1, job_leads: 0, status_suggestions: 0,
-      job_searches: 0, agent_conversations: 0, application_answers: 0, application_files: 0, resume_files: 0,
+      job_searches: 0, application_answers: 0, application_files: 0, resume_files: 0,
     })
 
     const exp = await call('GET', '/api/export', { token: erin })
@@ -659,7 +659,7 @@ describe('local-first: Cloud sync is opt-in per account', () => {
     const off = await call('POST', '/api/cloud/disable', { token: mo, body: { password: 'mo-password-1' } })
     assert.equal(off.status, 200)
     const [{ id }] = await sql`select id from users where email = 'mo@example.com'`
-    for (const table of ['companies', 'applications', 'resumes', 'portal_events', 'portal_connections', 'ai_runs', 'ai_provider_keys', 'job_searches', 'agent_conversations', 'application_answers', 'application_files']) {
+    for (const table of ['companies', 'applications', 'resumes', 'portal_events', 'portal_connections', 'ai_runs', 'ai_provider_keys', 'job_searches', 'application_answers', 'application_files']) {
       const [{ n }] = await sql`select count(*)::int as n from ${sql(table)} where user_id = ${id}`
       assert.equal(n, 0, table)
     }
@@ -867,24 +867,25 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
 
     const hello = await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', version: '2.1.284' }], daemon_version: '0.1.0' } })
     assert.equal(hello.status, 200)
-    assert.deepEqual(hello.body.agents, [{ id: 'claude', label: 'Claude Code', version: '2.1.284', kinds: ['chat'], mail: null }], 'old daemons can only chat')
+    assert.deepEqual(hello.body.agents, [{ id: 'claude', label: 'Claude Code', version: '2.1.284', kinds: [], mail: null }], 'old daemons run nothing until updated')
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', version: '2.1.284', kinds: ['job_search'] }], daemon_version: '0.1.0' } })
 
     const send = (token: string, body: Record<string, unknown>) => call('POST', '/api/runtime-jobs', { token, body })
-    const chat = { runtime_id: id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), message: 'hi' } }
-    const offline = await send(owner, chat)
+    const task = { runtime_id: id, agent: 'claude', kind: 'job_search', input: { brief: { roles: ['Product Manager'] }, search_id: crypto.randomUUID() } }
+    const offline = await send(owner, task)
     assert.equal(offline.status, 409)
     assert.equal(offline.body.code, 'runtime_offline')
 
     const daemon = sse('/api/runtime/stream', rt)
     await daemon.until('event: ready')
     assert.equal((await call('GET', '/api/runtimes', { token: owner })).body[0].online, true)
-    assert.equal((await send(owner, { ...chat, agent: 'codex' })).status, 400, 'agent not installed there')
-    assert.equal((await send(other, chat)).status, 404, "can't use someone else's computer")
+    assert.equal((await send(owner, { ...task, agent: 'codex' })).status, 400, 'agent not installed there')
+    assert.equal((await send(other, task)).status, 404, "can't use someone else's computer")
 
-    const started = await send(owner, chat)
+    const started = await send(owner, task)
     assert.equal(started.status, 202)
     const job = jobFrom(await daemon.until('event: job'))
-    assert.deepEqual([job.id, job.agent, job.kind, job.input.message], [started.body.job_id, 'claude', 'chat', 'hi'])
+    assert.deepEqual([job.id, job.agent, job.kind, job.input.brief.roles], [started.body.job_id, 'claude', 'job_search', ['Product Manager']])
     assert.equal(job.user_id, undefined, 'daemon never sees user ids')
 
     // the daemon streams output back; the web replays + follows it
@@ -937,10 +938,10 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
   test('a daemon dropping mid-task fails the task instead of hanging', async () => {
     const owner = await signup('runtime-drop@example.com', undefined, { cloud: false })
     const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
-    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude' }] } })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', kinds: ['job_search'] }] } })
     const daemon = sse('/api/runtime/stream', rt)
     await daemon.until('event: ready')
-    const { body: { job_id } } = await call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), message: 'hi' } } })
+    const { body: { job_id } } = await call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind: 'job_search', input: { brief: { roles: ['Product Manager'] }, search_id: crypto.randomUUID() } } })
     await daemon.until('event: job')
     const web = sse(`/api/runtime-jobs/${job_id}/stream`, owner)
     daemon.close()
@@ -961,8 +962,8 @@ describe('runtimes: the user\'s own computer runs local agents', () => {
     assert.equal(outdated.status, 409)
     assert.equal(outdated.body.code, 'runtime_outdated')
 
-    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'job_search', 'shell'] }] } })
-    assert.deepEqual((await call('GET', '/api/runtimes', { token: owner })).body[0].agents[0].kinds, ['chat', 'job_search'], 'unknown kinds dropped')
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['email_check', 'job_search', 'shell', 'chat'] }] } })
+    assert.deepEqual((await call('GET', '/api/runtimes', { token: owner })).body[0].agents[0].kinds, ['email_check', 'job_search'], 'unknown and removed kinds dropped')
     assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: { ...search, input: { ...search.input, brief: { roles: [] } } } })).status, 400)
     assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: { ...search, kind: 'shell' } })).status, 400)
 
@@ -1013,7 +1014,7 @@ describe('email_check: the user\'s agent reads their mailbox', () => {
   test('only agents with a mailbox get it; input is minimal and bounded; findings are cleaned', async () => {
     const owner = await signup('runtime-email@example.com', undefined, { cloud: false })
     const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
-    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'job_search'], mail: null }] } })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['job_search'], mail: null }] } })
     const daemon = sse('/api/runtime/stream', rt)
     await daemon.until('event: ready')
     const check = {
@@ -1023,7 +1024,7 @@ describe('email_check: the user\'s agent reads their mailbox', () => {
     const noMail = await call('POST', '/api/runtime-jobs', { token: owner, body: check })
     assert.equal(noMail.body.code, 'runtime_outdated', 'no mailbox → kind not offered')
 
-    const hello = await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'job_search', 'email_check'], mail: 'Gmail' }] } })
+    const hello = await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['job_search', 'email_check'], mail: 'Gmail' }] } })
     assert.equal(hello.body.agents[0].mail, 'Gmail')
     assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: { ...check, input: { since: 'last week' } } })).status, 400)
     assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: check })).status, 202)
@@ -1119,7 +1120,7 @@ describe('My Resume: master + versions', () => {
   test('resume_merge / resume_tailor: inputs validated, outputs cleaned per kind', async () => {
     const owner = await signup('resume-tasks@example.com', undefined, { cloud: false })
     const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
-    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'resume_parse', 'resume_merge', 'resume_tailor'] }] } })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['resume_parse', 'resume_merge', 'resume_tailor'] }] } })
     const daemonAbort = new AbortController()
     const reader = (await app.request('/api/runtime/stream', { headers: { Authorization: `Bearer ${rt}` }, signal: daemonAbort.signal })).body!.getReader()
     let buf = ''
@@ -1176,7 +1177,7 @@ describe('automation', () => {
   test('automation_sync: validated settings + context in, results cleaned out', async () => {
     const owner = await signup('auto-sync@example.com', undefined, { cloud: false })
     const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
-    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat', 'automation_sync'] }] } })
+    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['automation_sync'] }] } })
     const abort = new AbortController()
     const reader = (await app.request('/api/runtime/stream', { headers: { Authorization: `Bearer ${rt}` }, signal: abort.signal })).body!.getReader()
     let buf = ''
@@ -1213,35 +1214,7 @@ describe('automation', () => {
   })
 })
 
-describe('agent chat history (Cloud)', () => {
-  test('conversations: upsert, list newest first, ownership, sync-off stays on the device, snapshots', async () => {
-    const off = await signup('chat-off@example.com', undefined, { cloud: false })
-    assert.equal((await call('GET', '/api/agent-conversations', { token: off })).status, 409)
-
-    const owner = await signup('chat-owner@example.com')
-    const other = await signup('chat-other@example.com')
-    const a = crypto.randomUUID()
-    const b = crypto.randomUUID()
-    const put = (token: string, id: string, body: Record<string, unknown>) => call('PUT', `/api/agent-conversations/${id}`, { token, body })
-    const first = await put(owner, a, { turns: [{ role: 'user', text: 'AI PM roles?' }, { role: 'agent', text: 'Sure', tools: ['WebSearch'] }, { role: 'system', text: 'x' }] })
-    assert.equal(first.status, 200, JSON.stringify(first.body))
-    assert.equal(first.body.title, 'AI PM roles?', 'title from the first message')
-    assert.equal(first.body.turns.length, 2, 'unknown roles dropped')
-    await put(owner, b, { title: 'Second', turns: [] })
-    await put(owner, a, { title: 'Job direction', turns: [...first.body.turns, { role: 'user', text: 'H-1B' }] })
-    const list = (await call('GET', '/api/agent-conversations', { token: owner })).body
-    assert.deepEqual(list.map((c: any) => [c.title, c.turns.length]), [['Job direction', 3], ['Second', 0]])
-    assert.equal((await put(other, a, { title: 'mine now', turns: [] })).status, 404, "can't overwrite someone else's")
-    assert.equal((await call('DELETE', `/api/agent-conversations/${b}`, { token: other })).status, 404)
-    assert.equal((await call('DELETE', `/api/agent-conversations/${b}`, { token: owner })).status, 204)
-
-    const snap = (await call('GET', '/api/export', { token: owner })).body
-    assert.equal(snap.agent_conversations.length, 1)
-    const fresh = await signup('chat-fresh@example.com')
-    const device = { ...snap, agent_conversations: snap.agent_conversations.map((c: any) => ({ ...c, id: crypto.randomUUID() })) }
-    assert.equal((await call('POST', '/api/sync/upload', { token: fresh, body: device })).body.agent_conversations, 1)
-  })
-
+describe('application answers (Cloud)', () => {
   test('application answers: one per account, validated, in snapshots', async () => {
     const owner = await signup('answers@example.com')
     const other = await signup('answers-other@example.com')
@@ -1441,47 +1414,6 @@ describe('agent chat history (Cloud)', () => {
     // Turning Cloud off deletes them.
     assert.equal((await call('POST', '/api/cloud/disable', { token: owner, body: { password: 'correct horse battery' } })).status, 200)
     assert.equal((await call('GET', '/api/runtime/fill-traces/ZZZZZ1', { token: rt })).status, 404)
-  })
-
-  test('chat tasks carry only recent, valid history', async () => {
-    const owner = await signup('chat-history@example.com', undefined, { cloud: false })
-    const { body: { token: rt, runtime } } = await call('POST', '/api/runtimes', { token: owner, body: {} })
-    await call('POST', '/api/runtime/hello', { token: rt, body: { agents: [{ id: 'claude', label: 'Claude Code', kinds: ['chat'] }] } })
-    const abort = new AbortController()
-    const reader = (await app.request('/api/runtime/stream', { headers: { Authorization: `Bearer ${rt}` }, signal: abort.signal })).body!.getReader()
-    let buf = ''
-    const until = async (needle: string) => {
-      while (!buf.includes(needle)) buf += new TextDecoder().decode((await reader.read()).value)
-      return buf
-    }
-    await until('event: ready')
-    const history = [...Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'agent' : 'user', text: `turn ${i}` })), { role: 'agent', text: 'oops', error: true }, { role: 'root', text: 'x' }]
-    assert.equal((await call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), message: 'next', history } } })).status, 202)
-    const job = JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
-    assert.equal(job.input.history.length, 24)
-    assert.deepEqual(job.input.history.at(-1), { role: 'agent', text: 'turn 29' })
-
-    // Screenshots ride along (a message may be just the screenshot); bad ones are refused.
-    const png = Buffer.from('png bytes').toString('base64')
-    const post = (input: Record<string, unknown>) => call('POST', '/api/runtime-jobs', { token: owner, body: { runtime_id: runtime.id, agent: 'claude', kind: 'chat', input: { conversation_id: crypto.randomUUID(), ...input } } })
-    assert.equal((await post({ message: '', images: [{ type: 'image/png', data_base64: png }] })).status, 202)
-    buf = ''
-    const withImage = JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
-    assert.deepEqual(withImage.input.images, [{ type: 'image/png', data_base64: png }])
-    assert.equal((await post({ message: 'x', images: [{ type: 'text/html', data_base64: png }] })).status, 400)
-    assert.equal((await post({ message: '' })).status, 400)
-
-    // What Landed knows about the user rides along as bounded text; anything else is dropped.
-    buf = ''
-    assert.equal((await post({ message: 'set up a search', context: `From their master resume:\n- Job: Analyst${'x'.repeat(9000)}` })).status, 202)
-    const withContext = JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0])
-    assert.ok(withContext.input.context.startsWith('From their master resume:'))
-    assert.equal(withContext.input.context.length, 8000)
-    buf = ''
-    assert.equal((await post({ message: 'hi', context: { resume: 'object' } })).status, 202)
-    assert.equal(JSON.parse((await until('event: job')).split('event: job\ndata: ')[1].split('\n')[0]).input.context, undefined)
-    reader.cancel().catch(() => {})
-    abort.abort()
   })
 })
 

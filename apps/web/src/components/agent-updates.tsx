@@ -13,6 +13,8 @@ import { useApplications, useCompanies } from '../hooks/queries'
 import { useSuggestionActions, useSuggestions } from '../hooks/inbox'
 import type { DbSuggestion } from '../lib/store'
 import { useAutomationSync } from '../lib/automation-sync'
+import { PanelQuestions, usePanelQuestions } from './panel-questions'
+import { usePendingQuestions } from './pending-questions'
 
 type AppShape = { id: string; companyId: string; role: string; stage: string }
 type CompanyShape = { id: string; name: string }
@@ -172,16 +174,18 @@ const RECENT_DAYS = 7
 
 /** Top-of-Applications strip. Renders nothing when there's nothing to show. */
 export function AgentUpdatesBar() {
-  // Landed's own questions are asked on the Agent page instead, and its
+  // Landed's own questions show as their own cards (PanelQuestions), and its
   // bookkeeping ("not duplicates", a submission it already had) isn't news.
   const suggestions = (useSuggestions().data ?? []).filter((s) => !isPanelQuestion(s) && !isDupQuestion(s) && !isSeenConfirmation(s))
+  // Landed's questions, one card each (the form questions waiting on the Extension page are one card).
+  const questions = usePanelQuestions().count + (usePendingQuestions().length ? 1 : 0)
   const apps = (useApplications().data ?? []) as AppShape[]
   const companies = (useCompanies().data ?? []) as CompanyShape[]
   const [open, setOpen] = useState(false)
   const cutoff = Date.now() - RECENT_DAYS * 86_400_000
   const pending = suggestions.filter((s) => s.state === 'pending')
   const recent = suggestions.filter((s) => s.state !== 'pending' && Date.parse(s.resolved_at ?? s.created_at) >= cutoff)
-  if (pending.length === 0 && recent.length === 0) return null
+  if (pending.length === 0 && recent.length === 0 && questions === 0) return null
 
   const label = (appId: string | null) => {
     const a = apps.find((x) => x.id === appId)
@@ -192,12 +196,13 @@ export function AgentUpdatesBar() {
 
   return (
     <div style={{ padding: '10px 28px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {pending.length > 0 && (
+      {pending.length + questions > 0 && (
         <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Needs your input ({pending.length})
+          Needs your input ({pending.length + questions})
         </div>
       )}
       {pending.map((s) => <PendingCard key={s.id} s={s} apps={apps} companies={companies} label={label} />)}
+      <PanelQuestions />
       {recent.length > 0 && (
         <section style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10 }}>
           <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} style={{
@@ -220,9 +225,8 @@ export function AgentUpdatesBar() {
   )
 }
 
-/** Count for the sidebar badge. */
-/** Sidebar count: updates waiting in "Needs your input" (the panel's own
- *  questions are counted on the sidebar's Agent item instead). */
+/** Sidebar count: updates waiting in "Needs your input" (App.tsx adds
+ *  Landed's own questions, usePanelQuestions). */
 export function usePendingUpdateCount() {
   return (useSuggestions().data ?? []).filter((s) => s.state === 'pending' && !isPanelQuestion(s)).length
 }

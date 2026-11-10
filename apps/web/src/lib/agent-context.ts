@@ -1,14 +1,14 @@
-// What Landed tells the chat agent about the user with each message
-// (packages/schema/src/conversation.ts → parseChatContext): the gist of the
-// master resume (else the current one), the saved answers that shape a job
-// search, and the active search. So "set up a search for me" gets a
-// direction proposed from the resume instead of "paste your resume".
-// Never contact details, address, date of birth or EEO answers.
+// What Landed tells the user's own agent about them when it judges postings
+// for them (Rank, lib/rank.ts): the gist of the master resume (else the
+// current one), the saved answers that shape a job search, and the active
+// search. Never contact details, address, date of birth or EEO answers.
 import type { Resume } from '@landed/schema'
 import type { ApplicationAnswers } from '@landed/schema/application-answers'
-import { MAX_CHAT_CONTEXT } from '@landed/schema/conversation'
 import type { SearchBrief } from '@landed/schema/search-brief'
 import type { DbResume } from './store/types'
+
+/** The context is plain text, at most this long. */
+export const MAX_AGENT_CONTEXT = 8_000
 
 const clip = (s: string | null | undefined, n: number) => {
   const t = String(s ?? '').replace(/\s+/g, ' ').trim()
@@ -27,7 +27,7 @@ export function contextResume(resumes: DbResume[]): { resume: Resume; which: str
   return { resume: pick.parsed_json, which: pick.kind === 'master' ? 'master resume' : `resume "${clip(pick.name, 60)}"` }
 }
 
-export function chatContext({ resumes, answers, search }: {
+export function agentContext({ resumes, answers, search }: {
   resumes: DbResume[]
   answers: ApplicationAnswers | null
   search: SearchBrief | null
@@ -74,5 +74,5 @@ export function chatContext({ resumes, answers, search }: {
       `- Roles: ${search.roles.join('; ')}${search.seniority ? ` · level: ${search.seniority}` : ''}${search.locations.length ? ` · places: ${search.locations.join('; ')}` : ''}`)
   }
   const text = lines.join('\n').trim()
-  return text ? text.slice(0, MAX_CHAT_CONTEXT) : null
+  return text ? text.slice(0, MAX_AGENT_CONTEXT) : null
 }

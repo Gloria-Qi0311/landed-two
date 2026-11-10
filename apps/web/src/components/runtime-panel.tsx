@@ -1,5 +1,5 @@
-// "Your computer": pair the Landed daemon and see which local agents it
-// found. Used by the Agent page (setup state + settings). Tasks run on
+// "Your computer": pair the connector (the Landed daemon) and see which local
+// agents it found. The Connector page (components/connector-page.tsx). Tasks run on
 // the user's machine with their own subscription; Landed only relays.
 import { useEffect, useState } from 'react'
 import { Icon } from './primitives'
@@ -9,7 +9,7 @@ import { mutedLarge as muted } from './ui'
 
 
 /** Pair a new computer: creates the key, then polls until the daemon connects. */
-export function usePairing() {
+function usePairing() {
   const [pairing, setPairing] = useState<{ runtime: Runtime; token: string } | null>(null)
   const runtimes = useRuntimes({ poll: !!pairing })
   const pair = usePairRuntime()
@@ -47,7 +47,7 @@ export function RuntimePanel() {
       <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={muted}>
           Run Landed's AI work with the agents already on your computer — Claude Code, Codex, Gemini CLI, and any agent that speaks ACP (Copilot, Cursor, Goose, OpenCode, Qwen…).
-          It uses your own subscription, so there's no extra cost, and the work happens on your machine; Landed only passes messages through.
+          It uses your own subscription, so there's no extra cost, and the work happens on your machine; Landed only passes the tasks along.
         </div>
         {error && <PairingError error={error} />}
         {pairing && <PairingSteps token={pairing.token} onCancel={cancel} />}
@@ -61,7 +61,7 @@ export function RuntimePanel() {
   )
 }
 
-export function PairingError({ error }: { error: Error }) {
+function PairingError({ error }: { error: Error }) {
   return <div role="alert" style={{ fontSize: 11.5, color: 'oklch(0.45 0.15 30)' }}>{error.message}</div>
 }
 
@@ -70,12 +70,12 @@ const MAC_DOWNLOAD = '/api/downloads/landed-mac.zip'
 
 /** The link Landed for Mac handles (apps/daemon/src/mac.ts: it asks the user,
  *  then pairs and starts the background service). */
-export const connectLink = (token: string) =>
+const connectLink = (token: string) =>
   `landed://connect?server=${encodeURIComponent(window.location.origin)}&token=${encodeURIComponent(token)}`
 
 /** Pairing, one click on a Mac: open Landed for Mac with the new key. If it
  *  isn't installed yet, offer the one-time download; a terminal stays an option. */
-export function PairingSteps({ token, onCancel }: { token: string; onCancel: () => void }) {
+function PairingSteps({ token, onCancel }: { token: string; onCancel: () => void }) {
   const command = `pnpm landed connect --server ${window.location.origin} --token ${token}`
   const [copied, setCopied] = useState(false)
   const [stuck, setStuck] = useState(!isMac)

@@ -1,30 +1,7 @@
-// The brief the agent writes into its chat reply (packages/schema), as the
-// Agent page reads it.
+// The search brief and the jobs a search reports (packages/schema): both are
+// untrusted input, bounded on the way in.
 import { describe, expect, test } from 'vitest'
-import { extractBrief, parseBrief, parseFoundJobs, parseSearchSetup } from '@landed/schema/search-brief'
-
-const block = (json: string) => '好的，我整理一下：\n\n```landed-brief\n' + json + '\n```\n\n确认的话点下面的按钮。'
-
-describe('extractBrief', () => {
-  test('splits the reply text from the brief card', () => {
-    const r = extractBrief(block('{"summary":"美国 AI PM NG","roles":["AI Product Manager"],"locations":["United States"],"needs_sponsorship":true}'))
-    expect(r.text).toBe('好的，我整理一下：\n\n确认的话点下面的按钮。')
-    expect(r.brief).toMatchObject({ roles: ['AI Product Manager'], needs_sponsorship: true, remote: 'any', industries: [] })
-    expect(r.drafting).toBe(false)
-  })
-
-  test('while the block is still streaming: hidden, marked as drafting', () => {
-    const r = extractBrief('好的：\n\n```landed-brief\n{"summary":"美国 AI')
-    expect(r).toEqual({ text: '好的：', brief: null, setup: null, drafting: true })
-  })
-
-  test('no block, broken JSON or no roles → no card', () => {
-    expect(extractBrief('just chatting').brief).toBeNull()
-    expect(extractBrief(block('{not json')).brief).toBeNull()
-    expect(extractBrief(block('{"summary":"x","roles":[]}')).brief).toBeNull()
-    expect(extractBrief('```json\n{"roles":["PM"]}\n```').brief).toBeNull()
-  })
-})
+import { parseBrief, parseFoundJobs } from '@landed/schema/search-brief'
 
 describe('parseBrief / parseFoundJobs bound untrusted input', () => {
   test('brief: trims, dedupes, caps lists, rejects unknown enums', () => {
@@ -45,20 +22,5 @@ describe('parseBrief / parseFoundJobs bound untrusted input', () => {
       'junk',
     ])
     expect(jobs.map((j) => [j.company, j.job_url])).toEqual([['Acme', 'https://jobs.lever.co/acme/1'], ['Evil', null]])
-  })
-})
-
-describe('what the agent suggests about running the search', () => {
-  const block = (json: string) => 'Sounds good.\n\n```landed-brief\n' + json + '\n```'
-  test('agents and a schedule, from the same block; the brief stays as it was', () => {
-    const r = extractBrief(block('{"summary":"PM in Seattle","roles":["Product Manager"],"locations":["Seattle, WA"],"search_with":["claude","Codex"],"schedule":"daily 08:30"}'))
-    expect(r.brief?.roles).toEqual(['Product Manager'])
-    expect(r.brief).not.toHaveProperty('search_with')
-    expect(r.setup).toEqual({ search_with: ['claude', 'codex'], schedule: { kind: 'daily', time: '08:30' } })
-  })
-  test('nothing said, or nonsense: no suggestion', () => {
-    expect(parseSearchSetup({ roles: ['PM'] })).toEqual({ search_with: null, schedule: null })
-    expect(parseSearchSetup({ search_with: ['rm -rf /', ''], schedule: 'every 3 hours' })).toEqual({ search_with: null, schedule: null })
-    expect(parseSearchSetup({ schedule: 'every 4 hours' }).schedule).toEqual({ kind: 'interval', hours: 4 })
   })
 })

@@ -503,6 +503,28 @@ describe('upgrades', () => {
     expect(lead).toMatchObject({ id: 'l1', dedupe: null, rank: null })
   })
 
+  test('v19–v20: the agent relay and chat history go; everything else stays', async () => {
+    const name = `landed-upgrade-${++n}`
+    const old = new Dexie(name)
+    old.version(18).stores({
+      companies: 'id, name', applications: 'id, company_id, last_activity_at', resumes: 'id, created_at',
+      portal_connections: 'id, [company_id+provider]', portal_events: 'id, created_at', ai_runs: 'id', meta: 'key',
+      agent_observations: 'id, created_at, &[connection_id+idempotency_key], processing_status',
+      job_leads: 'id, &fingerprint, status, last_seen_at', status_suggestions: 'id, &dedupe_key, state, created_at',
+      job_searches: 'id, status, created_at', agent_conversations: 'id, updated_at', application_answers: 'id', application_files: 'id, &kind',
+      resume_files: 'id, &resume_id',
+    })
+    await old.table('agent_conversations').add({ id: 'c1', user_id: 'local', title: 'PM roles', turns: [], created_at: '2026-10-25T12:00:00Z', updated_at: '2026-10-25T12:00:00Z' })
+    await old.table('companies').add({ id: 'co1', user_id: 'local', name: 'Lumen Labs' })
+    old.close()
+    const store = createLocalStore(name)
+    expect((await store.listCompanies()).map((c) => c.name)).toEqual(['Lumen Labs'])
+    const upgraded = await new Dexie(name).open()
+    expect(upgraded.tables.map((t) => t.name)).not.toContain('agent_conversations')
+    expect(upgraded.tables.map((t) => t.name)).not.toContain('agent_observations')
+    upgraded.close()
+  })
+
   test('v10: a round added by hand after v9 is numbered with the others, by time', async () => {
     const name = `landed-upgrade-${++n}`
     const old = new Dexie(name)

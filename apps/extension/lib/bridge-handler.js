@@ -35,8 +35,8 @@
 //                 are one opening: only the postings' public details (title,
 //                 company, place, link, the start of the description) go to
 //                 the user's own agent through Landed for Mac
-//   rank-leads    a 0–1 score and reasons for new leads: what the chat agent
-//                 is told about the user (no contact details, address, date
+//   rank-leads    a 0–1 score and reasons for new leads: what Landed tells
+//                 the user's agent about them (no contact details, address, date
 //                 of birth or EEO) and the postings go to the user's own
 //                 agent through Landed for Mac
 //   hello         presence + version check

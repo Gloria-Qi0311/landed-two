@@ -32,12 +32,6 @@ const search = (extra: Record<string, unknown> = {}) => specFor({ id: 't1', agen
 // ── one task description for every agent ─────────────────────────────────
 
 test('specFor: web only where the task needs it; results that need the web must use it', () => {
-  const chat = specFor({ id: 'c', agent: 'x', kind: 'chat', input: { message: 'hi', history: [{ role: 'user', text: 'earlier' }] } })
-  assert.ok(typeof chat === 'object')
-  assert.equal(chat.web, 'search')
-  assert.equal(chat.schema, null)
-  assert.match(chat.prompt, /earlier/) // a fresh session gets the conversation so far
-
   const s = search()
   assert.ok(typeof s === 'object')
   assert.equal(s.web, 'search')
@@ -118,7 +112,7 @@ test('codex args: read-only sandbox, no shell, none of the user\'s config; web o
 
   const merge = specFor({ id: 'm', agent: 'x', kind: 'resume_merge', input: { sources: [{ id: 'a', name: 'a', resume: {} }], master: null } })
   assert.ok(typeof merge === 'object')
-  assert.ok(codexArgs(merge, null).includes('web_search="disabled"'))
+  assert.ok(codexArgs(merge, '/tmp/schema.json').includes('web_search="disabled"'))
 })
 
 test('codex output lines → steps, the answer, failure', () => {
@@ -210,34 +204,27 @@ test('ACP: results that never touched the web are refused', async () => {
 })
 
 test('ACP: asking to run a command gets a no; running one without asking stops the task', async () => {
-  const chat = specFor({ id: 'c', agent: 'fake', kind: 'chat', input: { message: 'run ls', history: [] } })
-  assert.ok(typeof chat === 'object')
+  const task = specFor({ id: 'm', agent: 'fake', kind: 'resume_merge', input: { sources: [{ id: 'a', name: 'a', resume: {} }], master: null } })
+  assert.ok(typeof task === 'object')
   process.env.FAKE_ACP_MODE = 'ask'
   let c = collect()
-  await runAcp(fake, chat, c.emit)
-  assert.deepEqual(c.last(), { type: 'done', text: 'told: no' })
+  await runAcp(fake, task, c.emit)
+  assert.equal(c.last().type, 'done')
+  assert.equal((c.last() as { text: string }).text, 'told: no')
 
   process.env.FAKE_ACP_MODE = 'rogue'
   c = collect()
-  await runAcp(fake, chat, c.emit)
+  await runAcp(fake, task, c.emit)
   assert.equal(c.last().type, 'error')
   assert.match((c.last() as { message: string }).message, /without permission/)
   assert.equal(c.events.filter((e) => e.type === 'done' || e.type === 'error').length, 1)
 })
 
-test('ACP: chat streams; an answer without JSON gets one more turn', async () => {
-  process.env.FAKE_ACP_MODE = 'chat'
-  const chat = specFor({ id: 'c', agent: 'fake', kind: 'chat', input: { message: 'hi', history: [] } })
-  assert.ok(typeof chat === 'object')
-  let c = collect()
-  await runAcp(fake, chat, c.emit)
-  assert.deepEqual(c.events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text), ['Hello ', 'there.'])
-  assert.deepEqual(c.last(), { type: 'done', text: 'Hello there.' })
-
+test('ACP: an answer without JSON gets one more turn', async () => {
   process.env.FAKE_ACP_MODE = 'prose'
   const merge = specFor({ id: 'm', agent: 'fake', kind: 'resume_merge', input: { sources: [{ id: 'a', name: 'a', resume: {} }], master: null } })
   assert.ok(typeof merge === 'object')
-  c = collect()
+  const c = collect()
   await runAcp(fake, merge, c.emit)
   assert.deepEqual(c.last(), { type: 'done', text: 'ok', jobs: [] })
 })
@@ -253,15 +240,4 @@ test('user-added ACP agents: well-formed entries only, and never in place of Cla
   assert.deepEqual(userAcpAgents(file), [{ id: 'mine', label: 'My Agent', command: '/usr/local/bin/my-agent', args: ['acp'] }])
   writeFileSync(file, 'not json')
   assert.deepEqual(userAcpAgents(file), [])
-})
-
-test('specFor chat with screenshots: image files for Codex/ACP, removed afterwards', async () => {
-  const { existsSync } = await import('node:fs')
-  const spec = specFor({ id: 'img-task', agent: 'x', kind: 'chat', input: { message: '', history: [], images: [{ type: 'image/png', data_base64: Buffer.from('png').toString('base64') }] } })
-  assert.ok(typeof spec === 'object')
-  assert.match(spec.prompt, /screenshot/)
-  assert.equal(spec.images?.length, 1)
-  assert.ok(spec.images![0].endsWith('.png') && existsSync(spec.images![0]))
-  spec.cleanup?.()
-  assert.ok(!existsSync(spec.images![0]))
 })

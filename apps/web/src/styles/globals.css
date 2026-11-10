@@ -163,17 +163,11 @@
   .icon-btn:hover { background: var(--surface-3); }
 
   .sidebar-item:hover { background: var(--surface-3); color: var(--fg) !important; }
-  /* Agent page chat list: delete only on hover / focus */
-  .conversation-item .conversation-delete { opacity: 0; }
-  .conversation-item:hover .conversation-delete, .conversation-item:focus-within .conversation-delete { opacity: 1; }
   /* click-to-edit text (components/editable.tsx): a soft halo, no layout shift */
   .editable:hover, .editable:focus-visible { background: var(--surface-2); box-shadow: 0 0 0 3px var(--surface-2); outline: none; }
   .kanban-card { transition: box-shadow 140ms, transform 140ms, background 140ms; }
   .kanban-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
   .kanban-row:hover { background: var(--surface-2); }
-  /* Agent chat box: one ring when anything inside has focus */
-  .composer:focus-within { box-shadow: var(--shadow-md), 0 0 0 3px oklch(from var(--accent) l c h / 0.14) !important; }
-  .composer textarea:focus { box-shadow: none !important; }
   /* "+ Apply-by date" on cards only shows on hover (components/deadline-chip.tsx) */
   .kanban-card .deadline-add { opacity: 0; transition: opacity 120ms; }
   .kanban-card:hover .deadline-add, .kanban-card .deadline-add:focus-visible { opacity: 1; }

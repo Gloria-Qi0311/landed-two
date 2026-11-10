@@ -122,7 +122,6 @@ export function accountRoutes(sql: Sql) {
       await tx`delete from job_leads where user_id = ${userId}`
       await tx`delete from status_suggestions where user_id = ${userId}`
       await tx`delete from job_searches where user_id = ${userId}`
-      await tx`delete from agent_conversations where user_id = ${userId}`
       await tx`delete from application_answers where user_id = ${userId}`
       await tx`delete from application_files where user_id = ${userId}`
       await tx`delete from fill_traces where user_id = ${userId}`

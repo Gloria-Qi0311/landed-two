@@ -1,43 +1,7 @@
-// Application answers: validation, the agent's ```landed-answers block, and
-// saving what it read over what the user had.
+// Application answers: validation, merging, the questions forms asked, and
+// what Landed learns from the user's corrections.
 import { describe, expect, test } from 'vitest'
-import { addUnanswered, answerPending, answeredCount, EMPTY_ANSWERS, extractAnswers, learnAnswers, mergeAnswers, namesPlaceOrAmount, parseApplicationAnswers, questionKey, sameQuestion, skipPending, stillLearned, undoLearned } from '@landed/schema/application-answers'
-
-const reply = (json: string) => `I read your IBM form.\n\n\`\`\`landed-answers\n${json}\n\`\`\`\n\nAnything to change?`
-
-describe('the agent reads a filled form', () => {
-  test('block → answers; text kept around it; consent never switched on by a read', () => {
-    const out = extractAnswers(reply(JSON.stringify({
-      legal_first_name: 'Alex', legal_last_name: 'Chen', country: 'United States', needs_sponsorship: 'yes', relocate: 'sure',
-      preferred_locations: ['San Francisco, CA', 'Seattle, WA', 'Los Angeles, CA', 'Austin, TX'], agree_to_terms: true,
-      custom: [{ question: 'Experience in Agile software development?', answer: 'I have performed this independently' }],
-    })))
-    expect(out.text).toBe('I read your IBM form.\n\nAnything to change?')
-    expect(out.answers).toMatchObject({
-      legal_first_name: 'Alex', country: 'United States', needs_sponsorship: 'yes', relocate: null, agree_to_terms: false,
-      preferred_locations: ['San Francisco, CA', 'Seattle, WA', 'Los Angeles, CA'],
-    })
-    expect(out.answers?.custom).toHaveLength(1)
-  })
-
-  test('still streaming, broken JSON, or nothing read', () => {
-    expect(extractAnswers('Reading…\n```landed-answers\n{"legal_fi').drafting).toBe(true)
-    expect(extractAnswers(reply('{not json')).answers).toBeNull()
-    expect(extractAnswers(reply('{"relocate": "maybe"}')).answers).toBeNull()
-    expect(extractAnswers('no block here').answers).toBeNull()
-  })
-})
-
-test('saving a read: what it read replaces, the rest stays, custom merges by question, consent stays', () => {
-  const mine = parseApplicationAnswers({
-    country: 'China', travel: 'no', agree_to_terms: true,
-    custom: [{ question: 'Worked here before?', answer: 'No' }, { question: 'Experience in SQL?', answer: 'Some' }],
-  })
-  const read = { ...EMPTY_ANSWERS, country: 'United States', relocate: 'yes' as const, custom: [{ question: 'experience in SQL?', answer: 'Expert' }] }
-  const merged = mergeAnswers(mine, read)
-  expect(merged).toMatchObject({ country: 'United States', travel: 'no', relocate: 'yes', agree_to_terms: true })
-  expect(merged.custom).toEqual([{ question: 'Worked here before?', answer: 'No' }, { question: 'experience in SQL?', answer: 'Expert' }])
-})
+import { addUnanswered, answerPending, answeredCount, EMPTY_ANSWERS, learnAnswers, namesPlaceOrAmount, parseApplicationAnswers, prunePending, questionKey, sameQuestion, skipPending, stillLearned, undoLearned } from '@landed/schema/application-answers'
 
 describe('questions forms asked that nothing answered', () => {
   const now = '2026-10-19T10:00:00.000Z'
@@ -93,9 +57,9 @@ describe('questions forms asked that nothing answered', () => {
     let a = addUnanswered(EMPTY_ANSWERS, [{ question: 'Favourite color?' }, { question: 'City you live in', key: 'city' }], now)
     a = skipPending(a, 'Favourite color?')
     expect(addUnanswered(a, [{ question: 'Favourite color?' }], later).unanswered.map((q) => q.question)).toEqual(['City you live in'])
-    const merged = mergeAnswers(a, { ...EMPTY_ANSWERS, city: 'Seattle' })
-    expect(merged.unanswered).toEqual([])
-    expect(merged.skipped).toEqual(a.skipped)
+    const saved = prunePending({ ...a, city: 'Seattle' })
+    expect(saved.unanswered).toEqual([])
+    expect(saved.skipped).toEqual(a.skipped)
   })
 
   test('stored lists are validated', () => {
@@ -116,13 +80,7 @@ describe('questions forms asked that nothing answered', () => {
   })
 })
 
-test('a "worked here before: yes" read from one form is not saved for every company', () => {
-  const block = (body: string) => '```landed-answers\n' + body + '\n```'
-  expect(extractAnswers(block('{"legal_first_name":"Alex","previously_employed":"yes"}')).answers?.previously_employed).toBeNull()
-  expect(extractAnswers(block('{"legal_first_name":"Alex","previously_employed":"no"}')).answers?.previously_employed).toBe('no')
-})
-
-test('what was filled in on its own is kept, validated, and survives an agent\'s read', () => {
+test('what was filled in on its own is kept and validated', () => {
   const parsed = parseApplicationAnswers({
     city: 'Seattle',
     prefilled: {
@@ -138,7 +96,6 @@ test('what was filled in on its own is kept, validated, and survives an agent\'s
     preferred_locations: { value: ['Seattle', 'New York', 'Boston'], from: 'search' },
   })
   expect(answeredCount(parsed)).toBe(1)
-  expect(mergeAnswers(parsed, parseApplicationAnswers({ github: 'https://github.com/alexrivera-example' })).prefilled).toEqual(parsed.prefilled)
   expect(parseApplicationAnswers({ prefilled: [1, 2] }).prefilled).toEqual({})
 })
 
